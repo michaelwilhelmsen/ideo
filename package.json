@@ -5,7 +5,7 @@
   "type": "module",
   "author": "Michael Wilhelmsen",
   "copyright": "Copyright © 2026 Michael Wilhelmsen. All rights reserved.",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "overrides": {
     "typescript-eslint": {
       "typescript": "$typescript"

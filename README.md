@@ -62,5 +62,10 @@ See [`AGENTS.md`](AGENTS.md) for architecture patterns and
 
 ## License
 
-MIT — see [LICENSE.md](LICENSE.md). Built on
-[dannysmith/tauri-template](https://github.com/dannysmith/tauri-template).
+Copyright (c) 2026 Michael Wilhelmsen. Licensed under the **GNU Affero General
+Public License v3.0** — see [LICENSE](LICENSE). If you distribute or network-host
+a modified version, you must make your source available under the same terms.
+
+The application scaffold derives from
+[dannysmith/tauri-template](https://github.com/dannysmith/tauri-template) (MIT).
+See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
