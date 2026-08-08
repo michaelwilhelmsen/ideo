@@ -349,10 +349,38 @@ Two framing corrections from that round:
 - **`seed` absence is the firm disqualifier**, not ratio. Without it §4.3's recipe premise
   does not hold — the artefact you paid to rediscover cannot be pinned.
 
-**The default per stage is not yet chosen.** It turns on visual quality, which no schema
-encodes, and settling it needs generations judged by a person — roughly $1.50–$2.50 for a
-six-model bake-off at four candidates each. Tracked on #35. What follows is the verified
-field to choose from, not a recommendation.
+### Provisional defaults
+
+**Chosen 2026-08-09, provisionally, to unblock building.** Visual quality is what should
+decide this and no schema encodes it, so these stand until the app can generate and the
+output can be judged by eye. Both were verified against their live schemas before being
+written here.
+
+| Stage   | Default                                 | Why                                                                                                                                |
+| ------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Source  | `fal-ai/flux/schnell`                   | $0.003/MP — ~13× cheaper than the next option. Has `seed`, and `image_size` takes explicit `{width, height}`, so 21:9 is reachable |
+| Animate | `bytedance/seedance-2.5/image-to-video` | Has `end_image_url`, so the §4.5 loop premise holds; aspect inherits from the source, so no ratio ceiling                          |
+
+Four things about these defaults that the code has to account for:
+
+- **`seedance-2.5` has no `seed`.** §4.3's recipe premise does **not** hold on the animate
+  stage under this default — a clip cannot be re-run to the same output. Per §10.1 that
+  surfaces as a _disabled_ seed control with a reason, not a hidden one. Kling O1 has the
+  same gap; Veo 3.1 is the only end-frame model surveyed that has `seed`.
+- **`seedance-2.5` is the most expensive animate option surveyed** — $0.4730/s at 720p, so
+  **$2.36 for a 5s clip**, against $0.56 for Kling O1, $0.85 for flux-3 and $1.00 for Veo
+  3.1. Fine as a quality-first default; expensive as a default to develop against.
+- **`generate_audio` defaults to `true`** on `seedance-2.5`. A hero loop is silent, so this
+  should be set `false` explicitly — it is billed and unwanted.
+- **`seedance-2.5` caps at 720p** (`480p`/`720p` only). No 1080p, which is worth knowing for
+  a hero visual before §4 settles export resolution. Its `duration` enum also stops at
+  `16` while its own description claims "4 to 30 seconds" — trust the enum.
+
+`fal-ai/flux/schnell` is a 4-step distilled model (`num_inference_steps` defaults to 4).
+Fast and near-free, which is what makes it a good default to build against, but it is not
+the quality tier the shortlist below is drawn from — expect to replace it after testing.
+
+What follows is the verified field to choose from when that testing happens.
 
 | Stage   | Candidate                               | `seed` | `negative_prompt` | Ratio control                        | Price        |
 | ------- | --------------------------------------- | ------ | ----------------- | ------------------------------------ | ------------ |
