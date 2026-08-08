@@ -25,10 +25,13 @@ export { commands, type Result } from './bindings'
 export type {
   AppPreferences,
   CleanupOutcome,
-  Generation,
   GenerationError,
   GenerationErrorReason,
   GenerationProgress,
+  Job,
+  JobOutcome,
+  JobSettled,
+  JobStatus,
   JsonValue,
   KeyCheck,
   KeyCheckOutcome,
@@ -36,6 +39,8 @@ export type {
   ProjectSummary,
   ProjectUsage,
   RecoveryError,
+  StartRequest,
+  SubmittedJob,
 } from './bindings'
 
 /**

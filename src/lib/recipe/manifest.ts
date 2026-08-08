@@ -169,7 +169,14 @@ function readAsset(value: unknown): string | null {
   return ASSET_NAME.test(value) ? value : null
 }
 
-function readRecipe(document: unknown): StageRecipe | null {
+/**
+ * One recipe, or `null` if this build cannot make sense of it.
+ *
+ * Exported because a manifest is not the only place a recipe comes back from:
+ * a job carries its own across a restart (#24), and it is the same untrusted
+ * document — hand-editable, or written by a build that knew more.
+ */
+export function readRecipe(document: unknown): StageRecipe | null {
   if (!isRecord(document)) return null
   if (typeof document.modelId !== 'string') return null
 
@@ -259,7 +266,7 @@ function readSelection(
   return selection as Project['selection']
 }
 
-function isStageKind(value: unknown): value is StageKind {
+export function isStageKind(value: unknown): value is StageKind {
   return STAGE_ORDER.some(stage => stage === value)
 }
 

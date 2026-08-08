@@ -67,23 +67,77 @@ async clearFalApiKey() : Promise<Result<null, string>> {
 }
 },
 /**
- * Generates one image from a prompt, files it under the project, and reports
- * back.
+ * Submits one generation and returns as soon as it is on the books.
  * 
  * The generation id is minted by the caller and passed in rather than
  * returned: the file is named after it, so the manifest and the folder agree
  * without anyone having to reconcile them afterwards.
  * 
+ * `recipe` is the draft frozen at submit, stored opaquely and handed back when
+ * the job is collected. It travels with the job because a resumed job lands
+ * in a session whose draft may say something else entirely, and a generation
+ * has to carry the recipe that produced it (PRD §1).
+ * 
  * `pinned_seed` is the seed the recipe asked for, if it asked for one
  * (PRD §4.3). Passing it is what makes "same seed, one changed fragment" a
  * real comparison rather than an approximate one.
- * 
- * Progress arrives as `generation-progress` events rather than as a return
- * value, because the interesting part happens while this is still running.
  */
-async generateImage(projectId: string, generationId: string, prompt: string, aspect: string, pinnedSeed: number | null) : Promise<Result<Generation, GenerationError>> {
+async generateImage(request: StartRequest) : Promise<Result<SubmittedJob, GenerationError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("generate_image", { projectId, generationId, prompt, aspect, pinnedSeed }) };
+    return { status: "ok", data: await TAURI_INVOKE("generate_image", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * What this project still has in flight — including anything a previous run
+ * of the app submitted.
+ */
+async activeJobs(projectId: string) : Promise<Result<Job[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("active_jobs", { projectId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Finished jobs whose candidate is not in the manifest yet.
+ */
+async finishedJobs(projectId: string) : Promise<Result<Job[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("finished_jobs", { projectId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Takes a collected job off the books.
+ * 
+ * Called after the manifest has been written, never before: the row is the
+ * only record that a paid result exists, so dropping it first would turn a
+ * badly timed crash into a lost generation.
+ */
+async claimJob(requestId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("claim_job", { requestId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Stops a running job.
+ * 
+ * Cancelling stops us watching and asks fal to stop working. It does **not**
+ * promise a refund — a job far enough along is charged regardless (PRD §3.3),
+ * and the copy around this button says so.
+ */
+async cancelJob(requestId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_job", { requestId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -325,25 +379,6 @@ language: string | null }
  */
 export type CleanupOutcome = { removedCount: number; freedBytes: number }
 /**
- * A finished generation: the image, where it landed, and the recipe fragments
- * worth keeping. The seed is captured because it is what makes a generation
- * reproducible, and re-rolling costs money (PRD §4.3).
- */
-export type Generation = { request_id: string; prompt: string; model_id: string; seed: string | null; 
-/**
- * fal-hosted URL. Temporary — the file on disk is the durable copy.
- */
-image_url: string; 
-/**
- * The file name inside the project's `assets` folder. This is what the
- * manifest records, so it must survive the app-data folder moving.
- */
-asset: string; 
-/**
- * The same file, resolved. Transient — for display, never for storage.
- */
-image_path: string; width: number | null; height: number | null }
-/**
  * A failure, as it crosses to the frontend.
  */
 export type GenerationError = { reason: GenerationErrorReason; 
@@ -408,11 +443,95 @@ export type GenerationErrorReason =
  * Progress event payload. Emitted on every poll so the UI can say something
  * truthful while waiting.
  */
-export type GenerationProgress = { request_id: string; status: QueueStatus; 
+export type GenerationProgress = { requestId: string; projectId: string; generationId: string; status: QueueStatus; 
 /**
  * Position in fal's queue, when it tells us.
  */
-queue_position: number | null; elapsed_ms: number }
+queuePosition: number | null; elapsedMs: number }
+/**
+ * A job as the frontend sees it: enough to show it, enough to record it in
+ * the manifest once it finishes. The queue URLs stay in this module — they
+ * are how *we* talk to fal, not something the webview has any use for.
+ */
+export type Job = { requestId: string; projectId: string; 
+/**
+ * Minted before submit, because the saved file is named after it.
+ */
+generationId: string; stage: string; 
+/**
+ * The recipe frozen at submit — opaque here, validated in TypeScript.
+ * 
+ * Copied rather than re-read from the draft, because by the time a
+ * resumed job lands the draft may say something else entirely, and a
+ * generation has to carry the recipe that actually produced it (PRD §1).
+ */
+recipe: JsonValue; status: JobStatus; modelId: string; 
+/**
+ * The seed fal used, once it has told us. `f64` because that is what a JS
+ * number is — see `ProjectSummary`.
+ */
+seed: number | null; 
+/**
+ * The file, named relative to the project's assets folder.
+ */
+asset: string | null; submittedAt: number }
+/**
+ * How a job stopped being in flight.
+ */
+export type JobOutcome = 
+/**
+ * Finished, saved, and waiting to be written into the manifest.
+ */
+"completed" | 
+/**
+ * fal, the network or the disk said no. Off the books.
+ */
+"failed" | 
+/**
+ * The user asked us to stop. Off the books, and no promise of a refund.
+ */
+"cancelled" | 
+/**
+ * We stopped watching, but the job is still on the books and the next
+ * launch resumes it.
+ */
+"abandoned"
+/**
+ * A job settled. Carries the ids rather than the result: the result is in the
+ * store, and reading it from there is what makes a listener that missed the
+ * event — because the app was not running — behave identically to one that
+ * caught it.
+ */
+export type JobSettled = { requestId: string; projectId: string; generationId: string; outcome: JobOutcome; 
+/**
+ * Present for `Failed` and `Abandoned` — the frontend chooses the words.
+ */
+error: GenerationError | null }
+/**
+ * Where a job has got to, as far as this app is concerned.
+ * 
+ * A job that failed or was cancelled is removed rather than tombstoned:
+ * nothing downstream can do anything with it, and the event that reports it is
+ * what the UI reacts to.
+ */
+export type JobStatus = 
+/**
+ * Submitted, charged, and being watched right now.
+ */
+"running" | 
+/**
+ * On the books, but nobody is watching it this session — we waited longer
+ * than one run of the app is willing to, or could not file the result.
+ * 
+ * Distinct from `Running` so the UI stops claiming to be waiting for
+ * something nothing is waiting for. The next launch resumes it, which is
+ * the whole reason it is not simply deleted.
+ */
+"stalled" | 
+/**
+ * Finished, with the file on disk, waiting for the manifest to record it.
+ */
+"completed"
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 /**
  * Result of a validation attempt. Never contains the key itself.
@@ -513,6 +632,22 @@ export type RecoveryError =
  * JSON serialization/deserialization error
  */
 { type: "ParseError"; message: string }
+/**
+ * Everything needed to put one generation on the queue.
+ * 
+ * One struct rather than eight parameters: the list only grows as models gain
+ * controls (#25), and a positional call of that length is a bug waiting for
+ * two arguments of the same type to swap places.
+ */
+export type StartRequest = { projectId: string; generationId: string; stage: string; 
+/**
+ * The draft, frozen. Opaque — see `jobs::store`.
+ */
+recipe: JsonValue; prompt: string; aspect: string; pinnedSeed: number | null }
+/**
+ * What the caller gets back: a job that is now on the books, not a result.
+ */
+export type SubmittedJob = { requestId: string; generationId: string }
 
 /** tauri-specta globals **/
 

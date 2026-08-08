@@ -55,20 +55,16 @@ vi.mock('@/lib/tauri-bindings', () => ({
       data: { outcome: 'missing', balance: null, status: null },
     }),
     clearFalApiKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // Jobs (#24). Submitting resolves with a receipt, not an image: the result
+    // arrives later, through the job store.
     generateImage: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: {
-        request_id: 'test-request',
-        prompt: 'test prompt',
-        model_id: 'fal-ai/flux-pro/v1.1',
-        seed: '1',
-        image_url: 'https://example.test/out.jpeg',
-        asset: 'test-generation.jpeg',
-        image_path: '/tmp/out.jpeg',
-        width: 1280,
-        height: 704,
-      },
+      data: { requestId: 'test-request', generationId: 'test-generation' },
     }),
+    activeJobs: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    finishedJobs: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    claimJob: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    cancelJob: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // Projects (#23). An empty library by default: a test that wants one
     // says so, rather than every test inheriting a fixture it did not ask for.
     listProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),

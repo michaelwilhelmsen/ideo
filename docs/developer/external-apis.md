@@ -229,13 +229,56 @@ pub async fn fetch_with_cache(app: tauri::AppHandle, id: u32) -> Result<Data, St
 
 See [data-persistence.md](./data-persistence.md) for SQLite setup.
 
+## Long-running jobs on a queue API
+
+Some APIs do not answer the call that made them: you submit, get a request id back, and
+poll until there is a result. fal.ai's image and video endpoints work this way, and the
+worked example is `src-tauri/src/jobs/`.
+
+The shape that matters is **the command does not return the result.**
+
+```
+generate_image → submit → record the request id → return a receipt
+                                ↓ (background task, may outlive the window)
+                          poll → fetch → save → mark collectable → emit `generation-settled`
+```
+
+Why not one long `await`, which is simpler to write and to call:
+
+- **The charge lands at submit.** If the process is the only place the request id
+  exists, quitting throws away something already paid for. Recording it first is what
+  makes a relaunch able to pick the job back up.
+- **Resume must not be a second code path.** `runner::start` and `runner::resume` differ
+  only in where the queue URLs came from, and both call the same `watch`. A separate
+  "restore" path would be exercised only after a crash, which is exactly when it must
+  work.
+- **A cap is needed somewhere.** A four-up batch is four concurrent charged calls. A
+  `tokio::sync::Semaphore` around the job's whole life holds it to three, and a resumed
+  batch queues behind the same cap.
+
+Three practical points, each learned the expensive way:
+
+- **Never construct queue URLs.** fal returns `status_url` / `response_url` /
+  `cancel_url` on submit, and the versioned forms we would build ourselves return `405`.
+- **An unrecognised status means keep waiting**, not fail. The user has already paid;
+  a new state name is not evidence the job died.
+- **Cancellation must not promise a refund.** Cancelling stops the polling and asks the
+  API to stop working, but a job far enough along is charged anyway — so the copy beside
+  the button says "may still charge", and no code path claims otherwise.
+
+Progress crosses as an emitted event rather than a return value, because the interesting
+part happens while the command is still running — see
+[tauri-commands.md](./tauri-commands.md) for registering an event payload type with
+tauri-specta.
+
 ## Quick Reference
 
-| Task            | Pattern                                  |
-| --------------- | ---------------------------------------- |
-| Basic API call  | Rust command with reqwest                |
-| Caching         | TanStack Query (frontend) or SQLite      |
-| Token storage   | `keyring` crate (OS keychain)            |
-| Type safety     | tauri-specta (same as local commands)    |
-| Error handling  | Result types, see error-handling.md      |
-| Offline support | Cache to SQLite, fallback on network err |
+| Task            | Pattern                                           |
+| --------------- | ------------------------------------------------- |
+| Basic API call  | Rust command with reqwest                         |
+| Queue/poll API  | Record the id, then watch — `src-tauri/src/jobs/` |
+| Caching         | TanStack Query (frontend) or SQLite               |
+| Token storage   | `keyring` crate (OS keychain)                     |
+| Type safety     | tauri-specta (same as local commands)             |
+| Error handling  | Result types, see error-handling.md               |
+| Offline support | Cache to SQLite, fallback on network err          |

@@ -233,15 +233,30 @@ vi.mock('@/lib/tauri-bindings', () => ({
 
 Projects (see [data-persistence.md](./data-persistence.md) for the storage model):
 
-| Command               | Parameters                                                                    | Returns                               | Description                                |
-| --------------------- | ----------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------ |
-| `listProjects`        | none                                                                          | `Result<ProjectSummary[], string>`    | List projects, reconciling the index first |
-| `loadProject`         | `projectId: string`                                                           | `Result<ProjectRecord, string>`       | Read one manifest off disk                 |
-| `saveProject`         | `manifest: JsonValue`                                                         | `Result<ProjectSummary, string>`      | Atomic write, then index — also creates    |
-| `deleteProject`       | `projectId: string`                                                           | `Result<null, string>`                | Remove the folder and its assets           |
-| `projectUsage`        | `projectId: string`                                                           | `Result<ProjectUsage, string>`        | Size on disk, and how much is unused       |
-| `cleanupUnusedAssets` | `projectId: string`                                                           | `Result<CleanupOutcome, string>`      | Delete unreferenced assets only            |
-| `generateImage`       | `projectId, generationId, prompt, aspect: string, pinnedSeed: number \| null` | `Result<Generation, GenerationError>` | Generate and file it under the project     |
+| Command               | Parameters            | Returns                            | Description                                |
+| --------------------- | --------------------- | ---------------------------------- | ------------------------------------------ |
+| `listProjects`        | none                  | `Result<ProjectSummary[], string>` | List projects, reconciling the index first |
+| `loadProject`         | `projectId: string`   | `Result<ProjectRecord, string>`    | Read one manifest off disk                 |
+| `saveProject`         | `manifest: JsonValue` | `Result<ProjectSummary, string>`   | Atomic write, then index — also creates    |
+| `deleteProject`       | `projectId: string`   | `Result<null, string>`             | Remove the folder and its assets           |
+| `projectUsage`        | `projectId: string`   | `Result<ProjectUsage, string>`     | Size on disk, and how much is unused       |
+| `cleanupUnusedAssets` | `projectId: string`   | `Result<CleanupOutcome, string>`   | Delete unreferenced assets only            |
+
+Jobs (see the queue-API section of [external-apis.md](./external-apis.md)). Note that
+`generateImage` returns a **receipt, not an image**: the generation outlives the call,
+and its result is collected from the job store.
+
+| Command         | Parameters              | Returns                                 | Description                               |
+| --------------- | ----------------------- | --------------------------------------- | ----------------------------------------- |
+| `generateImage` | `request: StartRequest` | `Result<SubmittedJob, GenerationError>` | Submit one generation; returns on record  |
+| `activeJobs`    | `projectId: string`     | `Result<Job[], string>`                 | What is in flight, this run or a past one |
+| `finishedJobs`  | `projectId: string`     | `Result<Job[], string>`                 | Finished, not yet in the manifest         |
+| `claimJob`      | `requestId: string`     | `Result<null, string>`                  | Off the books — only after the save       |
+| `cancelJob`     | `requestId: string`     | `Result<null, string>`                  | Stop watching, and ask fal to stop        |
+
+Two event payloads are registered with `.typ::<T>()` rather than appearing in any
+signature, because they are emitted while a command is still running:
+`GenerationProgress` (`generation-progress`) and `JobSettled` (`generation-settled`).
 
 ## Dependencies
 

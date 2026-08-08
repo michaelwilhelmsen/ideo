@@ -25,7 +25,7 @@ import {
   selectedGeneration,
   visibleGenerations,
 } from './selectors'
-import type { EditorState, Project } from './types'
+import type { EditorState, Project, StageRecipe } from './types'
 
 const reduce = createEditorReducer(FIXTURE_REGISTRY)
 
@@ -337,5 +337,93 @@ describe('selection', () => {
     expect(selectedGeneration(openProjectOf(state), 'style')?.id).toBe(
       'run-style-77'
     )
+  })
+})
+
+describe('collecting a job that outlived its click (#24)', () => {
+  /** A finished job, as the store hands it back. */
+  function collected(
+    id: string,
+    recipe: Partial<StageRecipe> = {}
+  ): EditorAction {
+    return {
+      type: 'recordGenerations',
+      entries: [
+        {
+          id,
+          stage: 'source',
+          recipe: {
+            modelId: 'fal-ai/flux-pro/v1.1',
+            prompt: 'the prompt as it was when this was submitted',
+            presetId: null,
+            seed: { mode: 'roll' },
+            params: {},
+            options: {},
+            inputGenerationId: null,
+            ...recipe,
+          },
+          seed: 4242,
+          asset: `${id}.jpeg`,
+        },
+      ],
+      at: 99,
+    }
+  }
+
+  it('records the recipe the job carried, not whatever the draft says now', () => {
+    // The point of freezing a recipe at submit: by the time a resumed job
+    // lands, the sidebar has moved on, and a generation that adopted the
+    // current draft would describe the wrong image (PRD §1).
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'setPrompt', stage: 'source', prompt: 'something else entirely' },
+      collected('job-1')
+    )
+
+    const created = generationsForStage(openProjectOf(state), 'source').at(-1)
+    expect(created?.recipe.prompt).toBe(
+      'the prompt as it was when this was submitted'
+    )
+    expect(created?.seed).toBe(4242)
+    expect(created?.asset).toBe('job-1.jpeg')
+  })
+
+  it('ignores a job it has already recorded', () => {
+    // A settled event and the sweep that covers the events a quit lost can
+    // both deliver the same job, and it has only been paid for once.
+    const once = apply(fixtureEditorState(), collected('job-1'))
+    const twice = apply(once, collected('job-1'))
+
+    expect(generationsForStage(openProjectOf(twice), 'source')).toHaveLength(
+      generationsForStage(openProjectOf(once), 'source').length
+    )
+    expect(openProjectOf(twice)).toBe(openProjectOf(once))
+  })
+
+  it('numbers a collected candidate after the ones already in the stage', () => {
+    const before = generationsForStage(
+      openProjectOf(fixtureEditorState()),
+      'source'
+    )
+    const state = apply(fixtureEditorState(), collected('job-1'))
+
+    expect(
+      generationsForStage(openProjectOf(state), 'source').at(-1)?.ordinal
+    ).toBe(before.length + 1)
+  })
+
+  it('selects what arrived, because it is what the user was waiting for', () => {
+    const state = apply(fixtureEditorState(), collected('job-1'))
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-1')
+  })
+
+  it('records nothing at all when the batch has already been collected', () => {
+    const state = apply(fixtureEditorState(), {
+      type: 'recordGenerations',
+      entries: [],
+      at: 1,
+    })
+
+    expect(openProjectOf(state)).toBe(openProjectOf(fixtureEditorState()))
   })
 })

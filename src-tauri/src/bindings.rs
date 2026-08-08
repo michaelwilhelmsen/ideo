@@ -2,7 +2,7 @@ use tauri_specta::{collect_commands, Builder};
 
 pub fn generate_bindings() -> Builder<tauri::Wry> {
     use crate::commands::{
-        api_key, generate, notifications, preferences, projects, quick_pane, recovery,
+        api_key, jobs, notifications, preferences, projects, quick_pane, recovery,
     };
 
     Builder::<tauri::Wry>::new()
@@ -12,7 +12,11 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             api_key::save_fal_api_key,
             api_key::check_fal_api_key,
             api_key::clear_fal_api_key,
-            generate::generate_image,
+            jobs::generate_image,
+            jobs::active_jobs,
+            jobs::finished_jobs,
+            jobs::claim_job,
+            jobs::cancel_job,
             projects::list_projects,
             projects::load_project,
             projects::save_project,
@@ -31,10 +35,11 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             quick_pane::get_default_quick_pane_shortcut,
             quick_pane::update_quick_pane_shortcut,
         ])
-        // Progress crosses the boundary as an emitted event rather than a return
-        // value, so no command signature mentions it — register it explicitly or
-        // the frontend gets no type for the payload it listens to.
-        .typ::<generate::GenerationProgress>()
+        // Progress and settlement cross the boundary as emitted events rather
+        // than return values, so no command signature mentions them — register
+        // them explicitly or the frontend gets no type for what it listens to.
+        .typ::<crate::jobs::fal::GenerationProgress>()
+        .typ::<crate::jobs::runner::JobSettled>()
 }
 
 /// Export TypeScript bindings to the frontend.

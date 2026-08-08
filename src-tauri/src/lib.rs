@@ -6,6 +6,7 @@
 
 mod bindings;
 mod commands;
+mod jobs;
 mod projects;
 mod types;
 mod utils;
@@ -131,6 +132,13 @@ pub fn run() {
                 log::error!("Failed to create quick pane: {e}");
                 // Non-fatal: app can still run without quick pane
             }
+
+            // Anything still in flight from a previous run (PRD §3.3). The
+            // user was charged when those jobs were accepted, so picking them
+            // back up is the difference between a relaunch and a refund we
+            // will not get. Spawned, never awaited: an unreachable fal must
+            // not hold up the window.
+            jobs::runner::resume(app.handle());
 
             // NOTE: Application menu is built from JavaScript for i18n support
             // See src/lib/menu.ts for the menu implementation

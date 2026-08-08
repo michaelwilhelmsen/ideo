@@ -36,8 +36,9 @@ import {
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
 import { rollSeed, useRunStage } from './run-request'
-import { useGenerationProgress } from '@/services/generate'
+import { useCancelJob, useJobProgress, useStageJobs } from '@/services/jobs'
 import { InputSummary } from './shared'
+import type { GenerationProgress, Job } from '@/lib/tauri-bindings'
 
 /** PRD §6.3 — above this the composition drifts and then disappears. */
 const STRENGTH_WARNING_ABOVE = 0.85
@@ -57,6 +58,10 @@ export function StageParameters({
   const batch = batchSizeFor(stage, draft)
   const selected = selectedGeneration(project, stage)
   const { run, isRunning } = useRunStage(project, stage, batch)
+
+  // This stage's share of what the project has in flight. Other stages have
+  // their own panel, and a job belongs to the stage that submitted it.
+  const inFlight = useStageJobs(project.id, stage)
 
   // PRD §4.4/§10 — the chosen model is validated against the project's locked
   // ratio, and a model that cannot serve it is refused here rather than at
@@ -386,7 +391,11 @@ export function StageParameters({
           </p>
         )}
 
-        {isRunning && <RunProgress />}
+        {isRunning && inFlight.length === 0 && (
+          <p className="text-xs">{t('generate.submitting')}</p>
+        )}
+
+        <RunningJobs jobs={inFlight} projectId={project.id} />
       </div>
     </div>
   )
@@ -395,34 +404,74 @@ export function StageParameters({
 /**
  * What the queue is doing, while it does it.
  *
+ * The list comes from the job store rather than from this session, so a job
+ * submitted before the last quit appears here on relaunch exactly as a fresh
+ * one does (#24) — which is the whole claim the slice makes, on screen.
+ *
  * A generation takes tens of seconds, so silence would be indistinguishable
- * from a freeze — the same reason Rust emits progress at all rather than
- * returning once at the end.
+ * from a freeze; that is why Rust emits progress rather than returning once at
+ * the end.
  */
-function RunProgress() {
+function RunningJobs({
+  jobs,
+  projectId,
+}: {
+  jobs: readonly Job[]
+  projectId: string
+}) {
   const { t } = useTranslation()
-  const progress = useGenerationProgress()
+  const progress = useJobProgress()
+  const cancel = useCancelJob()
 
-  if (progress === null)
-    return <p className="text-xs">{t('generate.submitting')}</p>
-
-  if (progress.status === 'queued') {
-    return (
-      <p className="text-xs text-muted-foreground">
-        {progress.queue_position === null
-          ? t('generate.queued')
-          : t('generate.queuedAt', { position: progress.queue_position })}
-      </p>
-    )
-  }
+  if (jobs.length === 0) return null
 
   return (
-    <p className="text-xs text-muted-foreground">
-      {t('generate.generatingFor', {
-        seconds: Math.round(progress.elapsed_ms / 1000),
-      })}
-    </p>
+    <div className="space-y-2">
+      <ul className="space-y-2">
+        {jobs.map(job => (
+          <li key={job.requestId} className="flex items-center gap-2">
+            <span className="flex-1 text-xs text-muted-foreground">
+              {statusLine(t, progress[job.requestId])}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={cancel.isPending}
+              onClick={() =>
+                cancel.mutate({ requestId: job.requestId, projectId })
+              }
+            >
+              {t('generate.job.cancel')}
+            </Button>
+          </li>
+        ))}
+      </ul>
+
+      {/* PRD §3.3 — cancelling may or may not prevent the charge, so this
+          never says "free" and never says "refund". */}
+      <p className="text-xs text-muted-foreground">
+        {t('generate.job.noRefund')}
+      </p>
+    </div>
   )
+}
+
+/** One job's state in a sentence, before any progress has arrived and after. */
+function statusLine(
+  t: ReturnType<typeof useTranslation>['t'],
+  progress: GenerationProgress | undefined
+): string {
+  if (progress === undefined) return t('generate.job.waiting')
+
+  if (progress.status === 'queued') {
+    return progress.queuePosition === null
+      ? t('generate.queued')
+      : t('generate.queuedAt', { position: progress.queuePosition })
+  }
+
+  return t('generate.generatingFor', {
+    seconds: Math.round(progress.elapsedMs / 1000),
+  })
 }
 
 function Field({

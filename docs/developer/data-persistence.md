@@ -27,6 +27,7 @@ All data goes through Rust for type safety and security. Use TanStack Query on t
 ~/Library/Application Support/com.myapp.app/  (macOS)
 ├── preferences.json                          # App preferences
 ├── index.sqlite                              # Project index (rebuildable)
+├── jobs.sqlite                               # Work in flight (not rebuildable)
 ├── projects/                                 # One folder per project
 │   └── <project-id>/
 │       ├── project.json                      # The manifest — source of truth
@@ -217,11 +218,46 @@ is the seam, and it debounces writes rather than saving per keystroke.
 | `services/projects`   | queries, mutations, autosave            | `src/services/`           |
 | `lib/recipe/manifest` | the on-disk shape, and validating it    | `src/lib/recipe/`         |
 
+## Jobs: the one database that is not a cache
+
+`jobs.sqlite` is the exception to everything above. A generation is charged the moment
+fal accepts it, and the disk has no idea what is in flight — so this table is the only
+record that a paid job exists, and losing it loses the result.
+
+Three rules follow:
+
+- **The row is written before the first poll.** Not after the result arrives, not on a
+  timer. Between submit and record is the window where a quit costs money. The ordering
+  lives in `jobs::runner::start`; that a recorded job is immediately visible as running
+  is asserted by `a_submitted_job_is_on_the_books_before_anything_polls_it` in
+  `src-tauri/src/jobs/store.rs`.
+- **It is a separate file from `index.sqlite`.** The project index drops its table
+  whenever its schema moves, because it can rebuild from the folders. Jobs cannot, so
+  they must not share that fate. This one is a design constraint rather than a test —
+  what enforces it is that the two modules never open the same path.
+- **A finished job stays on the books until its candidate is in the manifest.** The
+  frontend claims it (`claim_job`) only after `save_project` has returned, so a crash in
+  between costs a duplicate collection — which the reducer ignores — rather than a
+  generation nobody has a record of. Asserted in `src/services/jobs.test.tsx`
+  (`only takes the job off the books once the manifest has it`).
+
+The lifecycle is `jobs::runner`: `start` submits then watches, `resume` (called from
+`lib.rs` at startup) reads then watches, and both call the same loop, so a resumed job
+cannot rot separately from a fresh one. Cancellation works by deleting the row: the
+loop asks the store on every pass, which is how a cancel reaches a task asleep between
+polls. See `docs/developer/external-apis.md` for the queue exchange itself.
+
+A row is `running`, `stalled` or `completed`. **Stalled** is the state that keeps the
+UI honest: after ten minutes, or a disk that would not take the result, this run of the
+app stops watching — so the job stops counting as running, the stage it belongs to is
+free to submit again, and the next launch picks it up. Deleting it instead would be
+writing off something already charged for.
+
 ## SQLite Database
 
-> Installed as `rusqlite` with the `bundled` feature, for the project index described
-> above. `bundled` compiles SQLite from source, so there is no dependency on whatever
-> version the host ships.
+> Installed as `rusqlite` with the `bundled` feature, for the project index and the job
+> store described above. `bundled` compiles SQLite from source, so there is no
+> dependency on whatever version the host ships.
 
 ### When to Use SQLite
 

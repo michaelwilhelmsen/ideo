@@ -16,6 +16,7 @@ import { Toaster } from 'sonner'
 import { useTheme } from '@/hooks/use-theme'
 import { useUIStore } from '@/store/ui-store'
 import { useMainWindowEventListeners } from '@/hooks/useMainWindowEventListeners'
+import { useJobResults } from '@/services/jobs'
 import { useProjectLibrary } from '@/services/projects'
 import { cn } from '@/lib/utils'
 
@@ -45,6 +46,10 @@ export function MainWindow() {
   // Keep the editor and the project folders on disk in agreement (#23):
   // loads the library, opens something, and writes edits back.
   useProjectLibrary()
+
+  // Collect generations that finished while nobody was watching — including
+  // during a previous run of the app (#24). Paid for either way.
+  useJobResults()
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden rounded-[var(--app-corner-radius)] bg-background">

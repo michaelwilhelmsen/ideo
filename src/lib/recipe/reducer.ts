@@ -37,6 +37,23 @@ export interface PlannedRun {
   readonly asset: string | null
 }
 
+/**
+ * A model call that has already happened, somewhere else.
+ *
+ * Unlike {@link PlannedRun} this carries its own recipe rather than taking the
+ * draft's, because it may have been submitted before the last quit (#24) — by
+ * which time the draft in the sidebar says something else entirely, and a
+ * generation that adopted it would be describing the wrong image.
+ */
+export interface CompletedRun {
+  readonly id: string
+  readonly stage: StageKind
+  readonly recipe: StageRecipe
+  /** What the model used, or `null` when it has no seed to report. */
+  readonly seed: number | null
+  readonly asset: string | null
+}
+
 /** The editor with nothing open — where the app now starts. */
 export function emptyEditorState(): EditorState {
   return {
@@ -100,6 +117,16 @@ export type EditorAction =
       readonly type: 'runStage'
       readonly stage: StageKind
       readonly runs: readonly PlannedRun[]
+      readonly at: number
+    }
+  /**
+   * Jobs that finished, collected off the job store (#24). Separate from
+   * `runStage` because these already have their recipe, their seed and their
+   * file — there is nothing left to plan.
+   */
+  | {
+      readonly type: 'recordGenerations'
+      readonly entries: readonly CompletedRun[]
       readonly at: number
     }
   | { readonly type: 'selectGeneration'; readonly generationId: string }
@@ -201,6 +228,11 @@ export function createEditorReducer(
           runStage(registry, project, action)
         )
 
+      case 'recordGenerations':
+        return editProject(state, project =>
+          withCollectedGenerations(project, action.entries, action.at)
+        )
+
       case 'selectGeneration':
         return editProject(state, project => {
           const generation = project.generations.find(
@@ -250,15 +282,9 @@ function runStage(
 ): Project {
   const draft = project.drafts[action.stage]
   const model = modelById(registry, draft.modelId)
-  const upstream = upstreamOf(action.stage)
-  const inputGenerationId =
-    upstream === null ? null : project.selection[upstream]
 
-  // Style and animate need something to work from. Source never does — which
-  // is exactly why re-running style leaves the source alone (PRD §4.1).
-  if (upstream !== null && inputGenerationId === null) return project
-
-  const frozen: StageRecipe = { ...draft, inputGenerationId }
+  const frozen = freezeRecipe(project, action.stage)
+  if (frozen === null) return project
 
   // A pinned seed makes every candidate in a batch identical, so a pin
   // collapses the batch to one. Four copies of the same image is not a choice.
@@ -294,6 +320,90 @@ function runStage(
     // after a click. Downstream stages keep pointing at what they already
     // consumed — nothing further along is invalidated.
     selection: { ...project.selection, [action.stage]: created[0]?.id ?? null },
+  }
+}
+
+/**
+ * The draft as it would be submitted right now: a copy, with the upstream
+ * pointer resolved. `null` when the stage has nothing to work from.
+ *
+ * Exported because a submitted job carries this to Rust and gets it back when
+ * it lands (#24). Freezing it in two places would mean a resumed generation
+ * could describe itself differently from a fresh one.
+ */
+export function freezeRecipe(
+  project: Project,
+  stage: StageKind
+): StageRecipe | null {
+  const upstream = upstreamOf(stage)
+  const inputGenerationId =
+    upstream === null ? null : project.selection[upstream]
+
+  // Style and animate need something to work from. Source never does — which
+  // is exactly why re-running style leaves the source alone (PRD §4.1).
+  if (upstream !== null && inputGenerationId === null) return null
+
+  return { ...project.drafts[stage], inputGenerationId }
+}
+
+/**
+ * Fold finished jobs into a project.
+ *
+ * Everything here is already a fact, so nothing is derived from the draft —
+ * see {@link CompletedRun}. Ids already present are skipped rather than
+ * appended twice: a settled event can arrive alongside the periodic sweep that
+ * exists for the events a quit lost, and both would otherwise record the same
+ * paid generation. Returns the project unchanged when there is nothing new,
+ * which is how the caller knows there is nothing to write.
+ *
+ * Exported as well as dispatched, because a job can finish for a project that
+ * is not the open one (#24) — that manifest is collected off disk rather than
+ * through the editor, and both paths have to fold identically.
+ */
+export function withCollectedGenerations(
+  project: Project,
+  entries: readonly CompletedRun[],
+  at: number
+): Project {
+  const known = new Set(project.generations.map(generation => generation.id))
+  const arriving = entries.filter(entry => !known.has(entry.id))
+
+  if (arriving.length === 0) return project
+
+  const ordinals = new Map<StageKind, number>()
+  const created = arriving.map((entry): Generation => {
+    const ordinal =
+      ordinals.get(entry.stage) ?? nextOrdinal(project, entry.stage)
+    ordinals.set(entry.stage, ordinal + 1)
+
+    return {
+      id: entry.id,
+      stage: entry.stage,
+      recipe: entry.recipe,
+      seed: entry.seed,
+      verdict: 'unrated',
+      createdAt: at,
+      ordinal,
+      asset: entry.asset,
+    }
+  })
+
+  // The first arrival in each stage is selected, the same way a fresh run
+  // selects its first candidate: this is the image the user has been waiting
+  // for, possibly across a restart. Later arrivals in the same batch do not
+  // keep stealing it, or a four-up would end on whichever finished last.
+  const selection = { ...project.selection }
+  const claimed = new Set<StageKind>()
+  for (const generation of created) {
+    if (claimed.has(generation.stage)) continue
+    claimed.add(generation.stage)
+    selection[generation.stage] = generation.id
+  }
+
+  return {
+    ...project,
+    generations: [...project.generations, ...created],
+    selection,
   }
 }
 
