@@ -17,33 +17,50 @@ use serde_json::{json, Value};
 use specta::Type;
 use std::time::Duration;
 
-/// Hardcoded for the tracer bullet; #25 replaces this with the model registry.
-/// Chosen because the spike ran this exact endpoint live: $0.04/image, returns
-/// a seed, and its request shape is verified rather than inferred.
-pub const MODEL_ID: &str = "fal-ai/flux-pro/v1.1";
-
 const SUBMIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const POLL_TIMEOUT: Duration = Duration::from_secs(30);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// The curated ratios of PRD §4.4, as pixels.
+/// Whether an endpoint id is safe to put in a URL.
 ///
-/// Every dimension is a multiple of 16 because fal snaps to one regardless
-/// (PRD §12: 1280×720 came back as 1280×704, changing the ratio). Choosing
-/// multiples ourselves is how the locked ratio survives the request.
-pub fn image_size_for(aspect: &str) -> Result<(u32, u32), GenerationError> {
-    match aspect {
-        "16:9" => Ok((1280, 720)),
-        "21:9" => Ok((1344, 576)),
-        "2:1" => Ok((1280, 640)),
-        "3:2" => Ok((1248, 832)),
-        "1:1" => Ok((1024, 1024)),
-        other => Err(GenerationError::with_detail(
+/// Deliberately not an allowlist of models — that list lives in the TypeScript
+/// registry (PRD §5), which is also what builds the parameters, and duplicating
+/// it here would give two places to forget to update. What Rust owns is the
+/// part TypeScript cannot vouch for: the id becomes a URL path, so anything
+/// that could climb out of it (`..`, a scheme, a query, whitespace) is refused
+/// before a request is made, whatever sent it.
+pub fn validate_model_id(id: &str) -> Result<(), GenerationError> {
+    let reject = |why: &str| {
+        Err(GenerationError::with_detail(
             GenerationErrorReason::RequestRejected,
-            format!("unknown aspect ratio {other}"),
-        )),
+            format!("{why}: {id:?}"),
+        ))
+    };
+
+    if id.is_empty() {
+        return reject("no model was named");
     }
+    if id.len() > 128 {
+        return reject("model id is implausibly long");
+    }
+    if id.starts_with('/') || id.ends_with('/') || id.contains("//") {
+        return reject("model id has an empty path segment");
+    }
+    if id
+        .split('/')
+        .any(|segment| segment == "." || segment == "..")
+    {
+        return reject("model id traverses its own path");
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
+    {
+        return reject("model id has characters that do not belong in a path");
+    }
+
+    Ok(())
 }
 
 /// Where a submitted job has got to.
@@ -165,27 +182,35 @@ pub fn client(timeout: Duration) -> Result<reqwest::Client, GenerationError> {
 
 /// Puts a job on the queue. The charge lands here, which is why the caller
 /// writes the returned ids down before it polls (PRD §3.3).
+///
+/// `params` is the registry's work, arriving whole: `image_size` or
+/// `aspect_ratio`, a seed only on a model that has one, a duration in that
+/// model's own primitive. Rust does not interpret it — every one of those
+/// choices needs the capability table to make, and there is exactly one of
+/// those, in TypeScript. What happens here is that `prompt` is put in
+/// afterwards, so no parameter set can quietly replace the thing the user
+/// typed and the emptiness check just passed.
 pub async fn submit(
     key: &str,
+    model_id: &str,
     prompt: &str,
-    (width, height): (u32, u32),
-    pinned_seed: Option<f64>,
+    params: &Value,
 ) -> Result<Submitted, GenerationError> {
-    let mut body = json!({
-        "prompt": prompt,
-        "image_size": { "width": width, "height": height },
-    });
+    validate_model_id(model_id)?;
 
-    // `f64` on the way in rather than an integer type: a `u64` crosses the
-    // boundary as a string (see `bindings.rs`), and the recipe model holds
-    // seeds as JS numbers regardless. Exact to 2^53 — the same ceiling the
-    // frontend has, rather than the 2^32 an integer parameter would impose.
-    if let Some(seed) = pinned_seed {
-        body["seed"] = json!(seed as u64);
-    }
+    let mut body = match params {
+        Value::Object(fields) => Value::Object(fields.clone()),
+        _ => {
+            return Err(GenerationError::with_detail(
+                GenerationErrorReason::RequestRejected,
+                "model parameters were not an object",
+            ))
+        }
+    };
+    body["prompt"] = json!(prompt);
 
     let response = client(SUBMIT_TIMEOUT)?
-        .post(format!("https://queue.fal.run/{MODEL_ID}"))
+        .post(format!("https://queue.fal.run/{model_id}"))
         .header("Authorization", format!("Key {key}"))
         .json(&body)
         .send()
@@ -541,30 +566,38 @@ mod tests {
     }
 
     #[test]
-    fn every_curated_ratio_asks_for_dimensions_fal_will_not_reshape() {
-        // PRD §12 — fal snaps to a multiple of 16, which silently changed
-        // 1280×720 into 1280×704 and the ratio from 1.78 to 1.82.
-        for aspect in ["16:9", "21:9", "2:1", "3:2", "1:1"] {
-            let (width, height) = image_size_for(aspect).expect(aspect);
-            assert_eq!(width % 16, 0, "{aspect} width");
-            assert_eq!(height % 16, 0, "{aspect} height");
+    fn the_registrys_own_endpoint_ids_are_accepted() {
+        for id in [
+            "fal-ai/flux/schnell",
+            "fal-ai/flux-pro/kontext/text-to-image",
+            "openai/gpt-image-2",
+            "xai/grok-imagine-image",
+            "bytedance/seedance-2.5/image-to-video",
+            "blackforestlabs/flux-3/first-last-frame-to-video",
+        ] {
+            assert!(validate_model_id(id).is_ok(), "{id}");
         }
     }
 
     #[test]
-    fn the_requested_dimensions_actually_match_the_named_ratio() {
-        let (width, height) = image_size_for("21:9").unwrap();
-        assert!(
-            ((width as f64 / height as f64) - (21.0 / 9.0)).abs() < 0.02,
-            "{width}×{height}"
-        );
-    }
-
-    #[test]
-    fn a_ratio_outside_the_curated_list_is_refused_before_it_is_paid_for() {
-        assert_eq!(
-            image_size_for("4:3").unwrap_err().reason,
-            GenerationErrorReason::RequestRejected
-        );
+    fn an_id_that_could_climb_out_of_the_url_is_refused() {
+        // The id is interpolated into a queue URL, so this is the one thing
+        // Rust must not take on trust from the webview.
+        for id in [
+            "",
+            "/fal-ai/flux",
+            "fal-ai/flux/",
+            "fal-ai//flux",
+            "fal-ai/../admin",
+            "fal-ai/flux?debug=1",
+            "https://evil.example/x",
+            "fal-ai/flux schnell",
+        ] {
+            assert_eq!(
+                validate_model_id(id).unwrap_err().reason,
+                GenerationErrorReason::RequestRejected,
+                "{id:?}"
+            );
+        }
     }
 }

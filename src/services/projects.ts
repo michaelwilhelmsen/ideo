@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 import i18n from '@/i18n/config'
 import { logger } from '@/lib/logger'
 import {
+  DEFAULT_MODEL_IDS,
   readManifest,
   writeManifest,
   type AspectId,
@@ -305,13 +306,12 @@ export function newProject(name: string, aspect: AspectId): Project {
     aspect,
     createdAt: Date.now(),
     drafts: {
-      // The models are named here until #25 brings the registry. The source
-      // model is the one `generate_image` actually calls — a draft naming a
-      // model we do not call would be a recipe that does not describe its own
-      // output.
-      source: blank('fal-ai/flux-pro/v1.1'),
-      style: blank('fal-ai/flux-1/dev/image-to-image'),
-      animate: blank('fal-ai/luma-dream-machine/ray-2'),
+      // From the registry (#25), not written out here: a draft naming a model
+      // with no capability entry is a recipe nothing can build a request for,
+      // and `modelById` would refuse it on the next render.
+      source: blank(DEFAULT_MODEL_IDS.source),
+      style: blank(DEFAULT_MODEL_IDS.style),
+      animate: blank(DEFAULT_MODEL_IDS.animate),
     },
     generations: [],
     selection: { source: null, style: null, animate: null },

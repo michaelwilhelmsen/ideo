@@ -1,22 +1,16 @@
 /**
  * THE FIXTURE SEAM — what the editor still cannot get from anywhere real.
  *
- * Half of this is now gone: #23 made projects come off disk, so the two
- * projects below are test data rather than what the app boots into. What
- * remains temporary:
- *  - the capability registry, until it becomes the committed JSON of PRD §5 (#25),
+ * Shrinking each time a slice lands. #23 made projects come off disk, so the
+ * two projects below are test data rather than what the app boots into; #25
+ * replaced the fixture capability registry with the verified one in `models.ts`,
+ * so the model ids here name real endpoints and resolve against it. What remains
+ * temporary:
  *  - the presets, until #28,
  *  - `previewArt`, the stand-in for pixels a stage cannot generate yet. The
  *    source stage produces real files; style and animate arrive in #28/#29.
- *
- * **Capability flags here are fixture-grade.** They follow PRD §9/§9.1 where
- * that table says something, and are plausible-but-unverified elsewhere. They
- * exist to drive the UI down each branch — a model with no seed, a model with
- * no end frame, a model the locked aspect ratio rules out — not to be copied
- * into the real registry.
  */
 
-import type { ModelCapabilities } from './registry'
 import type {
   EditorState,
   Generation,
@@ -29,210 +23,6 @@ import type {
 /** Fixed so a reload shows the same thing twice. */
 const T0 = Date.UTC(2026, 7, 8, 9, 0, 0)
 const MINUTE = 60_000
-
-export const FIXTURE_REGISTRY: readonly ModelCapabilities[] = [
-  // ── source ────────────────────────────────────────────────────────────────
-  {
-    id: 'fal-ai/flux-pro/kontext',
-    label: 'FLUX Kontext Pro',
-    provider: 'fal',
-    stage: 'source',
-    aspects: ['16:9', '21:9', '2:1', '3:2', '1:1'],
-    supportsSeed: true,
-    strengthParam: null,
-    negativePromptParam: null,
-    endFrameParam: null,
-    durationParam: null,
-    durations: [],
-    resolutionParam: null,
-    resolutions: [],
-    defaults: { guidance_scale: 3.5 },
-    price: null,
-    notes: 'PRD §9 — the only image model with a confirmed 21:9 enum.',
-  },
-  {
-    id: 'fal-ai/flux-pro/v1.1',
-    label: 'FLUX Pro 1.1',
-    provider: 'fal',
-    stage: 'source',
-    // No 21:9 — so on a 21:9 project this one is refused at selection time,
-    // which is the whole point of validating there rather than at submit.
-    aspects: ['16:9', '3:2', '1:1'],
-    supportsSeed: true,
-    strengthParam: null,
-    negativePromptParam: null,
-    endFrameParam: null,
-    durationParam: null,
-    durations: [],
-    resolutionParam: null,
-    resolutions: [],
-    defaults: {},
-    price: { amount: 0.04, unit: 'image', verifiedOn: '2026-08-08' },
-    notes: 'PRD §12 — $0.04/image measured by balance delta. 21:9 unconfirmed.',
-  },
-  {
-    id: 'fal-ai/nano-banana-pro',
-    label: 'Nano Banana Pro',
-    provider: 'fal',
-    stage: 'source',
-    aspects: ['16:9', '21:9', '2:1', '3:2', '1:1'],
-    supportsSeed: true,
-    strengthParam: null,
-    negativePromptParam: null,
-    endFrameParam: null,
-    durationParam: null,
-    durations: [],
-    resolutionParam: null,
-    resolutions: [],
-    defaults: {},
-    price: null,
-    notes: 'PRD §9 — 21:9 confirmed in an 11-ratio enum.',
-  },
-
-  // ── style ─────────────────────────────────────────────────────────────────
-  {
-    id: 'fal-ai/flux-1/dev/image-to-image',
-    label: 'FLUX.1 dev — image to image',
-    provider: 'fal',
-    stage: 'style',
-    aspects: 'inheritsFromSource',
-    supportsSeed: true,
-    strengthParam: 'strength',
-    negativePromptParam: null,
-    endFrameParam: null,
-    durationParam: null,
-    durations: [],
-    resolutionParam: null,
-    resolutions: [],
-    // 0.7, not fal's 0.95 — at 0.95 the input is discarded entirely (PRD §6.3).
-    defaults: { strength: 0.7 },
-    price: { amount: 0.025, unit: 'image', verifiedOn: '2026-08-08' },
-    notes: 'PRD §6.3 — usable window is narrow, roughly 0.65–0.8.',
-  },
-  {
-    id: 'fal-ai/flux-pro/kontext/image-to-image',
-    label: 'FLUX Kontext — image to image',
-    provider: 'fal',
-    stage: 'style',
-    aspects: 'inheritsFromSource',
-    supportsSeed: true,
-    strengthParam: 'strength',
-    negativePromptParam: null,
-    endFrameParam: null,
-    durationParam: null,
-    durations: [],
-    resolutionParam: null,
-    resolutions: [],
-    defaults: { strength: 0.7 },
-    price: null,
-    notes:
-      'Same field name as FLUX.1 dev, API default 0.1 rather than 0.95 — PRD §5.',
-  },
-  {
-    id: 'fal-ai/qwen-image-2.0/edit',
-    label: 'Qwen-Image 2.0 — edit',
-    provider: 'fal',
-    stage: 'style',
-    aspects: 'inheritsFromSource',
-    supportsSeed: true,
-    strengthParam: null,
-    // The one model in the shortlist with a real negative prompt (PRD §9), so
-    // the field appears here and nowhere else.
-    negativePromptParam: 'negative_prompt',
-    endFrameParam: null,
-    durationParam: null,
-    durations: [],
-    resolutionParam: null,
-    resolutions: [],
-    defaults: { negative_prompt: '' },
-    price: null,
-    notes: 'PRD §9 — the `tags` exemplar; justifies the two-variant presets.',
-  },
-
-  // ── animate ───────────────────────────────────────────────────────────────
-  {
-    id: 'fal-ai/luma-dream-machine/ray-2',
-    label: 'Luma Ray 2',
-    provider: 'fal',
-    stage: 'animate',
-    aspects: ['16:9', '21:9', '2:1', '3:2', '1:1'],
-    supportsSeed: true,
-    strengthParam: null,
-    negativePromptParam: null,
-    endFrameParam: 'end_image_url',
-    durationParam: 'duration',
-    durations: ['5s', '9s'],
-    resolutionParam: 'resolution',
-    resolutions: ['540p', '720p', '1080p'],
-    // 1080p because Luma's own default is 540p — too low for a hero (PRD §5).
-    defaults: { duration: '5s', resolution: '1080p' },
-    price: null,
-    notes: 'PRD §9.1 — explicit 21:9/9:21 enum. Seed support unverified.',
-  },
-  {
-    id: 'fal-ai/kling-video/o1',
-    label: 'Kling O1',
-    provider: 'fal',
-    stage: 'animate',
-    aspects: 'inheritsFromSource',
-    // No seed field at all — PRD §9.1 is explicit that Kling video is not
-    // reproducible. This is the model the disabled-with-a-reason rule is
-    // checked against.
-    supportsSeed: false,
-    strengthParam: null,
-    negativePromptParam: null,
-    endFrameParam: 'end_image_url',
-    durationParam: 'duration',
-    durations: ['3', '4', '5', '6', '7', '8', '9', '10'],
-    resolutionParam: null,
-    resolutions: [],
-    defaults: { duration: '5' },
-    price: null,
-    notes:
-      'PRD §9.1 — duration is a bare string, and there is no seed, aspect or resolution parameter.',
-  },
-  {
-    id: 'fal-ai/veo3.1/image-to-video',
-    label: 'Veo 3.1',
-    provider: 'fal',
-    stage: 'animate',
-    // 16:9 only — ruled out by a 21:9 project before it can be picked.
-    aspects: ['16:9'],
-    supportsSeed: true,
-    strengthParam: null,
-    negativePromptParam: null,
-    endFrameParam: 'last_frame_url',
-    durationParam: 'duration',
-    durations: ['4s', '6s', '8s'],
-    resolutionParam: null,
-    resolutions: [],
-    defaults: { duration: '6s' },
-    price: null,
-    notes:
-      'PRD §9.1 — end frame is `last_frame_url` here and `end_image_url` everywhere else.',
-  },
-  {
-    id: 'fal-ai/ltx-video/image-to-video',
-    label: 'LTX Video',
-    provider: 'fal',
-    stage: 'animate',
-    aspects: 'inheritsFromSource',
-    supportsSeed: true,
-    strengthParam: null,
-    negativePromptParam: null,
-    // No end frame — looping has nothing to hang on, so the control greys out
-    // with a reason instead of vanishing.
-    endFrameParam: null,
-    durationParam: 'duration',
-    durations: ['5s'],
-    resolutionParam: null,
-    resolutions: [],
-    defaults: { duration: '5s' },
-    price: null,
-    notes:
-      'Fixture-grade: stands in for a video model with no end-frame field.',
-  },
-]
 
 /** PRD §6 — two independent libraries, mixed freely. */
 export interface Preset {
@@ -334,7 +124,7 @@ const ATLAS_SUBJECT =
   'a single translucent glass monolith on a dark wet plane, one hard rim light, empty space to the right'
 
 const atlasSource = recipe({
-  modelId: 'fal-ai/flux-pro/kontext',
+  modelId: 'fal-ai/flux-pro/kontext/text-to-image',
   prompt: ATLAS_SUBJECT,
   params: { guidance_scale: 3.5 },
 })
@@ -380,7 +170,7 @@ export const ATLAS: Project = {
       771_400_552,
       8,
       recipe({
-        modelId: 'fal-ai/flux-1/dev/image-to-image',
+        modelId: 'fal-ai/flux/dev/image-to-image',
         prompt: 'restyle',
         presetId: 'editorial-noir',
         params: { strength: 0.7 },
@@ -396,7 +186,7 @@ export const ATLAS: Project = {
       640_213_889,
       14,
       recipe({
-        modelId: 'fal-ai/flux-1/dev/image-to-image',
+        modelId: 'fal-ai/flux/dev/image-to-image',
         prompt: 'restyle',
         presetId: 'editorial-noir',
         seed: { mode: 'pinned', value: 640_213_889 },
@@ -412,7 +202,7 @@ export const ATLAS: Project = {
       640_213_889,
       16,
       recipe({
-        modelId: 'fal-ai/flux-1/dev/image-to-image',
+        modelId: 'fal-ai/flux/dev/image-to-image',
         prompt: 'restyle',
         presetId: 'sun-bleached-film',
         seed: { mode: 'pinned', value: 640_213_889 },
@@ -428,7 +218,7 @@ export const ATLAS: Project = {
       null,
       22,
       recipe({
-        modelId: 'fal-ai/kling-video/o1',
+        modelId: 'fal-ai/kling-video/o1/image-to-video',
         prompt: 'motion',
         presetId: 'slow-drift',
         params: { duration: '5' },
@@ -445,14 +235,14 @@ export const ATLAS: Project = {
   drafts: {
     source: atlasSource,
     style: recipe({
-      modelId: 'fal-ai/flux-1/dev/image-to-image',
+      modelId: 'fal-ai/flux/dev/image-to-image',
       prompt: 'restyle',
       presetId: 'sun-bleached-film',
       seed: { mode: 'pinned', value: 640_213_889 },
       params: { strength: 0.7 },
     }),
     animate: recipe({
-      modelId: 'fal-ai/kling-video/o1',
+      modelId: 'fal-ai/kling-video/o1/image-to-video',
       prompt: 'motion',
       presetId: 'slow-drift',
       params: { duration: '5' },
@@ -482,13 +272,13 @@ export const LEDGER: Project = {
   drafts: {
     source: ledgerSource,
     style: recipe({
-      modelId: 'fal-ai/flux-1/dev/image-to-image',
+      modelId: 'fal-ai/flux/dev/image-to-image',
       prompt: 'restyle',
       presetId: 'clean-product-studio',
       params: { strength: 0.7 },
     }),
     animate: recipe({
-      modelId: 'fal-ai/luma-dream-machine/ray-2',
+      modelId: 'fal-ai/luma-dream-machine/ray-2/image-to-video',
       prompt: 'motion',
       presetId: 'gentle-pulse',
       params: { duration: '5s', resolution: '1080p' },

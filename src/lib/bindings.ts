@@ -643,7 +643,20 @@ export type StartRequest = { projectId: string; generationId: string; stage: str
 /**
  * The draft, frozen. Opaque — see `jobs::store`.
  */
-recipe: JsonValue; prompt: string; aspect: string; pinnedSeed: number | null }
+recipe: JsonValue; prompt: string; 
+/**
+ * Which endpoint to call. Checked against the capability registry on the
+ * TypeScript side before it is sent (PRD §5 — no arbitrary model ids) and
+ * checked for URL safety here, because Rust is the side that spends.
+ */
+modelId: string; 
+/**
+ * The rest of the request body, keyed by the model's own field names and
+ * built by the registry. Opaque here on purpose: knowing that Luma spells
+ * duration `"5s"` requires the capability table, and there is one of
+ * those.
+ */
+params: JsonValue }
 /**
  * What the caller gets back: a job that is now on the books, not a result.
  */

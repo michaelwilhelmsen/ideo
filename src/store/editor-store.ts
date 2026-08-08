@@ -17,12 +17,12 @@ import { devtools } from 'zustand/middleware'
 import {
   createEditorReducer,
   emptyEditorState,
-  FIXTURE_REGISTRY,
+  MODEL_REGISTRY,
   type EditorAction,
   type EditorState,
 } from '@/lib/recipe'
 
-const reduce = createEditorReducer(FIXTURE_REGISTRY)
+const reduce = createEditorReducer(MODEL_REGISTRY)
 
 interface EditorStore {
   /**

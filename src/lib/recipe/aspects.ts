@@ -18,6 +18,14 @@ import type { AspectId } from './types'
 
 export interface Aspect {
   readonly id: AspectId
+  /**
+   * The ratio in lowest terms. Integers rather than a float because the
+   * free-dimension models of PRD §9 are given explicit `{width, height}`, and
+   * "the largest legal multiple of 7:3" is arithmetic a float cannot do
+   * exactly — 21:9 reduces to 7:3, and 2352×1008 is 336 × (7:3).
+   */
+  readonly width: number
+  readonly height: number
   /** Width divided by height — what a preview box sizes itself from. */
   readonly ratio: number
   /** Whether a video model is confirmed to accept this ratio (PRD §9.1). */
@@ -29,30 +37,40 @@ export interface Aspect {
 export const ASPECTS: readonly Aspect[] = [
   {
     id: '16:9',
+    width: 16,
+    height: 9,
     ratio: 16 / 9,
     animatable: true,
     noteKey: 'editor.aspect.note.standardWide',
   },
   {
     id: '21:9',
+    width: 7,
+    height: 3,
     ratio: 21 / 9,
     animatable: true,
     noteKey: 'editor.aspect.note.ultrawide',
   },
   {
     id: '2:1',
+    width: 2,
+    height: 1,
     ratio: 2,
     animatable: false,
     noteKey: 'editor.aspect.note.noVideoEnum',
   },
   {
     id: '3:2',
+    width: 3,
+    height: 2,
     ratio: 3 / 2,
     animatable: false,
     noteKey: 'editor.aspect.note.noVideoEnum',
   },
   {
     id: '1:1',
+    width: 1,
+    height: 1,
     ratio: 1,
     animatable: true,
     noteKey: 'editor.aspect.note.square',

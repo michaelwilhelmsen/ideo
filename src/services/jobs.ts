@@ -78,9 +78,15 @@ export interface GenerationRequest {
   /** The draft, frozen — stored with the job and handed back on arrival. */
   readonly recipe: StageRecipe
   readonly prompt: string
-  readonly aspect: string
-  /** The recipe's pinned seed, if it has one (PRD §4.3). */
-  readonly pinnedSeed: number | null
+  /**
+   * The endpoint, and the body the registry built for it (#25).
+   *
+   * Passed rather than derived in Rust because deriving it needs the capability
+   * table — which field carries the ratio, which primitive a duration is in,
+   * whether the model has a seed at all — and that table lives in one place.
+   */
+  readonly modelId: string
+  readonly params: Readonly<Record<string, unknown>>
 }
 
 /**
@@ -101,8 +107,8 @@ export function useSubmitGeneration() {
         stage: request.stage,
         recipe: request.recipe as unknown as JsonValue,
         prompt: request.prompt,
-        aspect: request.aspect,
-        pinnedSeed: request.pinnedSeed,
+        modelId: request.modelId,
+        params: request.params as unknown as JsonValue,
       })
 
       if (result.status === 'error') {

@@ -23,16 +23,20 @@ import {
   batchSizeFor,
   blockedReasonKey,
   controlAvailability,
-  FIXTURE_REGISTRY,
+  estimateCost,
+  MODEL_REGISTRY,
   modelAvailability,
   modelById,
   modelsForStage,
   presetsForStage,
   selectedGeneration,
+  type AspectId,
   type ControlAvailability,
   type ControlId,
+  type ModelCapabilities,
   type Project,
   type StageKind,
+  type StageRecipe,
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
 import { rollSeed, useRunStage } from './run-request'
@@ -54,7 +58,7 @@ export function StageParameters({
   const dispatch = useEditorStore(store => store.dispatch)
 
   const draft = project.drafts[stage]
-  const model = modelById(FIXTURE_REGISTRY, draft.modelId)
+  const model = modelById(MODEL_REGISTRY, draft.modelId)
   const batch = batchSizeFor(stage, draft)
   const selected = selectedGeneration(project, stage)
   const { run, isRunning } = useRunStage(project, stage, batch)
@@ -92,6 +96,9 @@ export function StageParameters({
       <Field label={t('editor.field.model')}>
         <NativeSelect
           className="w-full"
+          // Named for assistive tech as well as sighted users: `Field` renders
+          // a label beside the control, not one bound to it.
+          aria-label={t('editor.field.model')}
           value={draft.modelId}
           onChange={event =>
             dispatch({
@@ -101,7 +108,7 @@ export function StageParameters({
             })
           }
         >
-          {modelsForStage(FIXTURE_REGISTRY, stage).map(candidate => {
+          {modelsForStage(MODEL_REGISTRY, stage).map(candidate => {
             const usable = modelAvailability(candidate, project.aspect)
             return (
               <NativeSelectOption
@@ -363,17 +370,12 @@ export function StageParameters({
       )}
 
       <div className="space-y-2 border-t border-border pt-4">
-        {/* PRD §10.2 — approximate, dated, and never presented as exact. */}
-        <p className="text-xs text-muted-foreground">
-          {model.price === null
-            ? t('editor.price.unknown')
-            : t('editor.price.estimate', {
-                amount: (model.price.amount * batch).toFixed(3),
-                count: batch,
-                unit: model.price.unit,
-                date: model.price.verifiedOn,
-              })}
-        </p>
+        <CostEstimate
+          model={model}
+          aspect={project.aspect}
+          draft={draft}
+          batch={batch}
+        />
 
         <Button
           className="w-full"
@@ -399,6 +401,66 @@ export function StageParameters({
       </div>
     </div>
   )
+}
+
+/**
+ * PRD §10.2 — a rough number before the money is spent.
+ *
+ * Approximate, and labelled so, with the date the rate was read on: a figure
+ * that looks exact would imply a precision the registry does not have, and the
+ * date is what makes a stale price visible rather than merely wrong. Silence is
+ * worse than roughness when someone is deciding whether to spend, but a
+ * confident wrong number is worse than either.
+ *
+ * `null` is a real answer, not a gap. `gpt-image-2` is token-priced and a
+ * megapixel-billed restyle depends on an input whose size we do not know until
+ * it exists — both say "unknown" rather than inventing a figure.
+ */
+function CostEstimate({
+  model,
+  aspect,
+  draft,
+  batch,
+}: {
+  model: ModelCapabilities
+  aspect: AspectId
+  draft: StageRecipe
+  batch: number
+}) {
+  const { t } = useTranslation()
+
+  const chosen = draft.params[model.durationParam ?? '']
+  const estimate = estimateCost(model, {
+    aspect,
+    batch,
+    duration: chosen === undefined ? undefined : String(chosen),
+  })
+
+  if (estimate === null || model.price === null) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t('editor.price.unknown')}
+      </p>
+    )
+  }
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {t('editor.price.approximate', {
+        amount: formatMoney(estimate),
+        date: model.price.verifiedOn,
+      })}
+    </p>
+  )
+}
+
+/**
+ * Two decimals, because that is what a price looks like — except when two
+ * decimals would round a real charge to `$0.00`, which reads as free.
+ */
+function formatMoney(amount: number): string {
+  if (amount > 0 && amount < 0.005) return '<$0.01'
+  return `$${amount.toFixed(2)}`
 }
 
 /**

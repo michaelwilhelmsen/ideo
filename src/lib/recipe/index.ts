@@ -1,5 +1,7 @@
 export * from './types'
 export * from './registry'
+export * from './models'
+export * from './request'
 export * from './reducer'
 export * from './selectors'
 export * from './aspects'

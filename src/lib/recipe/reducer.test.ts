@@ -12,13 +12,8 @@ import {
   emptyEditorState,
   type EditorAction,
 } from './reducer'
-import {
-  ATLAS,
-  FIXTURE_REGISTRY,
-  LEDGER,
-  fixtureEditorState,
-  summaryOf,
-} from './fixtures'
+import { ATLAS, LEDGER, fixtureEditorState, summaryOf } from './fixtures'
+import { MODEL_REGISTRY } from './models'
 import {
   activeProject,
   generationsForStage,
@@ -27,7 +22,7 @@ import {
 } from './selectors'
 import type { EditorState, Project, StageRecipe } from './types'
 
-const reduce = createEditorReducer(FIXTURE_REGISTRY)
+const reduce = createEditorReducer(MODEL_REGISTRY)
 
 /** The open project. Every test below has one, so an empty editor is a failure. */
 function openProjectOf(state: EditorState): Project {
@@ -133,7 +128,7 @@ describe('seeds (PRD §4.3)', () => {
       {
         type: 'chooseModel',
         stage: 'animate',
-        modelId: 'fal-ai/kling-video/o1',
+        modelId: 'fal-ai/kling-video/o1/image-to-video',
       }
     )
 
@@ -223,9 +218,10 @@ describe('changing model (PRD §5, §6.3)', () => {
     const state = apply(fixtureEditorState(), {
       type: 'chooseModel',
       stage: 'style',
-      modelId: 'fal-ai/qwen-image-2.0/edit',
+      modelId: 'fal-ai/qwen-image-2/edit',
     })
 
+    // The draft was on FLUX.1 dev, whose `strength` Qwen has never heard of.
     const params = openProjectOf(state).drafts.style.params
     expect(params.strength).toBeUndefined()
     expect(params.negative_prompt).toBe('')
@@ -234,15 +230,48 @@ describe('changing model (PRD §5, §6.3)', () => {
   it('carries a parameter across when both models use the same field', () => {
     const state = apply(
       fixtureEditorState(),
-      { type: 'setParam', stage: 'style', key: 'strength', value: 0.8 },
       {
         type: 'chooseModel',
         stage: 'style',
-        modelId: 'fal-ai/flux-pro/kontext/image-to-image',
+        modelId: 'fal-ai/qwen-image-2/edit',
+      },
+      {
+        type: 'setParam',
+        stage: 'style',
+        key: 'negative_prompt',
+        value: 'blurry',
+      },
+      {
+        type: 'chooseModel',
+        stage: 'style',
+        modelId: 'fal-ai/qwen-image-2/pro/edit',
       }
     )
 
-    expect(openProjectOf(state).drafts.style.params.strength).toBe(0.8)
+    expect(openProjectOf(state).drafts.style.params.negative_prompt).toBe(
+      'blurry'
+    )
+  })
+
+  it('never changes the model because a control was touched', () => {
+    // PRD §10.1 — "never auto-switch the user's model when they toggle a
+    // control. Helpfulness that spends money is not helpful." Every control the
+    // panel offers goes through one of these actions.
+    const before = fixtureEditorState()
+    const chosen = openProjectOf(before).drafts.animate.modelId
+
+    const after = apply(
+      before,
+      { type: 'setParam', stage: 'animate', key: 'duration', value: '10' },
+      { type: 'setOption', stage: 'animate', key: 'loop', value: true },
+      { type: 'setOption', stage: 'animate', key: 'rewind', value: true },
+      { type: 'setPrompt', stage: 'animate', prompt: 'a slow drift' },
+      { type: 'choosePreset', stage: 'animate', presetId: 'slow-drift' },
+      { type: 'pinSeed', stage: 'animate', value: 7 },
+      { type: 'unpinSeed', stage: 'animate' }
+    )
+
+    expect(openProjectOf(after).drafts.animate.modelId).toBe(chosen)
   })
 })
 

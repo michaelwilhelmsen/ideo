@@ -13,7 +13,10 @@
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
+  buildRequest,
   freezeRecipe,
+  modelById,
+  MODEL_REGISTRY,
   type EditorAction,
   type Project,
   type StageKind,
@@ -73,6 +76,17 @@ export function useRunStage(
       const recipe = freezeRecipe(project, stage)
       if (recipe === null) return
 
+      // The registry decides what goes on the wire (#25): the endpoint, the
+      // aspect idiom, our defaults rather than fal's, and a seed only where
+      // there is a field for one. `modelById` throws on an id with no entry, so
+      // an unknown model fails here rather than as a 422 after the charge
+      // (PRD §5 — no arbitrary model ids).
+      const built = buildRequest(
+        modelById(MODEL_REGISTRY, recipe.modelId),
+        project.aspect,
+        recipe
+      )
+
       // One job per click. `batch` is 1 for the source stage until #26 raises
       // it, and fanning out here before then would be a batch the concurrency
       // cap has never actually had to hold — see PRD §3.3.
@@ -85,8 +99,8 @@ export function useRunStage(
           stage,
           recipe,
           prompt: recipe.prompt,
-          aspect: project.aspect,
-          pinnedSeed: recipe.seed.mode === 'pinned' ? recipe.seed.value : null,
+          modelId: built.modelId,
+          params: built.params,
         },
         {
           // A submit that failed bought nothing and mints nothing: an empty

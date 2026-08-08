@@ -115,7 +115,7 @@
   "editor.loop.endFrame": "Return to the first frame",
   "editor.rewind.pingPong": "Play forward, then reverse",
   "editor.price.unknown": "Price not checked for this model.",
-  "editor.price.estimate": "~${{amount}} for {{count}} × {{unit}} (price checked {{date}})",
+  "editor.price.approximate": "~{{amount}} (approximate, prices checked {{date}})",
   "editor.action.run": "Generate {{count}}",
   "editor.action.rerun": "Re-run ({{count}})",
   "editor.action.approve": "Approve",

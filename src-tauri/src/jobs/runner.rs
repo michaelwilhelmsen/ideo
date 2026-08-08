@@ -73,8 +73,15 @@ pub struct StartRequest {
     /// The draft, frozen. Opaque — see `jobs::store`.
     pub recipe: Value,
     pub prompt: String,
-    pub aspect: String,
-    pub pinned_seed: Option<f64>,
+    /// Which endpoint to call. Checked against the capability registry on the
+    /// TypeScript side before it is sent (PRD §5 — no arbitrary model ids) and
+    /// checked for URL safety here, because Rust is the side that spends.
+    pub model_id: String,
+    /// The rest of the request body, keyed by the model's own field names and
+    /// built by the registry. Opaque here on purpose: knowing that Luma spells
+    /// duration `"5s"` requires the capability table, and there is one of
+    /// those.
+    pub params: Value,
 }
 
 /// What the caller gets back: a job that is now on the books, not a result.
@@ -141,7 +148,9 @@ pub async fn start(app: AppHandle, request: StartRequest) -> Result<SubmittedJob
     validate_id(&request.project_id)
         .map_err(|e| GenerationError::with_detail(GenerationErrorReason::CouldNotSave, e))?;
 
-    let size = fal::image_size_for(&request.aspect)?;
+    // Before the key is fetched and long before the charge: an unusable
+    // endpoint id is not worth a keychain prompt.
+    fal::validate_model_id(&request.model_id)?;
 
     let key = stored_key()
         .map_err(|e| GenerationError::with_detail(GenerationErrorReason::NoApiKey, e))?
@@ -151,7 +160,7 @@ pub async fn start(app: AppHandle, request: StartRequest) -> Result<SubmittedJob
     // the submit is the charge — queueing behind the cap is the point.
     let permit = slot().await;
 
-    let submitted = fal::submit(&key, &prompt, size, request.pinned_seed).await?;
+    let submitted = fal::submit(&key, &request.model_id, &prompt, &request.params).await?;
     log::info!("generation submitted, request {}", submitted.request_id);
 
     let target = JobTarget {
@@ -175,7 +184,7 @@ pub async fn start(app: AppHandle, request: StartRequest) -> Result<SubmittedJob
                 generation_id: &request.generation_id,
                 stage: &request.stage,
                 recipe: &request.recipe,
-                model_id: fal::MODEL_ID,
+                model_id: &request.model_id,
                 status_url: &submitted.status_url,
                 response_url: &submitted.response_url,
                 cancel_url: submitted.cancel_url.as_deref(),

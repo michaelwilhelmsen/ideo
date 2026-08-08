@@ -10,14 +10,92 @@
  * Pure. No React, no fixtures, no strings a user reads (reasons are i18n keys).
  */
 
+import { aspectById, ASPECTS, isAspectId } from './aspects'
 import type { AspectId, ParamValue, StageKind, StageParams } from './types'
 
 /**
- * The registry fields the UI actually derives from.
+ * Which preset variant a model wants (PRD §5, §6).
  *
- * Deliberately a subset of PRD §5's table: `durationFormat`, `promptStyle` and
- * friends matter to the request builder, not to the layout question this
- * prototype is answering, and a field nothing reads is a field nothing checks.
+ * `tags` exists because Qwen-Image 2 has a real `negative_prompt` and reads as
+ * a keyword list; every other model surveyed is instruction-driven prose.
+ */
+export type PromptStyle = 'prose' | 'tags'
+
+/**
+ * How a duration value has to be serialised.
+ *
+ * Three idioms across the surveyed field, and sending the wrong primitive is a
+ * 422 (PRD §5, §9.1): Kling and flux-3 take bare integers, Veo takes `"8s"`,
+ * Luma takes `"5s"`. `durations` is stored verbatim as strings regardless —
+ * this field says what to turn them into on the wire.
+ */
+export type DurationFormat = 'integer' | 'string' | 'secondsSuffixed'
+
+/**
+ * Numeric bounds on an explicit `{width, height}`, read from `x-fal` and the
+ * schema prose (`docs/research/model-schemas.md`).
+ *
+ * `multipleOf` is never below 16 in this registry even where a model declares
+ * none: PRD §12 found fal snapping 1280×720 to 1280×704, which changed the
+ * ratio the project had locked. Choosing multiples ourselves is how the lock
+ * survives the request.
+ */
+export interface DimensionConstraints {
+  readonly multipleOf: number
+  readonly minEdge: number
+  readonly maxEdge: number
+  readonly minPixels: number
+  readonly maxPixels: number
+  /** Longest edge over shortest, e.g. `3` for gpt-image-2's ≤ 3:1. */
+  readonly maxRatio: number | null
+}
+
+/**
+ * How a model is told what shape to produce — three idioms, not two.
+ *
+ * `readonly AspectId[]` was the old shape and it could not hold the largest
+ * group of image models, the ones taking explicit `{width, height}` under
+ * numeric constraints. Recording those as a ratio list answers
+ * `modelAvailability` correctly by accident while discarding everything the
+ * request builder needs: a different field name, a different value shape, and
+ * the arithmetic that decides whether a ratio is legal at a chosen size.
+ *
+ * - `ratioEnum` — a fixed list. Keyed by *our* `AspectId` and valued by the
+ *   provider's own token, because the two are not the same string: `21:9` on
+ *   FLUX Kontext, `landscape_16_9` on an `image_size` enum. A ratio absent
+ *   from the record is a ratio the model cannot serve.
+ * - `freeDimensions` — any ratio inside the bounds, sent as `{width, height}`.
+ * - `inheritsFromSource` — no size field at all; geometry comes from the input
+ *   image, so every project ratio is servable and nothing is sent.
+ */
+export type AspectSupport =
+  | {
+      readonly kind: 'ratioEnum'
+      readonly param: string
+      readonly values: Readonly<Partial<Record<AspectId, string>>>
+    }
+  | {
+      readonly kind: 'freeDimensions'
+      readonly param: string
+      readonly constraints: DimensionConstraints
+    }
+  | { readonly kind: 'inheritsFromSource' }
+
+/** PRD §10.2 — approximate, and dated so staleness is visible. */
+export interface Price {
+  readonly amount: number
+  /**
+   * What `amount` buys. `megapixel` is billed rounded up, `second` multiplies
+   * by the chosen duration — see `estimateCost`.
+   */
+  readonly unit: 'image' | 'megapixel' | 'second'
+  /** ISO date the rate was read on. Shown to the user, never hidden. */
+  readonly verifiedOn: string
+}
+
+/**
+ * The registry fields the UI and the request builder derive from — PRD §5's
+ * table, less the fields nothing reads yet.
  *
  * `stage` reuses the UI's names (source/style/animate) rather than §5's
  * (image/restyle/video) so there is one vocabulary on screen.
@@ -27,8 +105,10 @@ export interface ModelCapabilities {
   readonly label: string
   readonly provider: 'fal'
   readonly stage: StageKind
-  /** PRD §4.4/§10 — which locked project ratios this model can serve. */
-  readonly aspects: readonly AspectId[] | 'inheritsFromSource'
+  /** PRD §5 — which preset variant this model's prompt wants. */
+  readonly promptStyle: PromptStyle
+  /** PRD §4.4/§10 — how the locked project ratio reaches this model. */
+  readonly aspects: AspectSupport
   /** PRD §4.3 — gates seed recording *and* pinning. */
   readonly supportsSeed: boolean
   /** The API field name, or null. Named differently on every model (§5). */
@@ -37,17 +117,15 @@ export interface ModelCapabilities {
   /** PRD §4.5 — the presence of this field is what makes looping offerable. */
   readonly endFrameParam: string | null
   readonly durationParam: string | null
+  /** Verbatim from the schema enum, as strings. See `durationFormat`. */
   readonly durations: readonly string[]
+  /** Null exactly when `durationParam` is. */
+  readonly durationFormat: DurationFormat | null
   readonly resolutionParam: string | null
   readonly resolutions: readonly string[]
   /** Ours, never the API's (PRD §5, §6.3). Keyed by API field name. */
   readonly defaults: StageParams
-  /** PRD §10.2 — approximate, and dated so staleness is visible. */
-  readonly price: {
-    readonly amount: number
-    readonly unit: string
-    readonly verifiedOn: string
-  } | null
+  readonly price: Price | null
   readonly notes: string
 }
 
@@ -115,19 +193,212 @@ export function controlAvailability(
   }
 }
 
+/** An explicit output size, in pixels. */
+export interface PixelSize {
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * The largest size at *exactly* this ratio that the constraints allow, or
+ * `null` when the ratio cannot be expressed at all.
+ *
+ * Exactly, not approximately: the project ratio is locked (PRD §4.4) and a
+ * request that rounds it is a hero that no longer fits the slot it was made
+ * for. So the search walks multiples of the ratio in lowest terms rather than
+ * scaling one edge and rounding the other.
+ *
+ * Largest, because these models bill by megapixel or not at all and a hero is
+ * the one image where resolution is the point — but bounded by `maxPixels`, so
+ * a generous ceiling never turns into a bill nobody asked for.
+ */
+export function legalSizeFor(
+  constraints: DimensionConstraints,
+  aspect: AspectId
+): PixelSize | null {
+  const { width: a, height: b } = aspectById(aspect)
+  const { multipleOf, minEdge, maxEdge, minPixels, maxPixels, maxRatio } =
+    constraints
+
+  const longest = Math.max(a, b) / Math.min(a, b)
+  if (maxRatio !== null && longest > maxRatio) return null
+
+  // The smallest k for which both edges of k·(a:b) land on the grid. Bounded
+  // by `multipleOf` itself — beyond that the residues repeat.
+  let step = 0
+  for (let k = 1; k <= multipleOf; k += 1) {
+    if ((k * a) % multipleOf === 0 && (k * b) % multipleOf === 0) {
+      step = k
+      break
+    }
+  }
+  if (step === 0) return null
+
+  // Walk down from the largest multiple the edge ceiling permits. Bounded, so
+  // a nonsense `maxEdge` cannot spin: `n` only ever decreases.
+  const maxN = Math.floor(maxEdge / (step * Math.max(a, b)))
+
+  for (let n = maxN; n >= 1; n -= 1) {
+    const width = n * step * a
+    const height = n * step * b
+    if (Math.min(width, height) < minEdge) break
+
+    const pixels = width * height
+    if (pixels > maxPixels) continue
+    if (pixels < minPixels) break
+
+    return { width, height }
+  }
+
+  return null
+}
+
 /**
  * PRD §10 — a model is validated against the project's locked aspect ratio at
  * *selection* time, so an incompatible model is refused before it can be
  * chosen rather than at submit, after the user has typed a prompt.
+ *
+ * All three idioms answer the same question. A ratio-enum model serves the
+ * ratios it lists; a free-dimension model serves any ratio it has a legal size
+ * for; a model that inherits its geometry serves whatever the input was.
  */
 export function modelAvailability(
   model: ModelCapabilities,
   aspect: AspectId
 ): ControlAvailability {
-  if (model.aspects === 'inheritsFromSource') return AVAILABLE
-  return model.aspects.includes(aspect)
-    ? AVAILABLE
-    : { state: 'disabled', reasonKey: 'editor.reason.aspectUnsupported' }
+  const unsupported: ControlAvailability = {
+    state: 'disabled',
+    reasonKey: 'editor.reason.aspectUnsupported',
+  }
+
+  switch (model.aspects.kind) {
+    case 'inheritsFromSource':
+      return AVAILABLE
+    case 'ratioEnum':
+      return model.aspects.values[aspect] === undefined
+        ? unsupported
+        : AVAILABLE
+    case 'freeDimensions':
+      return legalSizeFor(model.aspects.constraints, aspect) === null
+        ? unsupported
+        : AVAILABLE
+  }
+}
+
+/**
+ * The aspect field this model wants, ready to spread into a request body.
+ *
+ * Empty for a model that inherits its geometry — the absence of a key, not a
+ * null value, because fal validates unknown fields.
+ */
+export function aspectRequestFields(
+  model: ModelCapabilities,
+  aspect: AspectId
+): Readonly<Record<string, string | PixelSize>> {
+  switch (model.aspects.kind) {
+    case 'inheritsFromSource':
+      return {}
+
+    case 'ratioEnum': {
+      const token = model.aspects.values[aspect]
+      if (token === undefined) {
+        throw new Error(
+          `Model "${model.id}" cannot produce aspect ratio "${aspect}"`
+        )
+      }
+      return { [model.aspects.param]: token }
+    }
+
+    case 'freeDimensions': {
+      const size = legalSizeFor(model.aspects.constraints, aspect)
+      if (size === null) {
+        throw new Error(
+          `Model "${model.id}" cannot produce aspect ratio "${aspect}"`
+        )
+      }
+      return { [model.aspects.param]: size }
+    }
+  }
+}
+
+/**
+ * A duration as the model's own schema wants it (PRD §5) — the whole reason
+ * `durationFormat` exists, since the wrong primitive is a 422.
+ */
+export function serializeDuration(
+  model: ModelCapabilities,
+  value: string
+): string | number {
+  const seconds = durationSeconds(value)
+
+  switch (model.durationFormat) {
+    case 'integer':
+      if (seconds === null) {
+        throw new Error(`Duration "${value}" is not a number on "${model.id}"`)
+      }
+      return seconds
+    case 'secondsSuffixed':
+      return value.endsWith('s') ? value : `${value}s`
+    case 'string':
+      return value.endsWith('s') ? value.slice(0, -1) : value
+    case null:
+      throw new Error(`Model "${model.id}" has no duration parameter`)
+  }
+}
+
+/** `"5s"` and `"5"` are both five seconds; anything else is not a duration. */
+export function durationSeconds(value: string): number | null {
+  const parsed = Number(value.endsWith('s') ? value.slice(0, -1) : value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/** What a run of this model would cost, as far as anyone can tell. */
+export interface CostBasis {
+  readonly aspect: AspectId
+  /** How many candidates the run produces. */
+  readonly batch: number
+  /** The chosen duration, verbatim from `durations`. Video only. */
+  readonly duration?: string
+}
+
+/**
+ * PRD §10.2 — an approximate figure before the money is spent, or `null` when
+ * there is nothing honest to say.
+ *
+ * `null` is a real answer here, not a failure: `gpt-image-2` is token-priced
+ * and no per-image number exists for it. Showing a made-up one would be worse
+ * than showing none, because the whole point of the dated estimate is that the
+ * user can tell how much to trust it.
+ */
+export function estimateCost(
+  model: ModelCapabilities,
+  basis: CostBasis
+): number | null {
+  const price = model.price
+  if (price === null) return null
+
+  switch (price.unit) {
+    case 'image':
+      return price.amount * basis.batch
+
+    case 'megapixel': {
+      if (model.aspects.kind !== 'freeDimensions') return null
+      const size = legalSizeFor(model.aspects.constraints, basis.aspect)
+      if (size === null) return null
+      // Every megapixel-priced endpoint surveyed bills rounded up.
+      const megapixels = Math.ceil((size.width * size.height) / 1_000_000)
+      return price.amount * megapixels * basis.batch
+    }
+
+    case 'second': {
+      const chosen =
+        basis.duration ??
+        String(model.defaults[model.durationParam ?? ''] ?? '')
+      const seconds = durationSeconds(chosen)
+      if (seconds === null || seconds <= 0) return null
+      return price.amount * seconds * basis.batch
+    }
+  }
 }
 
 /**
@@ -170,4 +441,179 @@ export function modelsForStage(
   stage: StageKind
 ): readonly ModelCapabilities[] {
   return registry.filter(model => model.stage === stage)
+}
+
+/**
+ * Fails loudly on a malformed entry, naming it.
+ *
+ * PRD §5: "Registry entries are correctness, not taste: a wrong capability
+ * produces confusing API failures with no visual feedback that you got it
+ * wrong." The type system covers the shape; this covers the agreements it
+ * cannot express — that `durations` and `durationFormat` appear together, that
+ * a ratio token is not the empty string, that two entries do not share an id.
+ *
+ * Called at module load rather than from a test, so a bad registry is a
+ * startup crash rather than a 422 at the paid step.
+ */
+export function validateRegistry(
+  registry: readonly ModelCapabilities[]
+): readonly ModelCapabilities[] {
+  const seen = new Set<string>()
+
+  for (const model of registry) {
+    const fail = (problem: string): never => {
+      throw new Error(`Registry entry "${model.id || '(unnamed)'}": ${problem}`)
+    }
+
+    if (model.id.trim() === '') fail('has no id')
+    if (seen.has(model.id)) fail('is declared twice')
+    seen.add(model.id)
+
+    if (model.label.trim() === '') fail('has no label')
+    if (model.notes.trim() === '') fail('has no notes')
+    if (!STAGES.includes(model.stage))
+      fail(`has unknown stage "${model.stage}"`)
+
+    validateAspects(model, fail)
+
+    if ((model.durationParam === null) !== (model.durationFormat === null)) {
+      fail('must declare durationParam and durationFormat together')
+    }
+    if (model.durationParam === null && model.durations.length > 0) {
+      fail('lists durations but has no durationParam')
+    }
+    if (model.durationParam !== null && model.durations.length === 0) {
+      fail('has a durationParam but lists no durations')
+    }
+    for (const duration of model.durations) {
+      if (durationSeconds(duration) === null) {
+        fail(`lists an unparseable duration "${duration}"`)
+      }
+    }
+
+    if ((model.resolutionParam === null) !== (model.resolutions.length === 0)) {
+      fail('must declare resolutionParam and resolutions together')
+    }
+
+    // A default nothing reads is a default nobody maintains, and a default for
+    // a field the model does not have is a 422 waiting to be sent.
+    for (const key of Object.keys(model.defaults)) {
+      if (!declaredParams(model).has(key)) {
+        fail(`defaults an undeclared parameter "${key}"`)
+      }
+    }
+    const durationDefault = model.defaults[model.durationParam ?? '']
+    if (
+      model.durationParam !== null &&
+      durationDefault !== undefined &&
+      !model.durations.includes(String(durationDefault))
+    ) {
+      fail(
+        `defaults duration "${String(durationDefault)}", which is not offered`
+      )
+    }
+    const resolutionDefault = model.defaults[model.resolutionParam ?? '']
+    if (
+      model.resolutionParam !== null &&
+      resolutionDefault !== undefined &&
+      !model.resolutions.includes(String(resolutionDefault))
+    ) {
+      fail(
+        `defaults resolution "${String(resolutionDefault)}", which is not offered`
+      )
+    }
+
+    if (model.price !== null) {
+      if (!(model.price.amount > 0)) fail('has a non-positive price')
+      if (!ISO_DATE.test(model.price.verifiedOn)) {
+        fail(`has an undated price ("${model.price.verifiedOn}")`)
+      }
+    }
+  }
+
+  return registry
+}
+
+const STAGES: readonly StageKind[] = ['source', 'style', 'animate']
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Whether this model has a field by that name.
+ *
+ * The request builder's filter: a persisted draft can name anything (a manifest
+ * written by a build with a different registry, or hand-edited), and fal
+ * rejects a body carrying a field the endpoint has never heard of.
+ */
+export function declaresParam(model: ModelCapabilities, key: string): boolean {
+  return declaredParams(model).has(key)
+}
+
+/** Every API field name this entry claims the model understands. */
+function declaredParams(model: ModelCapabilities): ReadonlySet<string> {
+  const names = [
+    model.strengthParam,
+    model.negativePromptParam,
+    model.endFrameParam,
+    model.durationParam,
+    model.resolutionParam,
+    model.aspects.kind === 'inheritsFromSource' ? null : model.aspects.param,
+    // Not a registry field: it is the model's own, and every entry that sends
+    // it declares `supportsSeed` instead.
+    model.supportsSeed ? 'seed' : null,
+  ].filter((name): name is string => name !== null)
+
+  return new Set([...names, ...EXTRA_PARAMS])
+}
+
+/**
+ * Fields no registry column names but some model still needs sent — the
+ * `generate_audio: false` of PRD §9, which is billed and unwanted on a hero
+ * loop that has no sound.
+ */
+const EXTRA_PARAMS: readonly string[] = [
+  'generate_audio',
+  'guidance_scale',
+  'num_inference_steps',
+  'enable_safety_checker',
+  'output_format',
+]
+
+function validateAspects(
+  model: ModelCapabilities,
+  fail: (problem: string) => never
+): void {
+  const aspects = model.aspects
+
+  if (aspects.kind === 'inheritsFromSource') return
+
+  if (aspects.param.trim() === '')
+    fail('has an aspect idiom with no field name')
+
+  if (aspects.kind === 'ratioEnum') {
+    const entries = Object.entries(aspects.values)
+    if (entries.length === 0) fail('lists no ratios it can serve')
+    for (const [id, token] of entries) {
+      if (!isAspectId(id))
+        fail(`maps a ratio "${id}" this build does not offer`)
+      if (typeof token !== 'string' || token.trim() === '') {
+        fail(`maps ratio "${id}" to an empty provider token`)
+      }
+    }
+    return
+  }
+
+  const c = aspects.constraints
+  if (c.multipleOf < 1) fail('has a multipleOf below 1')
+  if (c.minEdge < 1 || c.maxEdge < c.minEdge)
+    fail('has an impossible edge range')
+  if (c.minPixels < 1 || c.maxPixels < c.minPixels) {
+    fail('has an impossible pixel range')
+  }
+  if (c.maxRatio !== null && c.maxRatio < 1) fail('has a maxRatio below 1')
+
+  // A free-dimension model that can serve nothing we offer is a typo in the
+  // bounds, not a model worth listing.
+  if (ASPECTS.every(a => legalSizeFor(c, a.id) === null)) {
+    fail('has constraints that admit none of the curated ratios')
+  }
 }
