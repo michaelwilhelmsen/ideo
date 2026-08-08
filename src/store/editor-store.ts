@@ -4,16 +4,20 @@
  * Zustand holds it because three panels that are siblings in the layout all
  * need it (PRD §10), but the transitions themselves live in the pure reducer
  * in `lib/recipe` — the store is a subscription mechanism, not a place for
- * logic. When #23 makes projects persistent, TanStack Query takes over loading
- * and this shrinks to the unsaved edit in front of you.
+ * logic.
+ *
+ * What it holds is the *open* project and the edit in front of you. The
+ * library itself is on disk and cached by TanStack Query
+ * (`services/projects.ts`); this store starts empty and is filled by whatever
+ * the user opens.
  */
 
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import {
   createEditorReducer,
+  emptyEditorState,
   FIXTURE_REGISTRY,
-  initialEditorState,
   type EditorAction,
   type EditorState,
 } from '@/lib/recipe'
@@ -33,7 +37,7 @@ interface EditorStore {
 export const useEditorStore = create<EditorStore>()(
   devtools(
     set => ({
-      state: initialEditorState(),
+      state: emptyEditorState(),
 
       dispatch: action =>
         set(
@@ -42,7 +46,7 @@ export const useEditorStore = create<EditorStore>()(
           action.type
         ),
 
-      reset: () => set({ state: initialEditorState() }, undefined, 'reset'),
+      reset: () => set({ state: emptyEditorState() }, undefined, 'reset'),
     }),
     { name: 'editor-store' }
   )

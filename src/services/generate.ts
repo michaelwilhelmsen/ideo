@@ -9,15 +9,24 @@ import {
   type GenerationProgress,
 } from '@/lib/tauri-bindings'
 
-/**
- * Currently unwired. #22's pane was retired when #33 made the three-stage
- * editor the main window, and the editor still runs on fixtures — #23 is the
- * slice that connects this to the source stage. The Rust side of the exchange
- * is unaffected and still covered by its own tests.
- */
-
 /** Matches PROGRESS_EVENT in src-tauri/src/commands/generate.rs. */
 const PROGRESS_EVENT = 'generation-progress'
+
+/**
+ * Everything Rust needs to make one image and file it under a project.
+ *
+ * The generation id is minted here rather than returned: the file is named
+ * after it, so the manifest entry and the file on disk agree by construction
+ * instead of by a reconciliation step.
+ */
+export interface GenerationRequest {
+  readonly projectId: string
+  readonly generationId: string
+  readonly prompt: string
+  readonly aspect: string
+  /** The recipe's pinned seed, if it has one (PRD §4.3). */
+  readonly pinnedSeed: number | null
+}
 
 /**
  * Submits a prompt and resolves with the finished generation.
@@ -30,9 +39,15 @@ const PROGRESS_EVENT = 'generation-progress'
  * chose.
  */
 export function useGenerateImage() {
-  return useMutation<Generation, GenerationError, string>({
-    mutationFn: async (prompt: string): Promise<Generation> => {
-      const result = await commands.generateImage(prompt)
+  return useMutation<Generation, GenerationError, GenerationRequest>({
+    mutationFn: async (request: GenerationRequest): Promise<Generation> => {
+      const result = await commands.generateImage(
+        request.projectId,
+        request.generationId,
+        request.prompt,
+        request.aspect,
+        request.pinnedSeed
+      )
 
       if (result.status === 'error') {
         logger.error('Generation failed', {
@@ -45,6 +60,7 @@ export function useGenerateImage() {
       logger.info('Generation complete', {
         requestId: result.data.request_id,
         seed: result.data.seed,
+        asset: result.data.asset,
       })
       return result.data
     },

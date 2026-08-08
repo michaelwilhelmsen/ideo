@@ -67,14 +67,102 @@ async clearFalApiKey() : Promise<Result<null, string>> {
 }
 },
 /**
- * Generates one image from a prompt, saves it, and reports back.
+ * Generates one image from a prompt, files it under the project, and reports
+ * back.
+ * 
+ * The generation id is minted by the caller and passed in rather than
+ * returned: the file is named after it, so the manifest and the folder agree
+ * without anyone having to reconcile them afterwards.
+ * 
+ * `pinned_seed` is the seed the recipe asked for, if it asked for one
+ * (PRD §4.3). Passing it is what makes "same seed, one changed fragment" a
+ * real comparison rather than an approximate one.
  * 
  * Progress arrives as `generation-progress` events rather than as a return
  * value, because the interesting part happens while this is still running.
  */
-async generateImage(prompt: string) : Promise<Result<Generation, GenerationError>> {
+async generateImage(projectId: string, generationId: string, prompt: string, aspect: string, pinnedSeed: number | null) : Promise<Result<Generation, GenerationError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("generate_image", { prompt }) };
+    return { status: "ok", data: await TAURI_INVOKE("generate_image", { projectId, generationId, prompt, aspect, pinnedSeed }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The project list (PRD §10's left sidebar).
+ * 
+ * Reconciles first, so a deleted database, a project restored from a backup
+ * and a folder copied in by hand all show up as simply "the projects".
+ */
+async listProjects() : Promise<Result<ProjectSummary[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_projects") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * One project's manifest, as it is on disk.
+ */
+async loadProject(projectId: string) : Promise<Result<ProjectRecord, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("load_project", { projectId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Writes a manifest and updates its index row.
+ * 
+ * Also the create path: a project is created by saving one. There is no
+ * separate "new project" on disk, so creation and every later edit take the
+ * identical code path — including the atomic write.
+ */
+async saveProject(manifest: JsonValue) : Promise<Result<ProjectSummary, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_project", { manifest }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Deletes a project and everything in its folder.
+ * 
+ * The one thing here that removes anything without being asked twice, which
+ * is why the caller is expected to have asked. PRD §10.3 keeps *candidates*,
+ * not projects someone has explicitly thrown away.
+ */
+async deleteProject(projectId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_project", { projectId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * What the project costs on disk, and how much of it nothing points at
+ * (PRD §10.3).
+ */
+async projectUsage(projectId: string) : Promise<Result<ProjectUsage, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("project_usage", { projectId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Removes the unreferenced assets, and only those. Deliberate, never
+ * automatic — nothing is discarded until someone asks (PRD §10.3).
+ */
+async cleanupUnusedAssets(projectId: string) : Promise<Result<CleanupOutcome, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cleanup_unused_assets", { projectId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -232,15 +320,29 @@ quick_pane_shortcut: string | null;
  */
 language: string | null }
 /**
+ * The result of a cleanup, so the UI can say what it actually did rather than
+ * "done".
+ */
+export type CleanupOutcome = { removedCount: number; freedBytes: number }
+/**
  * A finished generation: the image, where it landed, and the recipe fragments
- * worth keeping. The seed is captured even though nothing shows it yet — it is
- * what makes a generation reproducible, and re-rolling costs money (PRD §4.3).
+ * worth keeping. The seed is captured because it is what makes a generation
+ * reproducible, and re-rolling costs money (PRD §4.3).
  */
 export type Generation = { request_id: string; prompt: string; model_id: string; seed: string | null; 
 /**
  * fal-hosted URL. Temporary — the file on disk is the durable copy.
  */
-image_url: string; image_path: string; width: number | null; height: number | null }
+image_url: string; 
+/**
+ * The file name inside the project's `assets` folder. This is what the
+ * manifest records, so it must survive the app-data folder moving.
+ */
+asset: string; 
+/**
+ * The same file, resolved. Transient — for display, never for storage.
+ */
+image_path: string; width: number | null; height: number | null }
 /**
  * A failure, as it crosses to the frontend.
  */
@@ -351,6 +453,38 @@ export type KeyCheckOutcome =
  * The endpoint answered something we don't recognise.
  */
 "unexpected"
+/**
+ * A loaded project: the manifest, and where it came from.
+ */
+export type ProjectRecord = { directory: string; 
+/**
+ * Opaque here, validated in TypeScript. See the module comment.
+ */
+manifest: JsonValue }
+/**
+ * One row of the project list. Cheap enough to hold for every project, which
+ * is the point of having an index at all (PRD §3.2).
+ */
+export type ProjectSummary = { id: string; name: string; aspect: string; 
+/**
+ * Milliseconds since the epoch. `f64` because that is what a JS number is
+ * — an `i64` would cross the boundary as a string and buy nothing.
+ */
+createdAt: number; updatedAt: number; generationCount: number; 
+/**
+ * Where the manifest was found. Not stored in the manifest: a copied
+ * folder must not insist it still lives where it was copied from.
+ */
+directory: string }
+/**
+ * What a project costs on disk, and how much of that nothing refers to
+ * (PRD §10.3 — the visible pressure valve).
+ */
+export type ProjectUsage = { totalBytes: number; assetCount: number; 
+/**
+ * Files in `assets` no generation refers to.
+ */
+unusedBytes: number; unusedCount: number }
 /**
  * Where a submitted job has got to.
  */

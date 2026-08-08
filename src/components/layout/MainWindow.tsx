@@ -16,6 +16,7 @@ import { Toaster } from 'sonner'
 import { useTheme } from '@/hooks/use-theme'
 import { useUIStore } from '@/store/ui-store'
 import { useMainWindowEventListeners } from '@/hooks/useMainWindowEventListeners'
+import { useProjectLibrary } from '@/services/projects'
 import { cn } from '@/lib/utils'
 
 /**
@@ -40,6 +41,10 @@ export function MainWindow() {
 
   // Set up global event listeners (keyboard shortcuts, etc.)
   useMainWindowEventListeners()
+
+  // Keep the editor and the project folders on disk in agreement (#23):
+  // loads the library, opens something, and writes edits back.
+  useProjectLibrary()
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden rounded-[var(--app-corner-radius)] bg-background">

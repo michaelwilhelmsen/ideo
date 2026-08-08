@@ -1,7 +1,9 @@
 use tauri_specta::{collect_commands, Builder};
 
 pub fn generate_bindings() -> Builder<tauri::Wry> {
-    use crate::commands::{api_key, generate, notifications, preferences, quick_pane, recovery};
+    use crate::commands::{
+        api_key, generate, notifications, preferences, projects, quick_pane, recovery,
+    };
 
     Builder::<tauri::Wry>::new()
         .commands(collect_commands![
@@ -11,6 +13,12 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             api_key::check_fal_api_key,
             api_key::clear_fal_api_key,
             generate::generate_image,
+            projects::list_projects,
+            projects::load_project,
+            projects::save_project,
+            projects::delete_project,
+            projects::project_usage,
+            projects::cleanup_unused_assets,
             preferences::load_preferences,
             preferences::save_preferences,
             notifications::send_native_notification,

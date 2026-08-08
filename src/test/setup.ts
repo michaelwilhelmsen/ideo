@@ -17,6 +17,12 @@ Object.defineProperty(window, 'matchMedia', {
 })
 
 // Mock Tauri APIs for tests
+vi.mock('@tauri-apps/api/core', () => ({
+  // Asset URLs go through the webview's protocol handler, which does not exist
+  // under jsdom — the path itself is enough to assert against.
+  convertFileSrc: vi.fn((path: string) => `asset://${path}`),
+}))
+
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn().mockResolvedValue(() => {
     // Mock unlisten function
@@ -57,10 +63,43 @@ vi.mock('@/lib/tauri-bindings', () => ({
         model_id: 'fal-ai/flux-pro/v1.1',
         seed: '1',
         image_url: 'https://example.test/out.jpeg',
+        asset: 'test-generation.jpeg',
         image_path: '/tmp/out.jpeg',
         width: 1280,
         height: 704,
       },
+    }),
+    // Projects (#23). An empty library by default: a test that wants one
+    // says so, rather than every test inheriting a fixture it did not ask for.
+    listProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    loadProject: vi
+      .fn()
+      .mockResolvedValue({ status: 'error', error: 'no such project' }),
+    saveProject: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        id: 'test-project',
+        name: 'Test',
+        aspect: '16:9',
+        createdAt: 0,
+        updatedAt: 0,
+        generationCount: 0,
+        directory: '/tmp/projects/test-project',
+      },
+    }),
+    deleteProject: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    projectUsage: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        totalBytes: 0,
+        assetCount: 0,
+        unusedBytes: 0,
+        unusedCount: 0,
+      },
+    }),
+    cleanupUnusedAssets: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { removedCount: 0, freedBytes: 0 },
     }),
   },
   unwrapResult: vi.fn((result: { status: string; data?: unknown }) => {

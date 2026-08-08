@@ -10,7 +10,9 @@
  * keeps that from reading as a wizard is the input line under the tabs, which
  * names the upstream candidate this stage is working from.
  *
- * Still fixture-driven — #23 gives it real projects.
+ * The project it edits comes off disk (#23). With nothing open — an empty
+ * library, or one still loading — it says so rather than inventing a project,
+ * which is why `activeProject` is nullable.
  */
 
 import { useTranslation } from 'react-i18next'
@@ -40,6 +42,18 @@ export function StageEditor() {
   const nameOf = useGenerationName()
 
   const project = activeProject(state)
+
+  if (project === null) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+        <h1 className="text-base font-semibold">{t('editor.empty.title')}</h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          {t('editor.empty.description')}
+        </p>
+      </div>
+    )
+  }
+
   const stage = state.activeStage
   const selected = selectedGeneration(project, stage)
 

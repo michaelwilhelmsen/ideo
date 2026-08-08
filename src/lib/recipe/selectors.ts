@@ -4,6 +4,7 @@
  * state, and storing the answers is how two copies drift apart.
  */
 
+import { aspectById } from './aspects'
 import type {
   EditorState,
   Generation,
@@ -19,12 +20,13 @@ export function upstreamOf(stage: StageKind): StageKind | null {
   return index <= 0 ? null : (STAGE_ORDER[index - 1] ?? null)
 }
 
-export function activeProject(state: EditorState): Project {
-  const project = state.projects.find(p => p.id === state.activeProjectId)
-  if (project === undefined) {
-    throw new Error(`No project "${state.activeProjectId}"`)
-  }
-  return project
+/**
+ * The open project, or `null`. Nullable on purpose: an empty library is a
+ * normal state now that projects come off disk, and a component that renders
+ * an editor for a project that is not there is the bug this shape prevents.
+ */
+export function activeProject(state: EditorState): Project | null {
+  return state.project
 }
 
 export function generationsForStage(
@@ -98,6 +100,13 @@ export function blockedReasonKey(
   project: Project,
   stage: StageKind
 ): string | null {
+  // PRD §4.4 — the ratio was marked at creation for whether animation is
+  // possible, and this is where that mark has to do something. Saying it here
+  // costs a disabled button; saying it at submit costs the video call.
+  if (stage === 'animate' && !aspectById(project.aspect).animatable) {
+    return 'editor.reason.aspectNotAnimatable'
+  }
+
   const upstream = upstreamOf(stage)
   if (upstream === null) return null
   if (project.selection[upstream] === null) {
@@ -107,13 +116,26 @@ export function blockedReasonKey(
 }
 
 /**
- * PRD §4.2 — four images, one video. A pinned seed overrides both: every
- * candidate in the batch would be the same picture.
+ * How many candidates one run produces.
+ *
+ * PRD §4.2 wants four images and one video, and #26 is the slice that makes
+ * the image stages four. Until then this says one for every stage, because a
+ * button labelled "Run 4" that makes one paid call — or four, on a stage that
+ * now spends real money — is the kind of disagreement the price estimate
+ * directly above it is supposed to prevent (PRD §10.2).
+ *
+ * `draft` stays in the signature because a pinned seed collapses the batch
+ * regardless of what #26 raises this to: four copies of the same picture is
+ * not a choice.
  */
 export function batchSizeFor(stage: StageKind, draft: StageRecipe): number {
   if (draft.seed.mode === 'pinned') return 1
-  return stage === 'animate' ? 1 : 4
+  return stage === 'animate' ? VIDEO_BATCH : IMAGE_BATCH
 }
+
+/** Raised to four by #26. One is what the source stage actually submits. */
+const IMAGE_BATCH = 1
+const VIDEO_BATCH = 1
 
 /**
  * The two generations a "one fragment changed" comparison is between: the

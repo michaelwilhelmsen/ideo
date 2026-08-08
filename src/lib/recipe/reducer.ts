@@ -12,23 +12,56 @@
 
 import { modelById, reconcileParams, type ModelCapabilities } from './registry'
 import { upstreamOf } from './selectors'
+import { STAGE_ORDER } from './types'
 import type {
   EditorState,
   Generation,
   ParamValue,
   Project,
+  ProjectSummary,
   StageKind,
   StageRecipe,
 } from './types'
 
-/** One model call the caller has already minted an id and a seed for. */
+/**
+ * One model call the caller has already minted an id and a seed for.
+ *
+ * For a stage with a real model behind it the seed is the one fal *used* and
+ * the asset is the file it produced — both are facts by the time this is
+ * dispatched, which is why the generation is minted after the call rather than
+ * before it. A stage still on fixtures passes a rolled seed and no asset.
+ */
 export interface PlannedRun {
   readonly id: string
   readonly seed: number
+  readonly asset: string | null
+}
+
+/** The editor with nothing open — where the app now starts. */
+export function emptyEditorState(): EditorState {
+  return {
+    summaries: [],
+    project: null,
+    directory: null,
+    activeStage: 'source',
+    showRejected: false,
+  }
 }
 
 export type EditorAction =
-  | { readonly type: 'selectProject'; readonly projectId: string }
+  /** The project list arrived from the index. */
+  | {
+      readonly type: 'setSummaries'
+      readonly summaries: readonly ProjectSummary[]
+    }
+  /** A manifest finished loading — this is what "open a project" means now. */
+  | {
+      readonly type: 'openProject'
+      readonly project: Project
+      readonly directory: string
+    }
+  /** The open project was deleted, or there was never one to open. */
+  | { readonly type: 'closeProject' }
   | { readonly type: 'selectStage'; readonly stage: StageKind }
   | {
       readonly type: 'setPrompt'
@@ -88,10 +121,21 @@ export function createEditorReducer(
 ): EditorReducer {
   return function editorReducer(state, action) {
     switch (action.type) {
-      case 'selectProject':
-        return state.projects.some(p => p.id === action.projectId)
-          ? { ...state, activeProjectId: action.projectId }
-          : state
+      case 'setSummaries':
+        return { ...state, summaries: action.summaries }
+
+      case 'openProject':
+        return {
+          ...state,
+          project: action.project,
+          directory: action.directory,
+          // Land on the stage the project has actually got to, so opening an
+          // untouched project does not start on a stage it cannot run.
+          activeStage: furthestStage(action.project),
+        }
+
+      case 'closeProject':
+        return { ...state, project: null, directory: null }
 
       case 'selectStage':
         return { ...state, activeStage: action.stage }
@@ -237,6 +281,7 @@ function runStage(
       verdict: 'unrated',
       createdAt: action.at,
       ordinal: ordinal++,
+      asset: run.asset,
     }
   })
 
@@ -288,16 +333,31 @@ function editDraft(
   }))
 }
 
+/**
+ * Every edit lands on the open project, or on nothing at all. An action that
+ * arrives with nothing open is dropped rather than queued — the only way that
+ * happens is a click racing a project being closed.
+ */
 function editProject(
   state: EditorState,
   change: (project: Project) => Project
 ): EditorState {
-  return {
-    ...state,
-    projects: state.projects.map(project =>
-      project.id === state.activeProjectId ? change(project) : project
-    ),
-  }
+  if (state.project === null) return state
+  return { ...state, project: change(state.project) }
+}
+
+/**
+ * The last stage that has produced anything — where opening a project should
+ * drop you. Stage order is the pipeline order, so this is "as far as this
+ * project has got", not "where you were last time".
+ */
+function furthestStage(project: Project): StageKind {
+  return (
+    [...STAGE_ORDER]
+      .reverse()
+      .find(stage => project.generations.some(g => g.stage === stage)) ??
+    'source'
+  )
 }
 
 /**

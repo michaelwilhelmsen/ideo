@@ -4,8 +4,10 @@
 //! the API key never reaches the webview, and because a queued job the user has
 //! already been charged for is easier to nurse from here than from a hook.
 //!
-//! This is the tracer bullet (#22): one model, one size, no persistence and no
-//! batching. Everything hardcoded here is something a later slice widens.
+//! Started as the tracer bullet (#22): one model, one size, no persistence.
+//! #23 gave it a project — the file now lands in the project's own folder,
+//! under the generation's id, which is what makes cleanup able to tell an
+//! orphan from a candidate. The model is still hardcoded until #25.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -14,16 +16,31 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands::api_key::stored_key;
+use crate::projects::store::{assets_dir, validate_id};
 
 /// Hardcoded for the tracer bullet; #25 replaces this with the model registry.
 /// Chosen because the spike ran this exact endpoint live: $0.04/image, returns
 /// a seed, and its request shape is verified rather than inferred.
 const MODEL_ID: &str = "fal-ai/flux-pro/v1.1";
 
-/// Also hardcoded — #23 and #25 bring per-project aspect ratios. Note that fal
-/// snaps dimensions to a multiple of 16, so the result may not be exactly this.
-const IMAGE_WIDTH: u32 = 1280;
-const IMAGE_HEIGHT: u32 = 720;
+/// The curated ratios of PRD §4.4, as pixels.
+///
+/// Every dimension is a multiple of 16 because fal snaps to one regardless
+/// (PRD §12: 1280×720 came back as 1280×704, changing the ratio). Choosing
+/// multiples ourselves is how the locked ratio survives the request.
+fn image_size_for(aspect: &str) -> Result<(u32, u32), GenerationError> {
+    match aspect {
+        "16:9" => Ok((1280, 720)),
+        "21:9" => Ok((1344, 576)),
+        "2:1" => Ok((1280, 640)),
+        "3:2" => Ok((1248, 832)),
+        "1:1" => Ok((1024, 1024)),
+        other => Err(GenerationError::with_detail(
+            GenerationErrorReason::RequestRejected,
+            format!("unknown aspect ratio {other}"),
+        )),
+    }
+}
 
 const SUBMIT_TIMEOUT: Duration = Duration::from_secs(30);
 const POLL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -41,8 +58,9 @@ const MAX_WAIT: Duration = Duration::from_secs(300);
 /// Event carrying queue progress to the UI, so a 30-second job isn't a freeze.
 const PROGRESS_EVENT: &str = "generation-progress";
 
-/// Where a generation ends up while there are no projects to file it under.
-const GENERATIONS_DIR: &str = "generations";
+/// Where project folders live. The layout below that — the project folder, its
+/// assets folder — belongs to `projects::store`, so this only names the root.
+const PROJECTS_DIR: &str = "projects";
 
 /// Where a submitted job has got to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -65,8 +83,8 @@ pub struct GenerationProgress {
 }
 
 /// A finished generation: the image, where it landed, and the recipe fragments
-/// worth keeping. The seed is captured even though nothing shows it yet — it is
-/// what makes a generation reproducible, and re-rolling costs money (PRD §4.3).
+/// worth keeping. The seed is captured because it is what makes a generation
+/// reproducible, and re-rolling costs money (PRD §4.3).
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct Generation {
     pub request_id: String,
@@ -75,6 +93,10 @@ pub struct Generation {
     pub seed: Option<u64>,
     /// fal-hosted URL. Temporary — the file on disk is the durable copy.
     pub image_url: String,
+    /// The file name inside the project's `assets` folder. This is what the
+    /// manifest records, so it must survive the app-data folder moving.
+    pub asset: String,
+    /// The same file, resolved. Transient — for display, never for storage.
     pub image_path: String,
     pub width: Option<u32>,
     pub height: Option<u32>,
@@ -250,14 +272,14 @@ fn terminal_error(payload: &Value) -> Option<GenerationError> {
     })
 }
 
-/// Builds the filename a generation is saved under. The request id comes from
-/// fal, so it is treated as untrusted: only its final segment is used, and only
-/// characters that cannot walk out of the directory.
-fn file_name_for(request_id: &str, image_url: &str) -> String {
-    let stem: String = request_id
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
+/// Builds the file name a generation is saved under.
+///
+/// Named after the generation rather than fal's request id, because the
+/// manifest refers to candidates by generation id — a file named anything else
+/// would be an orphan the moment cleanup looked at it. The id is still
+/// filtered: it reaches here from the webview.
+fn file_name_for(generation_id: &str, image_url: &str) -> String {
+    let stem: String = generation_id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect();
@@ -303,33 +325,57 @@ fn offline(context: &str, e: impl std::fmt::Display) -> GenerationError {
     GenerationError::new(GenerationErrorReason::Offline)
 }
 
-/// Generates one image from a prompt, saves it, and reports back.
+/// Generates one image from a prompt, files it under the project, and reports
+/// back.
+///
+/// The generation id is minted by the caller and passed in rather than
+/// returned: the file is named after it, so the manifest and the folder agree
+/// without anyone having to reconcile them afterwards.
+///
+/// `pinned_seed` is the seed the recipe asked for, if it asked for one
+/// (PRD §4.3). Passing it is what makes "same seed, one changed fragment" a
+/// real comparison rather than an approximate one.
 ///
 /// Progress arrives as `generation-progress` events rather than as a return
 /// value, because the interesting part happens while this is still running.
 #[tauri::command]
 #[specta::specta]
-pub async fn generate_image(app: AppHandle, prompt: String) -> Result<Generation, GenerationError> {
+pub async fn generate_image(
+    app: AppHandle,
+    project_id: String,
+    generation_id: String,
+    prompt: String,
+    aspect: String,
+    pinned_seed: Option<f64>,
+) -> Result<Generation, GenerationError> {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
         return Err(GenerationError::new(GenerationErrorReason::EmptyPrompt));
     }
 
+    // The generation has to land in a folder that exists and belongs to a
+    // project — a paid call filed nowhere is money spent on nothing.
+    validate_id(&project_id)
+        .map_err(|e| GenerationError::with_detail(GenerationErrorReason::CouldNotSave, e))?;
+
+    let size = image_size_for(&aspect)?;
+
     let key = stored_key()
         .map_err(|e| GenerationError::with_detail(GenerationErrorReason::NoApiKey, e))?
         .ok_or_else(|| GenerationError::new(GenerationErrorReason::NoApiKey))?;
 
-    let submitted = submit(&key, &prompt).await?;
+    let submitted = submit(&key, &prompt, size, pinned_seed).await?;
     log::info!("generation submitted, request {}", submitted.request_id);
 
     let result = await_result(&app, &key, &submitted).await?;
 
-    let image_path = save_image(&app, &submitted.request_id, &result.image_url).await?;
+    let saved = save_image(&app, &project_id, &generation_id, &result.image_url).await?;
 
     log::info!(
-        "generation {} complete, seed {:?}, saved to {image_path}",
+        "generation {} complete, seed {:?}, saved to {}",
         submitted.request_id,
-        result.seed
+        result.seed,
+        saved.path
     );
 
     Ok(Generation {
@@ -338,20 +384,36 @@ pub async fn generate_image(app: AppHandle, prompt: String) -> Result<Generation
         model_id: MODEL_ID.to_string(),
         seed: result.seed,
         image_url: result.image_url,
-        image_path,
+        asset: saved.name,
+        image_path: saved.path,
         width: result.width,
         height: result.height,
     })
 }
 
-async fn submit(key: &str, prompt: &str) -> Result<SubmitResponse, GenerationError> {
+async fn submit(
+    key: &str,
+    prompt: &str,
+    (width, height): (u32, u32),
+    pinned_seed: Option<f64>,
+) -> Result<SubmitResponse, GenerationError> {
+    let mut body = json!({
+        "prompt": prompt,
+        "image_size": { "width": width, "height": height },
+    });
+
+    // `f64` on the way in rather than an integer type: a `u64` crosses the
+    // boundary as a string (see `bindings.rs`), and the recipe model holds
+    // seeds as JS numbers regardless. Exact to 2^53 — the same ceiling the
+    // frontend has, rather than the 2^32 an integer parameter would impose.
+    if let Some(seed) = pinned_seed {
+        body["seed"] = json!(seed as u64);
+    }
+
     let response = client(SUBMIT_TIMEOUT)?
         .post(format!("https://queue.fal.run/{MODEL_ID}"))
         .header("Authorization", format!("Key {key}"))
-        .json(&json!({
-            "prompt": prompt,
-            "image_size": { "width": IMAGE_WIDTH, "height": IMAGE_HEIGHT },
-        }))
+        .json(&body)
         .send()
         .await
         .map_err(|e| offline("Could not submit the generation", e))?;
@@ -463,13 +525,21 @@ async fn fetch_result(
     extract_result(&payload)
 }
 
-/// Downloads the image and writes it next to the others. No auth header — the
-/// media host doesn't need one, and the key has no business being sent there.
+/// A written file: what the manifest records, and where it actually is.
+struct SavedAsset {
+    name: String,
+    path: String,
+}
+
+/// Downloads the image and writes it into the project's assets folder. No auth
+/// header — the media host doesn't need one, and the key has no business being
+/// sent there.
 async fn save_image(
     app: &AppHandle,
-    request_id: &str,
+    project_id: &str,
+    generation_id: &str,
     image_url: &str,
-) -> Result<String, GenerationError> {
+) -> Result<SavedAsset, GenerationError> {
     let bytes = client(DOWNLOAD_TIMEOUT)?
         .get(image_url)
         .send()
@@ -485,28 +555,39 @@ async fn save_image(
             GenerationError::new(GenerationErrorReason::CouldNotSave)
         })?;
 
-    let dir = app
+    let root = app
         .path()
         .app_data_dir()
         .map_err(|e| {
             log::error!("Could not locate the app data directory: {e}");
             GenerationError::new(GenerationErrorReason::CouldNotSave)
         })?
-        .join(GENERATIONS_DIR);
+        .join(PROJECTS_DIR);
 
-    std::fs::create_dir_all(&dir).map_err(|e| {
-        log::error!("Could not create the generations directory: {e}");
+    // The store owns the layout inside a project folder, and validates the id
+    // on the way — one module decides where a project's files are.
+    let dir = assets_dir(&root, project_id).map_err(|e| {
+        log::error!("Refusing to file a generation: {e}");
         GenerationError::new(GenerationErrorReason::CouldNotSave)
     })?;
 
-    let path = dir.join(file_name_for(request_id, image_url));
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        log::error!("Could not create the project's assets directory: {e}");
+        GenerationError::new(GenerationErrorReason::CouldNotSave)
+    })?;
+
+    let name = file_name_for(generation_id, image_url);
+    let path = dir.join(&name);
 
     std::fs::write(&path, &bytes).map_err(|e| {
         log::error!("Could not write the generated image: {e}");
         GenerationError::new(GenerationErrorReason::CouldNotSave)
     })?;
 
-    Ok(path.to_string_lossy().to_string())
+    Ok(SavedAsset {
+        name,
+        path: path.to_string_lossy().to_string(),
+    })
 }
 
 fn emit_progress(app: &AppHandle, progress: GenerationProgress) {
@@ -621,24 +702,65 @@ mod tests {
     #[test]
     fn saved_files_keep_the_extension_the_api_produced() {
         assert_eq!(
-            file_name_for("req-1", "https://v3.fal.media/files/x/out.png"),
-            "req-1.png"
+            file_name_for("gen-1", "https://v3.fal.media/files/x/out.png"),
+            "gen-1.png"
         );
     }
 
     #[test]
     fn an_extensionless_url_falls_back_to_jpeg() {
         assert_eq!(
-            file_name_for("req-1", "https://v3.fal.media/files/x/out"),
-            "req-1.jpeg"
+            file_name_for("gen-1", "https://v3.fal.media/files/x/out"),
+            "gen-1.jpeg"
         );
     }
 
     #[test]
-    fn a_request_id_cannot_escape_the_generations_directory() {
+    fn a_file_is_named_after_the_generation_that_the_manifest_will_refer_to() {
+        // Cleanup matches manifest entries against file names, so this is the
+        // only naming that keeps a candidate from looking like an orphan.
+        assert_eq!(
+            file_name_for(
+                "9f1c8e4a-1111-2222-3333-444455556666",
+                "https://v3.fal.media/x.jpeg"
+            ),
+            "9f1c8e4a-1111-2222-3333-444455556666.jpeg"
+        );
+    }
+
+    #[test]
+    fn a_generation_id_cannot_escape_the_assets_directory() {
         let name = file_name_for("../../etc/passwd", "https://v3.fal.media/x.png");
 
         assert!(!name.contains('/'), "got: {name}");
         assert!(!name.contains(".."), "got: {name}");
+    }
+
+    #[test]
+    fn every_curated_ratio_asks_for_dimensions_fal_will_not_reshape() {
+        // PRD §12 — fal snaps to a multiple of 16, which silently changed
+        // 1280×720 into 1280×704 and the ratio from 1.78 to 1.82.
+        for aspect in ["16:9", "21:9", "2:1", "3:2", "1:1"] {
+            let (width, height) = image_size_for(aspect).expect(aspect);
+            assert_eq!(width % 16, 0, "{aspect} width");
+            assert_eq!(height % 16, 0, "{aspect} height");
+        }
+    }
+
+    #[test]
+    fn the_requested_dimensions_actually_match_the_named_ratio() {
+        let (width, height) = image_size_for("21:9").unwrap();
+        assert!(
+            ((width as f64 / height as f64) - (21.0 / 9.0)).abs() < 0.02,
+            "{width}×{height}"
+        );
+    }
+
+    #[test]
+    fn a_ratio_outside_the_curated_list_is_refused_before_it_is_paid_for() {
+        assert_eq!(
+            image_size_for("4:3").unwrap_err().reason,
+            GenerationErrorReason::RequestRejected
+        );
     }
 }

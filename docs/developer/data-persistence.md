@@ -26,6 +26,11 @@ All data goes through Rust for type safety and security. Use TanStack Query on t
 ```
 ~/Library/Application Support/com.myapp.app/  (macOS)
 ├── preferences.json                          # App preferences
+├── index.sqlite                              # Project index (rebuildable)
+├── projects/                                 # One folder per project
+│   └── <project-id>/
+│       ├── project.json                      # The manifest — source of truth
+│       └── assets/                           # Generated files
 └── recovery/                                 # Emergency data
     └── *.json
 ```
@@ -168,9 +173,55 @@ if filename.contains("..") || filename.contains("/") || filename.contains("\\") 
 
 Use Tauri's `app_data_dir()` for safe storage locations - never write to arbitrary paths.
 
-## SQLite Database (When Needed)
+## Projects: disk authoritative, SQLite as index
 
-> **Note:** SQLite is not installed in this app. Add it when your app needs relational data with queries.
+Projects are the app's own data, and they follow a pattern the sections above do not
+cover — worth reading before adding anything else that persists.
+
+```
+~/Library/Application Support/com.ideo.app/
+├── index.sqlite              # rebuildable cache of the project list
+└── projects/
+    └── <project-id>/
+        ├── project.json      # the manifest — the source of truth
+        └── assets/
+            └── <generation-id>.jpeg
+```
+
+**Disk is authoritative and the database is a cache.** `list_projects` reconciles the
+index against the folders on every call, so deleting `index.sqlite` costs a rescan and
+nothing else. This is asserted, not assumed — see
+`deleting_the_database_file_costs_nothing_but_a_rescan` in
+`src-tauri/src/projects/index.rs`.
+
+**Rust owns the folder; TypeScript owns the schema.** The manifest crosses the boundary
+as opaque JSON (`serde_json::Value`) and is written back byte-for-byte. Rust reads only
+the handful of fields it needs to index and to clean up — id, name, aspect, timestamps,
+asset names. Two consequences worth keeping:
+
+- The recipe model lives in one place (`src/lib/recipe/manifest.ts`), which is where it
+  is also validated. A manifest is untrusted input: it can be hand-edited, copied from
+  another machine, or written by a newer build.
+- Fields this build does not model survive a round trip, so an older build cannot
+  silently downgrade a project it opens.
+
+**Where each half of the state lives.** TanStack Query holds the project _list_ and the
+on-disk facts about it; Zustand holds the _open_ project, because that is a live
+document edited many times a second. `useProjectLibrary` in `src/services/projects.ts`
+is the seam, and it debounces writes rather than saving per keystroke.
+
+| Layer                 | Holds                                   | Module                    |
+| --------------------- | --------------------------------------- | ------------------------- |
+| `projects/store`      | folders, atomic writes, size, cleanup   | `src-tauri/src/projects/` |
+| `projects/index`      | the SQLite cache and its reconciliation | `src-tauri/src/projects/` |
+| `services/projects`   | queries, mutations, autosave            | `src/services/`           |
+| `lib/recipe/manifest` | the on-disk shape, and validating it    | `src/lib/recipe/`         |
+
+## SQLite Database
+
+> Installed as `rusqlite` with the `bundled` feature, for the project index described
+> above. `bundled` compiles SQLite from source, so there is no dependency on whatever
+> version the host ships.
 
 ### When to Use SQLite
 

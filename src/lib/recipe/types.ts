@@ -104,15 +104,29 @@ export interface Generation {
    * The visible name is `t()` over this; the record holds no English.
    */
   readonly ordinal: number
+  /**
+   * The file this generation produced, named relative to the project's assets
+   * folder — never an absolute path, because the manifest has to survive the
+   * app-data directory moving (PRD §3.2).
+   *
+   * `null` while a stage has no model call behind it yet: style and animate are
+   * still fixture-driven, and a generation with no file is exactly what the
+   * cleanup pass must not count as an orphan.
+   */
+  readonly asset: string | null
 }
 
 /**
- * What `project.json` holds (#23).
+ * What `project.json` holds.
  *
  * Note what is *not* here: no job state, no `request_id`, no polling cursor.
  * Those belong to the SQLite index (PRD §3.2/§3.3) — disk holds the recipe,
  * the database holds the in-flight work, and a lost database costs you a poll
  * rather than a recipe.
+ *
+ * Nor is the project's own directory here. It is where the file was found, not
+ * something the file gets to claim, or a copied folder would insist it lives
+ * somewhere else.
  */
 export interface Project {
   readonly id: string
@@ -128,10 +142,39 @@ export interface Project {
   readonly selection: Readonly<Record<StageKind, string | null>>
 }
 
-/** Session state — the editor, not the project. Never persisted. */
+/**
+ * One row of the project list, as the SQLite index holds it (PRD §3.2).
+ *
+ * Deliberately not a `Project`: listing every project must not mean parsing
+ * every manifest, and the sidebar only ever shows this much. `directory` is
+ * where the manifest was found, so the frontend can resolve asset files
+ * without a round-trip per image.
+ *
+ * Taken from the generated bindings rather than declared here, because it is a
+ * wire shape Rust already defines — `docs/developer/tauri-commands.md`: "no
+ * manual sync between Rust and TypeScript". Note its `aspect` is a bare
+ * string: the index copied a label out of a manifest, and whether that label
+ * names a ratio this build still offers is settled by `readManifest` when the
+ * project is opened.
+ */
+import type { ProjectSummary } from '@/lib/tauri-bindings'
+
+export type { ProjectSummary }
+
+/**
+ * Session state — the editor, not the project. Never persisted.
+ *
+ * One project is open at a time. The alternative — every manifest in memory —
+ * would make "open a project" a no-op and quietly reintroduce the assumption
+ * that the whole library fits in a tab.
+ */
 export interface EditorState {
-  readonly projects: readonly Project[]
-  readonly activeProjectId: string
+  /** The project list, from the index. */
+  readonly summaries: readonly ProjectSummary[]
+  /** The open project, or `null` when the library is empty or still loading. */
+  readonly project: Project | null
+  /** Where the open project's manifest lives — assets hang off it. */
+  readonly directory: string | null
   readonly activeStage: StageKind
   /** PRD §10.3 — rejected candidates stay reachable behind one toggle. */
   readonly showRejected: boolean

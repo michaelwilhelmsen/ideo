@@ -231,6 +231,18 @@ vi.mock('@/lib/tauri-bindings', () => ({
 | `loadEmergencyData`       | `filename: string`                    | `Result<JsonValue, string>`      | Load recovery data  |
 | `cleanupOldRecoveryFiles` | none                                  | `Result<number, string>`         | Cleanup old files   |
 
+Projects (see [data-persistence.md](./data-persistence.md) for the storage model):
+
+| Command               | Parameters                                                                    | Returns                               | Description                                |
+| --------------------- | ----------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------ |
+| `listProjects`        | none                                                                          | `Result<ProjectSummary[], string>`    | List projects, reconciling the index first |
+| `loadProject`         | `projectId: string`                                                           | `Result<ProjectRecord, string>`       | Read one manifest off disk                 |
+| `saveProject`         | `manifest: JsonValue`                                                         | `Result<ProjectSummary, string>`      | Atomic write, then index — also creates    |
+| `deleteProject`       | `projectId: string`                                                           | `Result<null, string>`                | Remove the folder and its assets           |
+| `projectUsage`        | `projectId: string`                                                           | `Result<ProjectUsage, string>`        | Size on disk, and how much is unused       |
+| `cleanupUnusedAssets` | `projectId: string`                                                           | `Result<CleanupOutcome, string>`      | Delete unreferenced assets only            |
+| `generateImage`       | `projectId, generationId, prompt, aspect: string, pinnedSeed: number \| null` | `Result<Generation, GenerationError>` | Generate and file it under the project     |
+
 ## Dependencies
 
 ```toml

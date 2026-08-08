@@ -8,6 +8,7 @@
  */
 
 import { useTranslation } from 'react-i18next'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -37,8 +38,13 @@ const ASPECT_CLASS: Record<string, string> = {
 }
 
 /**
- * The stand-in for a rendered asset. Composition tracks the seed, colour
- * tracks the style fragment — see `previewArt`.
+ * What a generation produced.
+ *
+ * A real file when the stage has a model behind it — the source stage does
+ * (#22/#23) — and the deterministic stand-in otherwise, until #28 and #29 give
+ * style and animate real calls. The stand-in is not decoration: composition
+ * tracks the seed and colour tracks the style fragment, so the pinned-seed
+ * claim of PRD §4.3 stays visible on stages that cannot yet demonstrate it.
  */
 export function Preview({
   generation,
@@ -49,18 +55,41 @@ export function Preview({
   aspect: string
   className?: string
 }) {
+  const directory = useEditorStore(store => store.state.directory)
+  const source = assetSource(directory, generation.asset)
   const art = previewArt(generation)
 
+  const shape = cn(
+    'w-full overflow-hidden rounded-md border border-border',
+    ASPECT_CLASS[aspect] ?? 'aspect-video',
+    className
+  )
+
+  if (source === null) {
+    return <div className={shape} style={{ background: art.background }} />
+  }
+
   return (
-    <div
-      className={cn(
-        'w-full overflow-hidden rounded-md border border-border',
-        ASPECT_CLASS[aspect] ?? 'aspect-video',
-        className
-      )}
-      style={{ background: art.background }}
+    <img
+      src={source}
+      alt=""
+      // The file is whatever fal produced, and fal snaps dimensions to a
+      // multiple of 16 (PRD §12) — so the box holds the project's ratio and
+      // the image covers it rather than stretching to fit.
+      className={cn(shape, 'object-cover')}
     />
   )
+}
+
+/**
+ * The webview URL for a generation's file, or `null` when there is no file.
+ *
+ * The manifest stores a bare name and the folder comes from wherever the
+ * manifest was found, so a project folder that has moved still resolves.
+ */
+function assetSource(directory: string | null, asset: string | null) {
+  if (directory === null || directory === '' || asset === null) return null
+  return convertFileSrc(`${directory}/assets/${asset}`)
 }
 
 export function EmptyPreview({

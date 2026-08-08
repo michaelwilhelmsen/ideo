@@ -35,7 +35,8 @@ import {
   type StageKind,
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
-import { runStageAction, rollSeed } from './run-request'
+import { rollSeed, useRunStage } from './run-request'
+import { useGenerationProgress } from '@/services/generate'
 import { InputSummary } from './shared'
 
 /** PRD §6.3 — above this the composition drifts and then disappears. */
@@ -53,9 +54,18 @@ export function StageParameters({
 
   const draft = project.drafts[stage]
   const model = modelById(FIXTURE_REGISTRY, draft.modelId)
-  const blocked = blockedReasonKey(project, stage)
   const batch = batchSizeFor(stage, draft)
   const selected = selectedGeneration(project, stage)
+  const { run, isRunning } = useRunStage(project, stage, batch)
+
+  // PRD §4.4/§10 — the chosen model is validated against the project's locked
+  // ratio, and a model that cannot serve it is refused here rather than at
+  // submit, where the refusal would arrive after the money.
+  const usable = modelAvailability(model, project.aspect)
+  const blocked =
+    usable.state === 'disabled'
+      ? usable.reasonKey
+      : blockedReasonKey(project, stage)
 
   const availabilityOf = (control: ControlId): ControlAvailability =>
     controlAvailability(model, control)
@@ -362,17 +372,56 @@ export function StageParameters({
 
         <Button
           className="w-full"
-          disabled={blocked !== null}
-          onClick={() => dispatch(runStageAction(stage, batch))}
+          disabled={blocked !== null || isRunning}
+          onClick={run}
         >
-          {t('editor.action.run', { count: batch })}
+          {isRunning
+            ? t('editor.action.running')
+            : t('editor.action.run', { count: batch })}
         </Button>
 
         {blocked !== null && (
-          <p className="text-xs text-destructive">{t(blocked)}</p>
+          <p className="text-xs text-destructive">
+            {t(blocked, { aspect: project.aspect })}
+          </p>
         )}
+
+        {isRunning && <RunProgress />}
       </div>
     </div>
+  )
+}
+
+/**
+ * What the queue is doing, while it does it.
+ *
+ * A generation takes tens of seconds, so silence would be indistinguishable
+ * from a freeze — the same reason Rust emits progress at all rather than
+ * returning once at the end.
+ */
+function RunProgress() {
+  const { t } = useTranslation()
+  const progress = useGenerationProgress()
+
+  if (progress === null)
+    return <p className="text-xs">{t('generate.submitting')}</p>
+
+  if (progress.status === 'queued') {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {progress.queue_position === null
+          ? t('generate.queued')
+          : t('generate.queuedAt', { position: progress.queue_position })}
+      </p>
+    )
+  }
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {t('generate.generatingFor', {
+        seconds: Math.round(progress.elapsed_ms / 1000),
+      })}
+    </p>
   )
 }
 

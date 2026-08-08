@@ -6,6 +6,7 @@
 
 mod bindings;
 mod commands;
+mod projects;
 mod types;
 mod utils;
 

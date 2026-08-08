@@ -1,13 +1,13 @@
 /**
- * THE FIXTURE SEAM — the only temporary thing in this spike (#33).
+ * THE FIXTURE SEAM — what the editor still cannot get from anywhere real.
  *
- * Everything the editor would get from fal, the keychain and the disk comes
- * from here instead: the capability registry, two projects with a history, and
- * a deterministic stand-in for the pixels. No network, no keys, no files.
- *
- * Two things replace this later:
- *  - the registry becomes the committed JSON of PRD §5 (#25),
- *  - the projects come off disk (#23) and the previews become real assets.
+ * Half of this is now gone: #23 made projects come off disk, so the two
+ * projects below are test data rather than what the app boots into. What
+ * remains temporary:
+ *  - the capability registry, until it becomes the committed JSON of PRD §5 (#25),
+ *  - the presets, until #28,
+ *  - `previewArt`, the stand-in for pixels a stage cannot generate yet. The
+ *    source stage produces real files; style and animate arrive in #28/#29.
  *
  * **Capability flags here are fixture-grade.** They follow PRD §9/§9.1 where
  * that table says something, and are plausible-but-unverified elsewhere. They
@@ -21,6 +21,7 @@ import type {
   EditorState,
   Generation,
   Project,
+  ProjectSummary,
   StageKind,
   StageRecipe,
 } from './types'
@@ -323,6 +324,9 @@ function generation(
     verdict,
     createdAt: T0 + minutes * MINUTE,
     recipe: stageRecipe,
+    // No file behind a fixture — which is also the state of a real generation
+    // whose stage has no model call yet, so nothing special-cases it.
+    asset: null,
   }
 }
 
@@ -341,7 +345,7 @@ const atlasSource = recipe({
  * made from a source that is no longer selected, and two style candidates that
  * share a pinned seed and differ by exactly one fragment.
  */
-const ATLAS: Project = {
+export const ATLAS: Project = {
   id: 'project-atlas',
   name: 'Atlas — hero',
   aspect: '21:9',
@@ -466,7 +470,7 @@ const ledgerSource = recipe({
 })
 
 /** A second project, barely started — the editor has to look sane empty too. */
-const LEDGER: Project = {
+export const LEDGER: Project = {
   id: 'project-ledger',
   name: 'Ledger — hero',
   aspect: '16:9',
@@ -493,12 +497,34 @@ const LEDGER: Project = {
   },
 }
 
-export function initialEditorState(): EditorState {
+/**
+ * A populated editor, for tests and for nothing else.
+ *
+ * The app no longer starts here — #23 made projects come off disk, so the
+ * running app's initial state is empty (`emptyEditorState`). What survives is
+ * the value of this history as *test data*: it has a rejected candidate, a
+ * candidate made from a stale input, and a pinned-seed pair, which is more
+ * awkwardness than a hand-built state per test would keep hold of.
+ */
+export function fixtureEditorState(): EditorState {
   return {
-    projects: [ATLAS, LEDGER],
-    activeProjectId: ATLAS.id,
+    summaries: [summaryOf(ATLAS), summaryOf(LEDGER)],
+    project: ATLAS,
+    directory: `/tmp/ideo-fixture/${ATLAS.id}`,
     activeStage: 'style',
     showRejected: false,
+  }
+}
+
+export function summaryOf(project: Project): ProjectSummary {
+  return {
+    id: project.id,
+    name: project.name,
+    aspect: project.aspect,
+    createdAt: project.createdAt,
+    updatedAt: project.createdAt,
+    generationCount: project.generations.length,
+    directory: `/tmp/ideo-fixture/${project.id}`,
   }
 }
 

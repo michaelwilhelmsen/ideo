@@ -7,5 +7,6 @@ pub mod api_key;
 pub mod generate;
 pub mod notifications;
 pub mod preferences;
+pub mod projects;
 pub mod quick_pane;
 pub mod recovery;
