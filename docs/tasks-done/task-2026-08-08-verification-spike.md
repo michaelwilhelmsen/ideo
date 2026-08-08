@@ -258,21 +258,30 @@ and each one's end-frame parameter name.
 5. **Key validation strategy** chosen in PRD §7 — free endpoint, 401/404 trick, or
    cheapest paid call.
 
-## Results
-
-Fill in as you go.
+## Results — run 2026-08-08, total spend $0.23
 
 | # | Question | Answer | Verified |
 |---|---|---|---|
-| 1 | Free validation endpoint | | |
-| 2 | 401 vs 404 discriminates | | |
-| 3 | Registry fields missing | | |
-| 4 | Kling O1 duration enum | | |
-| 4 | Real prices | | |
-| 5 | Prose or tag-list | | |
-| 6 | Restyle strength per model | | |
-| 7 | REST upload / base64 ceiling | | |
-| 8 | Ultrawide video fallback | | |
+| 1 | Free validation endpoint | **Yes.** `GET rest.alpha.fal.ai/billing/user_balance` → 200 + bare number; 401 on bad/malformed/absent key. Note the underscore; `user-balance` 404s. | ✅ live |
+| 2 | 401 vs 404 discriminates | **Moot** — the constructed status URL returns 405 regardless of key. Not needed; #1 is better. | ✅ live |
+| 3 | Registry fields missing | Added `durationFormat`, `aspectParam`, `resolutionParam`, `defaults`. Duration appears as bare string / `"5s"` / integer across models; end-frame is `end_image_url` on four models but `last_frame_url` on Veo. | ✅ live schemas |
+| 4 | Kling O1 duration enum | `"3"`–`"10"`, default `"5"` — **strings**. Settles the three-way contradiction. Kling has **no** aspect, resolution or seed param. | ✅ live |
+| 4 | Real prices | `flux-pro/v1.1` **$0.04**/img; `flux-1/dev/image-to-image` **$0.025**/img at 0.90 MP. Measured by balance delta; billing lags minutes. Video unmeasured. | ✅ measured |
+| 5 | Prose or tag-list | **Tag-list — no rewrite.** Prose was smoother, i.e. further from the brief. Separately: **neither showed film grain**, so texture-led styles are unreliable on this model. | ✅ images |
+| 6 | Restyle strength | 0.3 no-op → 0.65/0.75 style + composition intact → 0.85 drifts → **0.95 (fal's default) discards the input**. Ship 0.7. | ✅ images |
+| 7 | REST upload / base64 ceiling | **Still open.** Sidestepped by reusing fal-hosted result URLs as img2img input (works, free). Must be settled before #27. | ❌ |
+| 8 | Ultrawide video fallback | **Yes — Luma Ray 2**, explicit `21:9`/`9:21` enum plus `end_image_url`. Arguably the better primary since Kling only inherits aspect from the source. | ✅ live schemas |
+
+### Also found, unprompted
+
+- **Never construct queue URLs.** Submit returns `status_url`/`response_url`/`cancel_url`, and they omit the version sub-path — the constructed versioned form 405s.
+- **Requested dimensions are not honoured.** 1280×720 → 1280×704 (snapped to /16), changing aspect 1.78 → 1.82.
+- **Key format:** 69 chars, `uuid:hex32`.
+- **The balance endpoint doubles as a cost meter and a low-balance guard** before expensive video calls.
+
+### Still open after this spike
+
+REST upload flow, fal rate limits, whether gpt-image-2 is reachable via fal, and real video pricing. None block the next ticket (#21).
 
 ## Notes
 

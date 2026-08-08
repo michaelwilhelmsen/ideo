@@ -1,10 +1,11 @@
 # Ideo — Umbrella PRD
 
-> Status: **approved design, not yet implemented**
+> Status: **approved design; verification spike complete, no feature code yet**
 > Last updated: 2026-08-08
-> This is the umbrella spec. Each epic (E0–E9) below becomes its own task doc in
-> `docs/tasks-todo/`. Nothing here should be implemented ahead of E0, which
-> settles facts several other epics depend on.
+> This is the umbrella spec. Work is tracked as GitHub issues under
+> [#11](https://github.com/michaelwilhelmsen/ideo/issues/11) — see §13.
+> Facts marked verified in §12 were checked against the live fal API on 2026-08-08;
+> everything still marked open should be treated as unverified.
 
 ## 1. Purpose
 
@@ -162,10 +163,24 @@ The UI **derives from this registry** rather than hardcoding controls. Per model
 | `supportsSeed` | Gates seed recording/pinning UI |
 | `strengthParam` | **The actual API field name**, or null |
 | `aspect` | `{minRatio, maxRatio, allowedPresets, allowsCustomWidthHeight, maxResolution}` |
-| `durations` | Allowed duration values (video) |
+| `durations` | Allowed duration values (video) — **verbatim**, since formats differ |
+| `durationFormat` | `string` \| `secondsSuffixed` \| `integer` — see §9.1; four models, three formats |
 | `endFrameParam` | Field name, or null — **gates whether the loop option appears** |
+| `aspectParam` | Field name, or null when aspect is inherited from the source image |
+| `resolutionParam` | Field name + allowed values; needed because some models default low |
+| `defaults` | Our chosen defaults, **not** the API's — see §6.3 |
 | `price` | `{unit, amount, verifiedOn}` |
 | `notes` | Free text, including known-unverified caveats |
+
+Two fields exist purely because of things the spike caught:
+
+- **`defaults` is ours, not theirs.** `flux-1/dev/image-to-image` defaults `strength` to
+  0.95, which discards the input entirely (§6.3); Luma Ray 2 defaults `resolution` to
+  540p, too low for a hero. Inheriting API defaults produces bad output at no lower
+  cost, so every default we send is a deliberate choice recorded here.
+- **`durationFormat` avoids a whole class of 422s.** Duration is a bare string on Kling,
+  a second-suffixed string on Luma and Veo, and an integer on Vidu. Sending the wrong
+  primitive fails the request.
 
 Three fields earn their keep: `promptStyle` (which preset variant), `endFrameParam`
 (whether looping is even offered), and `strengthParam` — because it is named
@@ -227,29 +242,72 @@ with style woven into the same sentence as the subject, because its text encoder
 prose-trained and reads tag-lists as malformed. If that holds, all 22 need
 reformulating into prose.
 
-**This is not confirmed** — the Black Forest Labs primary guide 404'd; the finding
-rests on consistent secondary sources. E0 verifies it against a real generation before
-we commit to 22 rewrites.
+**Tested 2026-08-08 — and the rewrite is off.** Same subject, same seed, both idioms,
+on `flux-pro/v1.1`. Prose was **not** better: the tag-list output carried slightly more
+texture and contrast, while the prose version came out smoother — i.e. further from
+what was asked. Keep the drafted tag-list presets.
+
+**A different problem surfaced instead: neither output showed visible film grain.**
+The grain / ISO-3200 / halation language barely registered in either idiom. So the
+film-grain preset family is unreliable on this model regardless of phrasing, and the
+same may apply to other texture-led styles. Worth probing per style family before
+shipping a library where grain is a headline look — possibly by applying grain at
+export instead of asking the model for it.
+
+Caveat on scope: one prompt, one model, one seed. Enough to refute "prose is clearly
+better", not enough to characterise every style family.
 
 ### 6.3 Restyle prompting
 
 When composition comes from the input image, the prompt should **foreground style
-rather than restate the subject**. The correct `strength` range for
-composition-preserving restyle is **unresolved**: fal documents 0.95 as the default for
-`flux-1/dev/image-to-image` with a note that "higher is better for this model", which
-is inverted relative to classic SD intuition (~0.4–0.6). Research suggests defaulting
-around 0.5–0.65, explicitly as inference. E0 settles this empirically — the entire
-style stage depends on it.
+rather than restate the subject**.
+
+**Measured on `flux-1/dev/image-to-image`, 2026-08-08** — same source, prompt and seed,
+sweeping `strength`:
+
+| Value | Result |
+|---|---|
+| 0.3 | source returned essentially unchanged; no style |
+| 0.5 | negligible style; composition intact |
+| **0.65** | style clearly visible; composition intact |
+| **0.75** | style stronger; composition still intact |
+| 0.85 | strong style, but composition drifts — reframed and zoomed |
+| **0.95** | **input discarded entirely — returned an unrelated image** |
+
+0.95 is **fal's own documented default**, and it does not restyle at all; it generates
+from scratch. Their note that "higher strength values are better for this model" is
+actively misleading for composition-preserving work.
+
+Consequences:
+
+- **Never inherit the API default.** Ship **0.7** as the default, with a UI range of
+  roughly 0.5–0.85 and a warning above that.
+- Store this per model in the registry, not as a constant — Kontext defaults to 0.1,
+  so the same field means something different from model to model.
+- The usable window is **narrow** (~0.65–0.8). Below it nothing happens; above it the
+  image is gone. That narrowness is itself a reason to expose the control rather than
+  hide it.
 
 ## 7. Keys and onboarding
 
 - Key stored per-user in the **macOS Keychain** via the `keyring` crate. Never in
   preferences JSON, never in the webview.
-- **Validated at onboarding and in Settings.** A key that looks fine and fails 30
-  seconds into an expensive job is the exact failure onboarding exists to prevent.
-  Prefer a free authenticated endpoint; if none exists, use the cheapest possible real
-  generation call. A **format-only check is explicitly rejected** — passing a revoked
-  key tells the user something false.
+- **Validated at onboarding and in Settings, free of charge.** A key that looks fine
+  and fails 30 seconds into an expensive job is the exact failure onboarding exists to
+  prevent. A **format-only check is explicitly rejected** — passing a revoked key tells
+  the user something false.
+
+  **Verified 2026-08-08:** `GET https://rest.alpha.fal.ai/billing/user_balance` returns
+  `200` and a bare number (e.g. `9.9416`) for a valid key, and `401` for a bad,
+  malformed, or absent one. No charge, no special key scope needed. Note the
+  **underscore** — the hyphenated `user-balance` returns 404.
+
+  Two bonuses from the same endpoint: it doubles as a **cost meter** (read the balance
+  before and after a job to get the real price, allowing for a few minutes' billing
+  lag), and it gives us a **low-balance warning** before an expensive video call fails
+  for lack of funds.
+
+  A key is 69 characters, `uuid:hex32`. Do not validate on that shape alone.
 - **Blocking behaviour**: browsing is allowed without a key; the first *generate*
   requires one.
 - **Onboarding is a replayable modal** over the main UI, driven by a declarative step
@@ -282,13 +340,27 @@ capability becomes a runtime failure at the most expensive step.
 | Video loop | **Kling O1** | Only video model with a **confirmed** aspect range (0.40–2.50) covering 21:9; has an end-frame parameter |
 | `tags` exemplar | **Qwen-Image 2.0** | Has a real `negative_prompt`, which justifies the two-variant preset schema |
 
-### 9.1 Risk: Kling O1 is a single point of failure
+### 9.1 Ultrawide video: risk refuted, two options confirmed
 
-Of every image-to-video model surveyed, **only Kling O1 has a confirmed aspect range
-that covers 21:9**. Luma Ray 2 and Veo 3.1 both have end-frame support but neither has
-ultrawide confirmed; Framepack and Vidu Q2 appear capped at standard ratios. If wide
-animated heroes are the core use case, there is currently no verified fallback. E0
-should confirm or refute ultrawide support for at least one alternative.
+Originally flagged as a single point of failure. **Resolved 2026-08-08** by reading live
+schemas — there are two ultrawide-capable loop models, and **Luma Ray 2 is arguably the
+better primary**:
+
+| Model | End-frame param | Duration | Ultrawide | Notes |
+|---|---|---|---|---|
+| **Luma Ray 2** | `end_image_url` | `"5s"`, `"9s"` | **explicit `21:9` + `9:21` enum** | also `resolution` 540p/720p/1080p — **defaults to 540p**, must be overridden |
+| **Kling O1** | `end_image_url` | `"3"`–`"10"` | inherited from source image (0.40–2.50) | no aspect, resolution or **seed** param at all → video is **not reproducible** |
+| Veo 3.1 | **`last_frame_url`** | `"4s"`,`"6s"`,`"8s"` | no — `auto`/16:9/9:16 | has `seed` |
+| Wan FLF2V | `end_image_url` | — | no — adds 1:1 only | has `seed` |
+| Vidu Q2 | `end_image_url` | **integers `2`–`8`** | no | has `seed` |
+
+Luma gives explicit aspect control where Kling only inherits it from the source, which
+fits the locked-aspect design in §4.4 far better.
+
+**This table is the empirical case for the registry (§5).** The same concept is named
+`end_image_url` on four models and `last_frame_url` on a fifth; duration appears as
+bare strings, second-suffixed strings, and integers. Seed support is inconsistent. No
+generic UI could guess any of this — it has to be declared per model.
 
 ### 9.2 Midjourney is excluded
 
@@ -353,50 +425,52 @@ Split by **whether changing it should affect existing projects**:
 
 ## 12. Known-unverified facts
 
-Carried deliberately rather than papered over. All are E0 inputs.
+Rows are answered in place, never deleted — the table is the honest record of what
+was assumed and what was checked. **Verified against the live API on 2026-08-08**
+(E0 spike, total spend $0.23).
 
-| Unknown | Impact if wrong |
+| Unknown | Status |
 |---|---|
-| Real pricing for most models | Cost estimates are wrong; `/pricing` lists different variants than the endpoint IDs we use |
-| **Kling O1 duration** — research returned "3–10s default 5", "3–15s", and "5 or 10 only" across three rounds | Duration control offers invalid values; **do not code to any of these** |
-| Whether FLUX truly prefers prose over tag-lists | 22 preset rewrites, or not |
-| Correct `strength` range for composition-preserving restyle | The style stage's core behaviour |
-| Whether a normal `FAL_KEY` can read `/account/billing` (may need Admin scope) | Determines free vs paid key validation |
-| REST file-upload flow (found only via GitHub mirrors, wire format unverified) | Fall back to inline base64 data URI; no documented size cap |
-| fal rate limits — entirely undocumented | Concurrency limit is a guess; needs client-side backoff regardless |
-| Whether any video model other than Kling O1 supports 21:9 | Whether §9.1's single point of failure has a fallback |
-| Whether gpt-image-2 is reachable via fal (landing page exists; fetch was rate-limited) | Whether a second provider is needed sooner |
+| Free key validation | **RESOLVED.** `GET https://rest.alpha.fal.ai/billing/user_balance` → `200` + bare number with a valid key; `401` for bad, malformed, or absent. Free. Note the **underscore** — the hyphenated variant 404s. |
+| Real pricing | **MEASURED** by balance delta: `flux-pro/v1.1` **$0.04**/image and `flux-1/dev/image-to-image` **$0.025**/image at 0.90 MP. Billing lags a few minutes, so read the balance twice. Video prices still unmeasured. |
+| **Kling O1 duration** (three contradictory research answers) | **RESOLVED.** Enum `"3"`–`"10"`, default `"5"` — **strings, not integers**. |
+| Whether FLUX prefers prose over tag-lists | **RESOLVED — no rewrite.** See §6.2. |
+| Correct `strength` range | **RESOLVED.** See §6.3. fal's own default of 0.95 destroys the input. |
+| Whether any video model other than Kling O1 supports 21:9 | **RESOLVED — yes.** Luma Ray 2 has an explicit `aspect_ratio` enum containing `21:9` and `9:21`, plus `end_image_url`. §9.1's risk is refuted. |
+| Key format | **RESOLVED.** 69 chars, `uuid:hex32`. |
+| Queue URL construction | **RESOLVED — do not construct.** Submit returns `status_url` / `response_url` / `cancel_url`, and they drop the version sub-path (`fal-ai/flux-pro/requests/...`, not `.../flux-pro/v1.1/requests/...`). Constructing the versioned form returns `405`. Always use the returned URLs. |
+| Requested dimensions honoured? | **NO.** 1280×720 came back as 1280×704 — height snapped to a multiple of 16, changing the aspect from 1.78 to 1.82. Validation must tolerate adjustment; do not assume exact output dimensions. |
+| REST file-upload flow | **STILL OPEN.** Sidestepped in the spike by reusing fal-hosted result URLs as img2img input, which works and is free. Needs testing before local uploads (#27) ship. |
+| fal rate limits | **STILL OPEN.** Untested. Client-side backoff needed regardless. |
+| Whether gpt-image-2 is reachable via fal | **STILL OPEN.** Untested. |
 
-## 13. Epics
+## 13. Work breakdown
 
-Each becomes a task doc in `docs/tasks-todo/`. **E0 gates E2, E4, E5 and E6.**
+Tracked as GitHub issues under umbrella
+[#11](https://github.com/michaelwilhelmsen/ideo/issues/11), as **tracer-bullet vertical
+slices** — each cuts a complete path through every layer and is demoable on its own.
+Dependencies arrive with the first slice that needs them rather than in a foundations
+ticket. Blocking edges use GitHub's native issue dependencies, so the frontier is
+queryable rather than described here.
 
-| ID | Epic | Depends on | Notes |
-|---|---|---|---|
-| **E0** | **Verification spike** | — | ~1h of `curl` with a real key. Settles every row in §12. Not app code. |
-| **E1** | Foundations: `reqwest`, `keyring`, `rusqlite`, app-data layout | — | Dependencies and wiring only |
-| **E2** | Model capability registry: schema, JSON, loader, validation | E0, E1 | Field list frozen only after E0's schema audit |
-| **E3** | Key management + onboarding modal | E1 | Validation strategy from E0, but structure can start |
-| **E4** | Job system: submit, persist `request_id`, poll, resume, cancel, concurrency | E0, E1 | The generic abstraction all three stages reuse |
-| **E5** | Project data layer: folders, `project.json`, SQLite index, rebuild-from-disk | E1 | |
-| **E6** | Stage 1 — source: prompt-to-image and upload, 4-up batch, seed capture | E2, E4, E5 | |
-| **E7** | Stage 2 — style: preset libraries (style + motion), fork-to-customize, restyle | E6 | Preset idiom decided by E0 |
-| **E8** | Stage 3 — animate: video generation, native loop, capability-gated controls | E6 | |
-| **E9** | Export: ffmpeg detection, MP4/WebM/poster, ping-pong rewind | E8 | |
+| Issue | Slice | Blocked by |
+|---|---|---|
+| ~~#20~~ | ~~Verify fal.ai facts with a real key~~ — **done, results in §12** | — |
+| #21 | Enter, store and validate a fal API key | #20 |
+| #22 | Generate one image from a prompt and see it — **the tracer bullet** | #21 |
+| #23 | Save a generation as a project you can reopen | #22 |
+| #24 | Jobs survive quit, and can be cancelled | #23 |
+| #25 | Pick a model; controls follow its capabilities | #20, #22 |
+| #26 | Generate four candidates and pick one | #23, #25 |
+| #27 | Upload your own image as the source | #23 |
+| #28 | Apply a style preset to an image | #20, #25, #27 |
+| #29 | Animate a still into a clip | #25, #28 |
+| #30 | Make the clip loop seamlessly | #29 |
+| #31 | Export web-ready files | #29 |
+| #32 | Onboarding walks a new user to their first key | #21 |
 
-### E0 scope
-
-One hour, one real fal key, `curl` only — no app code. Answers:
-
-1. Real prices for the shortlisted models.
-2. Kling O1's actual duration enum (settles a three-way contradiction).
-3. Whether `GET /account/billing` works with a normal key → free validation or not.
-4. Whether the REST upload flow works, and the practical base64 payload ceiling.
-5. **Prose vs tag-list on FLUX** — same subject, both idioms, compare.
-6. **`strength` sweep** on Kontext (0.1 / 0.3 / 0.5 / 0.7 / 0.95) for composition
-   preservation.
-7. Schema audit across 4–6 fal models to freeze the registry field list (§5).
-8. Whether any alternative video model accepts 21:9 (§9.1).
+An earlier horizontal breakdown (E0–E9 epics, issues #1–#10) was closed as superseded:
+slicing by layer meant nothing was demoable until several tickets landed together.
 
 ## Appendix — research sources
 
