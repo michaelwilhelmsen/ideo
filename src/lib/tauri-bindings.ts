@@ -24,6 +24,10 @@
 export { commands, type Result } from './bindings'
 export type {
   AppPreferences,
+  Generation,
+  GenerationError,
+  GenerationErrorReason,
+  GenerationProgress,
   JsonValue,
   KeyCheck,
   KeyCheckOutcome,

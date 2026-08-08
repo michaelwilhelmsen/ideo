@@ -49,6 +49,19 @@ vi.mock('@/lib/tauri-bindings', () => ({
       data: { outcome: 'missing', balance: null, status: null },
     }),
     clearFalApiKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    generateImage: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        request_id: 'test-request',
+        prompt: 'test prompt',
+        model_id: 'fal-ai/flux-pro/v1.1',
+        seed: '1',
+        image_url: 'https://example.test/out.jpeg',
+        image_path: '/tmp/out.jpeg',
+        width: 1280,
+        height: 704,
+      },
+    }),
   },
   unwrapResult: vi.fn((result: { status: string; data?: unknown }) => {
     if (result.status === 'ok') return result.data

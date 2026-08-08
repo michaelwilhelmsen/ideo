@@ -7,6 +7,7 @@ import { TitleBar } from '@/components/titlebar/TitleBar'
 import { LeftSideBar } from './LeftSideBar'
 import { RightSideBar } from './RightSideBar'
 import { MainWindowContent } from './MainWindowContent'
+import { GeneratePane } from '@/components/generate/GeneratePane'
 import { CommandPalette } from '@/components/command-palette/CommandPalette'
 import { PreferencesDialog } from '@/components/preferences/PreferencesDialog'
 import { Toaster } from 'sonner'
@@ -59,7 +60,9 @@ export function MainWindow() {
             defaultSize={MAIN_CONTENT_DEFAULT}
             minSize={LAYOUT.main.min}
           >
-            <MainWindowContent />
+            <MainWindowContent>
+              <GeneratePane />
+            </MainWindowContent>
           </ResizablePanel>
 
           <ResizableHandle className={cn(!rightSidebarVisible && 'hidden')} />

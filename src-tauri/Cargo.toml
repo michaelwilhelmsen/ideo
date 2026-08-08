@@ -41,6 +41,7 @@ tauri-specta = { version = "=2.0.0-rc.21", features = ["typescript"] }
 specta-typescript = "=0.0.9"
 # HTTP client — all authenticated calls happen in Rust so keys never reach the webview
 reqwest = { version = "0.13.3", default-features = false, features = ["json", "rustls", "charset", "http2", "system-proxy"] }
+tokio = { version = "1.53.1", default-features = false, features = ["time"] }
 
 # OS keychain for the fal.ai API key. Backends are selected per platform so the
 # cross-platform CI build doesn't pull the others' native dependencies.

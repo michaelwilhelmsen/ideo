@@ -67,6 +67,20 @@ async clearFalApiKey() : Promise<Result<null, string>> {
 }
 },
 /**
+ * Generates one image from a prompt, saves it, and reports back.
+ * 
+ * Progress arrives as `generation-progress` events rather than as a return
+ * value, because the interesting part happens while this is still running.
+ */
+async generateImage(prompt: string) : Promise<Result<Generation, GenerationError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("generate_image", { prompt }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Loads user preferences from disk.
  * Returns default preferences if the file doesn't exist.
  */
@@ -217,6 +231,86 @@ quick_pane_shortcut: string | null;
  * If None, uses system locale detection
  */
 language: string | null }
+/**
+ * A finished generation: the image, where it landed, and the recipe fragments
+ * worth keeping. The seed is captured even though nothing shows it yet — it is
+ * what makes a generation reproducible, and re-rolling costs money (PRD §4.3).
+ */
+export type Generation = { request_id: string; prompt: string; model_id: string; seed: string | null; 
+/**
+ * fal-hosted URL. Temporary — the file on disk is the durable copy.
+ */
+image_url: string; image_path: string; width: number | null; height: number | null }
+/**
+ * A failure, as it crosses to the frontend.
+ */
+export type GenerationError = { reason: GenerationErrorReason; 
+/**
+ * Text fal supplied about this specific failure, when there was any.
+ */
+detail: string | null; 
+/**
+ * HTTP status, for `Unexpected`.
+ */
+status: number | null }
+/**
+ * Why a generation did not produce an image.
+ * 
+ * A reason rather than a sentence: the sentence belongs in the locale files,
+ * and the frontend is the only place that knows what language to say it in.
+ * Same shape as `KeyCheck` in `api_key.rs` — unit enum plus optional detail —
+ * so the frontend switches on one field.
+ */
+export type GenerationErrorReason = 
+/**
+ * Nothing was typed.
+ */
+"emptyPrompt" | 
+/**
+ * No key in the keychain — Settings first.
+ */
+"noApiKey" | 
+/**
+ * fal refused the key.
+ */
+"keyRejected" | 
+/**
+ * fal refused the request itself; `detail` says why.
+ */
+"requestRejected" | 
+/**
+ * Too many requests on this key.
+ */
+"rateLimited" | 
+/**
+ * The call never reached fal.
+ */
+"offline" | 
+/**
+ * fal reported the job itself as failed.
+ */
+"jobFailed" | 
+/**
+ * We stopped waiting. The job may still finish on fal's side.
+ */
+"gaveUpWaiting" | 
+/**
+ * The image arrived but could not be written to disk.
+ */
+"couldNotSave" | 
+/**
+ * Anything else, with the status attached.
+ */
+"unexpected"
+/**
+ * Progress event payload. Emitted on every poll so the UI can say something
+ * truthful while waiting.
+ */
+export type GenerationProgress = { request_id: string; status: QueueStatus; 
+/**
+ * Position in fal's queue, when it tells us.
+ */
+queue_position: number | null; elapsed_ms: number }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 /**
  * Result of a validation attempt. Never contains the key itself.
@@ -257,6 +351,10 @@ export type KeyCheckOutcome =
  * The endpoint answered something we don't recognise.
  */
 "unexpected"
+/**
+ * Where a submitted job has got to.
+ */
+export type QueueStatus = "queued" | "running" | "completed"
 /**
  * Error types for recovery operations (typed for frontend matching)
  */
