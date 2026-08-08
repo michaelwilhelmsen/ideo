@@ -333,13 +333,79 @@ talks to, so bundling later is a contained change if this ever ships externally.
 Verification strength matters more than benchmark scores here, because an unverified
 capability becomes a runtime failure at the most expensive step.
 
-| Stage               | Recommended                | Rationale                                                                                                |
-| ------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Text-to-image       | **FLUX Kontext (pro/max)** | Only image model with **confirmed** 21:9/9:21 enum, plus seed determinism and a documented `strength`    |
-| Text-to-image (alt) | **Nano Banana Pro**        | 21:9 confirmed in an 11-ratio enum, multimodal input                                                     |
-| Restyle             | **FLUX Kontext**           | Same family, `strength` documented (default 0.1)                                                         |
-| Video loop          | **Kling O1**               | Only video model with a **confirmed** aspect range (0.40–2.50) covering 21:9; has an end-frame parameter |
-| `tags` exemplar     | **Qwen-Image 2.0**         | Has a real `negative_prompt`, which justifies the two-variant preset schema                              |
+**Every capability claim below was read from fal's live per-endpoint OpenAPI document on
+2026-08-09** — see `docs/research/model-schemas.md` for the full field, 33 endpoints, and
+the raw constraints. Prices are fal's published rates of the same date, not a billing
+check.
+
+Two framing corrections from that round:
+
+- **Aspect ratio is a tiebreaker, not a filter.** `image_size` accepts an explicit
+  `{width, height}` as well as a preset token, so four image models reach 21:9 exactly
+  (`gpt-image-2` at 2688×1152, `flux-2-pro` at 2352×1008, `qwen-image-2` at 1960×840,
+  `flux-pro/v1.1` at 2520×1080). Enum-locked models still crop to a hero from 16:9 or
+  2:1. Ratio genuinely constrains only the **animate** stage, where no model accepts
+  dimensions.
+- **`seed` absence is the firm disqualifier**, not ratio. Without it §4.3's recipe premise
+  does not hold — the artefact you paid to rediscover cannot be pinned.
+
+### Provisional defaults
+
+**Chosen 2026-08-09, provisionally, to unblock building.** Visual quality is what should
+decide this and no schema encodes it, so these stand until the app can generate and the
+output can be judged by eye. Both were verified against their live schemas before being
+written here.
+
+| Stage   | Default                                 | Why                                                                                                                                |
+| ------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Source  | `fal-ai/flux/schnell`                   | $0.003/MP — ~13× cheaper than the next option. Has `seed`, and `image_size` takes explicit `{width, height}`, so 21:9 is reachable |
+| Animate | `bytedance/seedance-2.5/image-to-video` | Has `end_image_url`, so the §4.5 loop premise holds; aspect inherits from the source, so no ratio ceiling                          |
+
+Four things about these defaults that the code has to account for:
+
+- **`seedance-2.5` has no `seed`.** §4.3's recipe premise does **not** hold on the animate
+  stage under this default — a clip cannot be re-run to the same output. Per §10.1 that
+  surfaces as a _disabled_ seed control with a reason, not a hidden one. Kling O1 has the
+  same gap; Veo 3.1 is the only end-frame model surveyed that has `seed`.
+- **`seedance-2.5` is the most expensive animate option surveyed** — $0.4730/s at 720p, so
+  **$2.36 for a 5s clip**, against $0.56 for Kling O1, $0.85 for flux-3 and $1.00 for Veo
+  3.1. Fine as a quality-first default; expensive as a default to develop against.
+- **`generate_audio` defaults to `true`** on `seedance-2.5`. A hero loop is silent, so this
+  should be set `false` explicitly — it is billed and unwanted.
+- **`seedance-2.5` caps at 720p** (`480p`/`720p` only). No 1080p, which is worth knowing for
+  a hero visual before §4 settles export resolution. Its `duration` enum also stops at
+  `16` while its own description claims "4 to 30 seconds" — trust the enum.
+
+`fal-ai/flux/schnell` is a 4-step distilled model (`num_inference_steps` defaults to 4).
+Fast and near-free, which is what makes it a good default to build against, but it is not
+the quality tier the shortlist below is drawn from — expect to replace it after testing.
+
+What follows is the verified field to choose from when that testing happens.
+
+| Stage   | Candidate                               | `seed` | `negative_prompt` | Ratio control                        | Price        |
+| ------- | --------------------------------------- | ------ | ----------------- | ------------------------------------ | ------------ |
+| Source  | `fal-ai/flux-pro/kontext/text-to-image` | yes    | no                | enum, incl. 21:9/9:21                | $0.04/image  |
+| Source  | `fal-ai/nano-banana-pro`                | yes    | no                | enum, 11 ratios incl. 21:9           | $0.15/image  |
+| Source  | `fal-ai/nano-banana-2`                  | yes    | no                | enum, 15 ratios incl. 21:9, 4:1, 8:1 | $0.08/image  |
+| Source  | `fal-ai/qwen-image-2/text-to-image`     | yes    | **yes**           | free dims, 0.26–4.19 MP              | $0.035/image |
+| Source  | `openai/gpt-image-2`                    | **no** | no                | free dims, ×16, ≤3:1, ≤8.29 MP       | token-priced |
+| Source  | `xai/grok-imagine-image`                | **no** | no                | enum, widest 2:1 / 20:9              | $0.02/image  |
+| Restyle | `fal-ai/nano-banana-pro/edit`           | yes    | no                | enum incl. 21:9                      | $0.15/image  |
+| Restyle | `fal-ai/qwen-image-2/edit`              | yes    | **yes**           | free dims, 0.26–4.19 MP              | $0.035/image |
+| Restyle | `fal-ai/flux-pro/kontext`               | yes    | no                | enum incl. 21:9                      | $0.04/image  |
+| Animate | see §9.1                                |        |                   |                                      |              |
+
+**Correction: no FLUX Kontext variant has a `strength` parameter.** Earlier drafts of this
+table claimed one, documented at default 0.1, on both the text-to-image and restyle rows.
+The field does not exist on `flux-pro/kontext`, `kontext/max` or `flux-kontext/dev` — all
+three are instruction-driven edits. Across all 33 endpoints surveyed, exactly one exposes a
+strength field: `fal-ai/flux/dev/image-to-image`, and its schema default is **0.95**, which
+discards the input almost entirely (§6.3).
+
+`Qwen-Image 2.0` remains the `tags` exemplar that justifies the two-variant preset schema —
+it has a real `negative_prompt`, and it is now also the cheapest edit endpoint surveyed with
+free dimensions. All 44 recipes in the v4 preset library carry a `negative`, so on any model
+without the field that instruction has to fold into the prompt body.
 
 ### 9.1 Ultrawide video: risk refuted, two options confirmed
 
@@ -347,16 +413,32 @@ Originally flagged as a single point of failure. **Resolved 2026-08-08** by read
 schemas — there are two ultrawide-capable loop models, and **Luma Ray 2 is arguably the
 better primary**:
 
-| Model          | End-frame param      | Duration             | Ultrawide                               | Notes                                                                          |
-| -------------- | -------------------- | -------------------- | --------------------------------------- | ------------------------------------------------------------------------------ |
-| **Luma Ray 2** | `end_image_url`      | `"5s"`, `"9s"`       | **explicit `21:9` + `9:21` enum**       | also `resolution` 540p/720p/1080p — **defaults to 540p**, must be overridden   |
-| **Kling O1**   | `end_image_url`      | `"3"`–`"10"`         | inherited from source image (0.40–2.50) | no aspect, resolution or **seed** param at all → video is **not reproducible** |
-| Veo 3.1        | **`last_frame_url`** | `"4s"`,`"6s"`,`"8s"` | no — `auto`/16:9/9:16                   | has `seed`                                                                     |
-| Wan FLF2V      | `end_image_url`      | —                    | no — adds 1:1 only                      | has `seed`                                                                     |
-| Vidu Q2        | `end_image_url`      | **integers `2`–`8`** | no                                      | has `seed`                                                                     |
+| Model          | End-frame param      | Duration             | Ultrawide                         | Notes                                                                          |
+| -------------- | -------------------- | -------------------- | --------------------------------- | ------------------------------------------------------------------------------ |
+| **Luma Ray 2** | `end_image_url`      | `"5s"`, `"9s"`       | **explicit `21:9` + `9:21` enum** | also `resolution` 540p/720p/1080p — **defaults to 540p**, must be overridden   |
+| **Kling O1**   | `end_image_url`      | integers `3`–`10`    | inherits from `start_image_url`   | no aspect, resolution or **seed** param at all → video is **not reproducible** |
+| Veo 3.1        | **`last_frame_url`** | `"4s"`,`"6s"`,`"8s"` | no — `auto`/16:9/9:16             | has `seed`                                                                     |
+| Wan FLF2V      | `end_image_url`      | —                    | no — adds 1:1 only                | has `seed`                                                                     |
+| Vidu Q2        | `end_image_url`      | **integers `2`–`8`** | no                                | has `seed`                                                                     |
 
 Luma gives explicit aspect control where Kling only inherits it from the source, which
-fits the locked-aspect design in §4.4 far better.
+fits the locked-aspect design in §4.4 far better — but it defaults to 540p and offers only
+5s and 9s.
+
+**Two amendments from the 2026-08-09 schema round:**
+
+- **A third ultrawide option:** `blackforestlabs/flux-3/first-last-frame-to-video` declares
+  `21:9` _and_ `2:1`, runs 5–20s, and costs $0.17/s at 720p. Note `end_image_url` is
+  **required** on it, so it is a loop-only endpoint and cannot serve a non-looping animate.
+- **Veo 3.1 is not disqualified by its 16:9 ceiling.** It is the only end-frame model with
+  both `seed` and `negative_prompt`, so it is the only one on which the animate stage is
+  reproducible at all. A 16:9 clip crops to a usable hero. Weigh that against ultrawide
+  rather than treating aspect as a gate.
+
+Kling O1's duration was previously recorded three contradictory ways; the schema gives one,
+an integer enum `3`–`10` defaulting to `5`. The claimed aspect range of 0.40–2.50 is **not
+in the schema** — Kling O1 has no aspect parameter, so nothing bounds the ratio but the
+input image. Vidu Q2 was not re-verified in this round and its row remains unconfirmed.
 
 **This table is the empirical case for the registry (§5).** The same concept is named
 `end_image_url` on four models and `last_frame_url` on a fifth; duration appears as
