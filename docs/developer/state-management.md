@@ -161,6 +161,39 @@ This app uses React Compiler which automatically handles memoization. You do **n
 - Feature flags and configuration
 - Temporary workflow state
 
+## Pure Reducer Behind a Store
+
+When the transitions themselves are the interesting part — several actions, ordering
+rules, invariants worth asserting — keep them in a pure reducer in `src/lib/` and let
+the store be nothing but the subscription mechanism. `src/lib/recipe/reducer.ts` and
+`src/store/editor-store.ts` are the worked example.
+
+```typescript
+// lib/ — pure, testable without React, and liftable
+const reduce = createEditorReducer(REGISTRY)
+
+// store/ — one field, so a selector for it is referentially stable
+export const useEditorStore = create<EditorStore>()(
+  devtools(set => ({
+    state: initialEditorState(),
+    dispatch: action =>
+      set(
+        store => ({ state: reduce(store.state, action) }),
+        undefined,
+        action.type
+      ),
+  }))
+)
+```
+
+Two rules that make it work:
+
+- **No impurity in the reducer.** Ids, seeds and timestamps are minted by the caller
+  and arrive on the action. Otherwise the reducer cannot be tested by hand, and the
+  React Compiler's purity lint will reject the call site anyway.
+- **Select the whole `state` object**, then derive with plain functions. A selector
+  that builds a new array on every call re-renders forever.
+
 ## Adding a New Store
 
 1. Create store file in `src/store/`

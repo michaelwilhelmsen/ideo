@@ -1,0 +1,102 @@
+/**
+ * The three-stage editor — PRD §10's main pane.
+ *
+ * One stage at a time, as tabs. Chosen over the two alternatives the #33 spike
+ * put on screen (all three stages as lanes; a full-bleed canvas with no right
+ * sidebar) — see the prototype/33-three-stage-editor branch for those.
+ *
+ * The stages are tabs rather than steps: every one of them can be re-run on
+ * its own, and the tab bar deliberately offers no "next" (PRD §4.1). What
+ * keeps that from reading as a wizard is the input line under the tabs, which
+ * names the upstream candidate this stage is working from.
+ *
+ * Still fixture-driven — #23 gives it real projects.
+ */
+
+import { useTranslation } from 'react-i18next'
+import { cn } from '@/lib/utils'
+import {
+  activeProject,
+  generationsForStage,
+  selectedGeneration,
+  STAGE_ORDER,
+} from '@/lib/recipe'
+import { useEditorStore } from '@/store/editor-store'
+import {
+  CandidateStrip,
+  EmptyPreview,
+  GenerationBadges,
+  InputSummary,
+  Preview,
+  RecipeReadout,
+  SeedComparison,
+} from './shared'
+import { useGenerationName } from './naming'
+
+export function StageEditor() {
+  const { t } = useTranslation()
+  const state = useEditorStore(store => store.state)
+  const dispatch = useEditorStore(store => store.dispatch)
+  const nameOf = useGenerationName()
+
+  const project = activeProject(state)
+  const stage = state.activeStage
+  const selected = selectedGeneration(project, stage)
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <header className="flex items-baseline gap-3 border-b border-border px-6 py-3">
+        <h1 className="text-base font-semibold">{project.name}</h1>
+        <span className="text-xs text-muted-foreground">{project.aspect}</span>
+      </header>
+
+      <nav
+        className="flex gap-1 border-b border-border px-6"
+        aria-label={t('editor.stages')}
+      >
+        {STAGE_ORDER.map(candidate => (
+          <button
+            key={candidate}
+            type="button"
+            onClick={() => dispatch({ type: 'selectStage', stage: candidate })}
+            aria-current={candidate === stage}
+            className={cn(
+              'cursor-pointer border-b-2 px-3 py-2 text-sm transition-colors',
+              candidate === stage
+                ? 'border-primary font-medium text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {t(`editor.stage.${candidate}`)}
+            <span className="ms-2 text-xs opacity-70">
+              {generationsForStage(project, candidate).length}
+            </span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="flex-1 space-y-4 overflow-y-auto p-6">
+        <InputSummary project={project} stage={stage} />
+
+        {selected === null ? (
+          <EmptyPreview
+            aspect={project.aspect}
+            messageKey="editor.nothingSelected"
+          />
+        ) : (
+          <div className="space-y-3">
+            <Preview generation={selected} aspect={project.aspect} />
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-medium">{nameOf(selected)}</h2>
+              <GenerationBadges project={project} generation={selected} />
+            </div>
+            <RecipeReadout generation={selected} />
+            <SeedComparison project={project} generation={selected} />
+          </div>
+        )}
+
+        <CandidateStrip project={project} stage={stage} />
+      </div>
+    </div>
+  )
+}

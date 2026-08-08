@@ -7,7 +7,9 @@ import { TitleBar } from '@/components/titlebar/TitleBar'
 import { LeftSideBar } from './LeftSideBar'
 import { RightSideBar } from './RightSideBar'
 import { MainWindowContent } from './MainWindowContent'
-import { GeneratePane } from '@/components/generate/GeneratePane'
+import { ProjectList } from '@/components/editor/ProjectList'
+import { StageEditor } from '@/components/editor/StageEditor'
+import { ActiveStageParameters } from '@/components/editor/ActiveStageParameters'
 import { CommandPalette } from '@/components/command-palette/CommandPalette'
 import { PreferencesDialog } from '@/components/preferences/PreferencesDialog'
 import { Toaster } from 'sonner'
@@ -51,7 +53,9 @@ export function MainWindow() {
             maxSize={LAYOUT.leftSidebar.max}
             className={cn(!leftSidebarVisible && 'hidden')}
           >
-            <LeftSideBar />
+            <LeftSideBar>
+              <ProjectList />
+            </LeftSideBar>
           </ResizablePanel>
 
           <ResizableHandle className={cn(!leftSidebarVisible && 'hidden')} />
@@ -61,7 +65,7 @@ export function MainWindow() {
             minSize={LAYOUT.main.min}
           >
             <MainWindowContent>
-              <GeneratePane />
+              <StageEditor />
             </MainWindowContent>
           </ResizablePanel>
 
@@ -73,7 +77,9 @@ export function MainWindow() {
             maxSize={LAYOUT.rightSidebar.max}
             className={cn(!rightSidebarVisible && 'hidden')}
           >
-            <RightSideBar />
+            <RightSideBar className="overflow-y-auto">
+              <ActiveStageParameters />
+            </RightSideBar>
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>

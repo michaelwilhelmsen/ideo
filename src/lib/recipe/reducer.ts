@@ -1,0 +1,309 @@
+/**
+ * The editor reducer — every transition the three-stage editor can make.
+ *
+ * Pure by construction: no ids are minted and no seeds are rolled in here. The
+ * caller passes them in on the action, which is what makes "same pinned seed,
+ * one changed fragment" reproducible rather than approximately reproducible
+ * (PRD §4.3).
+ *
+ * The registry is a constructor argument rather than part of the state,
+ * because it is repo-committed data (PRD §5) that no action can change.
+ */
+
+import { modelById, reconcileParams, type ModelCapabilities } from './registry'
+import { upstreamOf } from './selectors'
+import type {
+  EditorState,
+  Generation,
+  ParamValue,
+  Project,
+  StageKind,
+  StageRecipe,
+} from './types'
+
+/** One model call the caller has already minted an id and a seed for. */
+export interface PlannedRun {
+  readonly id: string
+  readonly seed: number
+}
+
+export type EditorAction =
+  | { readonly type: 'selectProject'; readonly projectId: string }
+  | { readonly type: 'selectStage'; readonly stage: StageKind }
+  | {
+      readonly type: 'setPrompt'
+      readonly stage: StageKind
+      readonly prompt: string
+    }
+  | {
+      readonly type: 'choosePreset'
+      readonly stage: StageKind
+      readonly presetId: string | null
+    }
+  | {
+      readonly type: 'chooseModel'
+      readonly stage: StageKind
+      readonly modelId: string
+    }
+  | {
+      readonly type: 'setParam'
+      readonly stage: StageKind
+      readonly key: string
+      readonly value: ParamValue
+    }
+  | {
+      readonly type: 'setOption'
+      readonly stage: StageKind
+      readonly key: string
+      readonly value: ParamValue
+    }
+  | {
+      readonly type: 'pinSeed'
+      readonly stage: StageKind
+      readonly value: number
+    }
+  | { readonly type: 'unpinSeed'; readonly stage: StageKind }
+  | {
+      readonly type: 'runStage'
+      readonly stage: StageKind
+      readonly runs: readonly PlannedRun[]
+      readonly at: number
+    }
+  | { readonly type: 'selectGeneration'; readonly generationId: string }
+  | {
+      readonly type: 'setVerdict'
+      readonly generationId: string
+      readonly verdict: Generation['verdict']
+    }
+  | { readonly type: 'restoreRecipe'; readonly generationId: string }
+  | { readonly type: 'toggleShowRejected' }
+
+export type EditorReducer = (
+  state: EditorState,
+  action: EditorAction
+) => EditorState
+
+export function createEditorReducer(
+  registry: readonly ModelCapabilities[]
+): EditorReducer {
+  return function editorReducer(state, action) {
+    switch (action.type) {
+      case 'selectProject':
+        return state.projects.some(p => p.id === action.projectId)
+          ? { ...state, activeProjectId: action.projectId }
+          : state
+
+      case 'selectStage':
+        return { ...state, activeStage: action.stage }
+
+      case 'toggleShowRejected':
+        return { ...state, showRejected: !state.showRejected }
+
+      case 'setPrompt':
+        return editDraft(state, action.stage, draft => ({
+          ...draft,
+          prompt: action.prompt,
+        }))
+
+      case 'choosePreset':
+        return editDraft(state, action.stage, draft => ({
+          ...draft,
+          presetId: action.presetId,
+        }))
+
+      case 'chooseModel':
+        return editDraft(state, action.stage, draft => {
+          if (draft.modelId === action.modelId) return draft
+          const model = modelById(registry, action.modelId)
+          return {
+            ...draft,
+            modelId: action.modelId,
+            // Our defaults fill whatever the new model does not inherit — never
+            // the API's, which are actively wrong for restyling (PRD §6.3).
+            params: reconcileParams(model, draft.params),
+            // A model with no seed field cannot honour a pin. Dropping it here
+            // keeps the draft from claiming a reproducibility it does not have.
+            seed: model.supportsSeed ? draft.seed : { mode: 'roll' },
+          }
+        })
+
+      case 'setParam':
+        return editDraft(state, action.stage, draft => ({
+          ...draft,
+          params: { ...draft.params, [action.key]: action.value },
+        }))
+
+      case 'setOption':
+        return editDraft(state, action.stage, draft => ({
+          ...draft,
+          options: { ...draft.options, [action.key]: action.value },
+        }))
+
+      case 'pinSeed':
+        return editDraft(state, action.stage, draft =>
+          modelById(registry, draft.modelId).supportsSeed
+            ? { ...draft, seed: { mode: 'pinned', value: action.value } }
+            : draft
+        )
+
+      case 'unpinSeed':
+        return editDraft(state, action.stage, draft => ({
+          ...draft,
+          seed: { mode: 'roll' },
+        }))
+
+      case 'runStage':
+        return editProject(state, project =>
+          runStage(registry, project, action)
+        )
+
+      case 'selectGeneration':
+        return editProject(state, project => {
+          const generation = project.generations.find(
+            g => g.id === action.generationId
+          )
+          if (generation === undefined) return project
+          return {
+            ...project,
+            selection: {
+              ...project.selection,
+              [generation.stage]: generation.id,
+            },
+          }
+        })
+
+      case 'setVerdict':
+        return editProject(state, project => ({
+          ...project,
+          // Rewrite in place: a rejected candidate stays in the list, keeps its
+          // label, and keeps its recipe (PRD §10.3). Nothing is removed here.
+          generations: project.generations.map(generation =>
+            generation.id === action.generationId
+              ? { ...generation, verdict: action.verdict }
+              : generation
+          ),
+        }))
+
+      case 'restoreRecipe':
+        return editProject(state, project =>
+          restoreRecipe(project, action.generationId)
+        )
+    }
+  }
+}
+
+/**
+ * Submit the current draft.
+ *
+ * The draft is *copied* onto each generation with the upstream pointer
+ * resolved. That copy is the whole point: the sidebar form keeps moving, and a
+ * generation has to stay re-runnable regardless.
+ */
+function runStage(
+  registry: readonly ModelCapabilities[],
+  project: Project,
+  action: Extract<EditorAction, { type: 'runStage' }>
+): Project {
+  const draft = project.drafts[action.stage]
+  const model = modelById(registry, draft.modelId)
+  const upstream = upstreamOf(action.stage)
+  const inputGenerationId =
+    upstream === null ? null : project.selection[upstream]
+
+  // Style and animate need something to work from. Source never does — which
+  // is exactly why re-running style leaves the source alone (PRD §4.1).
+  if (upstream !== null && inputGenerationId === null) return project
+
+  const frozen: StageRecipe = { ...draft, inputGenerationId }
+
+  // A pinned seed makes every candidate in a batch identical, so a pin
+  // collapses the batch to one. Four copies of the same image is not a choice.
+  const runs =
+    draft.seed.mode === 'pinned' ? action.runs.slice(0, 1) : action.runs
+
+  let ordinal = nextOrdinal(project, action.stage)
+
+  const created = runs.map((run): Generation => {
+    const seed = draft.seed.mode === 'pinned' ? draft.seed.value : run.seed
+
+    return {
+      id: run.id,
+      stage: action.stage,
+      recipe: frozen,
+      // Recorded even when rolled — a result you like is worthless if you
+      // cannot pin what produced it (PRD §4.3). Null only when the model has
+      // no seed at all, which is the honest way to say "not reproducible".
+      seed: model.supportsSeed ? seed : null,
+      verdict: 'unrated',
+      createdAt: action.at,
+      ordinal: ordinal++,
+    }
+  })
+
+  if (created.length === 0) return project
+
+  return {
+    ...project,
+    generations: [...project.generations, ...created],
+    // A fresh run selects its first candidate, so the preview is never blank
+    // after a click. Downstream stages keep pointing at what they already
+    // consumed — nothing further along is invalidated.
+    selection: { ...project.selection, [action.stage]: created[0]?.id ?? null },
+  }
+}
+
+/**
+ * Load a past generation's recipe back into the draft — the recipe premise
+ * (PRD §1) made operable. The upstream selection moves too, otherwise a
+ * "restore" would re-run against whatever happens to be selected now.
+ */
+function restoreRecipe(project: Project, generationId: string): Project {
+  const generation = project.generations.find(g => g.id === generationId)
+  if (generation === undefined) return project
+
+  const { stage, recipe } = generation
+  const upstream = upstreamOf(stage)
+  const inputStillExists =
+    recipe.inputGenerationId !== null &&
+    project.generations.some(g => g.id === recipe.inputGenerationId)
+
+  return {
+    ...project,
+    drafts: { ...project.drafts, [stage]: recipe },
+    selection:
+      upstream !== null && inputStillExists
+        ? { ...project.selection, [upstream]: recipe.inputGenerationId }
+        : project.selection,
+  }
+}
+
+function editDraft(
+  state: EditorState,
+  stage: StageKind,
+  change: (draft: StageRecipe) => StageRecipe
+): EditorState {
+  return editProject(state, project => ({
+    ...project,
+    drafts: { ...project.drafts, [stage]: change(project.drafts[stage]) },
+  }))
+}
+
+function editProject(
+  state: EditorState,
+  change: (project: Project) => Project
+): EditorState {
+  return {
+    ...state,
+    projects: state.projects.map(project =>
+      project.id === state.activeProjectId ? change(project) : project
+    ),
+  }
+}
+
+/**
+ * Ordinals count every generation ever made in the stage, including rejected
+ * ones — nothing is deleted, so nothing is reused.
+ */
+function nextOrdinal(project: Project, stage: StageKind): number {
+  return project.generations.filter(g => g.stage === stage).length + 1
+}

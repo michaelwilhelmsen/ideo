@@ -9,6 +9,13 @@ import {
   type GenerationProgress,
 } from '@/lib/tauri-bindings'
 
+/**
+ * Currently unwired. #22's pane was retired when #33 made the three-stage
+ * editor the main window, and the editor still runs on fixtures — #23 is the
+ * slice that connects this to the source stage. The Rust side of the exchange
+ * is unaffected and still covered by its own tests.
+ */
+
 /** Matches PROGRESS_EVENT in src-tauri/src/commands/generate.rs. */
 const PROGRESS_EVENT = 'generation-progress'
 
