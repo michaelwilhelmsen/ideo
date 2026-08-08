@@ -20,6 +20,53 @@ async greet(name: string) : Promise<Result<string, string>> {
 }
 },
 /**
+ * Whether a key is stored. Local only — no network, no key returned.
+ */
+async hasFalApiKey() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("has_fal_api_key") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Validates a pasted key and stores it in the keychain if it works.
+ * 
+ * A key that fails validation is not stored, so a saved key is always one that
+ * worked at least once. Saving over an existing key replaces it.
+ */
+async saveFalApiKey(key: string) : Promise<Result<KeyCheck, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_fal_api_key", { key }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Re-validates the stored key against the live API.
+ */
+async checkFalApiKey() : Promise<Result<KeyCheck, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("check_fal_api_key") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Removes the stored key. Succeeds when there was nothing to remove.
+ */
+async clearFalApiKey() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_fal_api_key") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Loads user preferences from disk.
  * Returns default preferences if the file doesn't exist.
  */
@@ -171,6 +218,45 @@ quick_pane_shortcut: string | null;
  */
 language: string | null }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
+/**
+ * Result of a validation attempt. Never contains the key itself.
+ */
+export type KeyCheck = { outcome: KeyCheckOutcome; 
+/**
+ * Account balance in USD, when the endpoint returned one. Doubles as a
+ * low-funds signal before expensive jobs.
+ */
+balance: number | null; 
+/**
+ * HTTP status, for `Unexpected` only.
+ */
+status: number | null }
+/**
+ * What a validation attempt established. `Rejected` (the key is bad) and
+ * `Unreachable` (we never got an answer) are deliberately separate: only the
+ * first means the user needs to paste a different key.
+ */
+export type KeyCheckOutcome = 
+/**
+ * The key works.
+ */
+"valid" | 
+/**
+ * The key was refused — wrong, revoked or malformed.
+ */
+"rejected" | 
+/**
+ * No key is stored.
+ */
+"missing" | 
+/**
+ * The check never completed — offline, DNS failure, timeout.
+ */
+"unreachable" | 
+/**
+ * The endpoint answered something we don't recognise.
+ */
+"unexpected"
 /**
  * Error types for recovery operations (typed for frontend matching)
  */

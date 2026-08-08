@@ -16,6 +16,7 @@
   "preferences.general": "General",
   "preferences.appearance": "Appearance",
   "preferences.advanced": "Advanced",
+  "preferences.apiKey": "API key",
 
   "preferences.general.keyboardShortcuts": "Keyboard Shortcuts",
   "preferences.general.quickPaneShortcut": "Quick Pane Shortcut",
@@ -26,6 +27,23 @@
   "preferences.general.exampleTextPlaceholder": "Enter example text",
   "preferences.general.exampleToggle": "Example Toggle Setting",
   "preferences.general.exampleToggleDescription": "This is an example switch/toggle setting (not persisted)",
+
+  "preferences.apiKey.title": "fal.ai API key",
+  "preferences.apiKey.label": "API key",
+  "preferences.apiKey.placeholder": "Paste your fal.ai key",
+  "preferences.apiKey.description": "Generation is billed to your own fal.ai account. The key is stored in your keychain and never leaves this computer.",
+  "preferences.apiKey.save": "Save and verify",
+  "preferences.apiKey.replace": "Replace and verify",
+  "preferences.apiKey.test": "Test saved key",
+  "preferences.apiKey.clear": "Clear key",
+  "preferences.apiKey.saved": "A key is saved.",
+  "preferences.apiKey.none": "No key saved yet.",
+  "preferences.apiKey.checking": "Checking with fal.ai...",
+  "preferences.apiKey.valid": "This key works.",
+  "preferences.apiKey.validWithBalance": "This key works. Balance: ${{balance}}",
+  "preferences.apiKey.rejected": "fal.ai rejected this key. Check that you pasted it in full and that it has not been revoked.",
+  "preferences.apiKey.unreachable": "Could not reach fal.ai, so the key was not checked. Check your connection and try again.",
+  "preferences.apiKey.unexpected": "Unexpected answer from fal.ai (status {{status}}). Try again shortly.",
 
   "preferences.appearance.theme": "Theme",
   "preferences.appearance.colorTheme": "Color Theme",
@@ -105,5 +123,9 @@
   "toast.error.windowMinimizeFailed": "Failed to minimize window: {{message}}",
   "toast.error.windowMaximizeFailed": "Failed to toggle maximize: {{message}}",
   "toast.error.fullscreenEnterFailed": "Failed to enter fullscreen: {{message}}",
-  "toast.error.fullscreenExitFailed": "Failed to exit fullscreen: {{message}}"
+  "toast.error.fullscreenExitFailed": "Failed to exit fullscreen: {{message}}",
+  "toast.error.apiKeySaveFailed": "Could not save the key",
+  "toast.error.apiKeyTestFailed": "Could not test the key",
+  "toast.error.apiKeyClearFailed": "Could not clear the key",
+  "toast.success.apiKeyCleared": "API key cleared"
 }

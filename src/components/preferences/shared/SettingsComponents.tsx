@@ -6,6 +6,8 @@ interface SettingsFieldProps {
   label: string
   children: ReactNode
   description?: string
+  /** Id of the control the label names, when the field wraps a single input. */
+  htmlFor?: string
 }
 
 interface SettingsSectionProps {
@@ -17,10 +19,13 @@ export function SettingsField({
   label,
   children,
   description,
+  htmlFor,
 }: SettingsFieldProps) {
   return (
     <div className="space-y-2">
-      <Label className="text-sm font-medium text-foreground">{label}</Label>
+      <Label htmlFor={htmlFor} className="text-sm font-medium text-foreground">
+        {label}
+      </Label>
       {children}
       {description && (
         <p className="text-sm text-muted-foreground">{description}</p>

@@ -39,6 +39,22 @@ regex = "1"
 specta = { version = "=2.0.0-rc.22", features = ["derive", "serde_json"] }
 tauri-specta = { version = "=2.0.0-rc.21", features = ["typescript"] }
 specta-typescript = "=0.0.9"
+# HTTP client — all authenticated calls happen in Rust so keys never reach the webview
+reqwest = { version = "0.13.3", default-features = false, features = ["json", "rustls", "charset", "http2", "system-proxy"] }
+
+# OS keychain for the fal.ai API key. Backends are selected per platform so the
+# cross-platform CI build doesn't pull the others' native dependencies.
+[target.'cfg(target_os = "macos")'.dependencies.keyring]
+version = "3"
+features = ["apple-native"]
+
+[target.'cfg(target_os = "windows")'.dependencies.keyring]
+version = "3"
+features = ["windows-native"]
+
+[target.'cfg(target_os = "linux")'.dependencies.keyring]
+version = "3"
+features = ["sync-secret-service"]
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

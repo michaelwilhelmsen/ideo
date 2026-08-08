@@ -2,7 +2,13 @@
 
 Patterns for calling external HTTP APIs from Tauri applications.
 
-> **Note:** HTTP client dependencies are not installed in this app. Install `reqwest` (Rust) and optionally `tauri-plugin-keyring` (for token storage) when your app needs external API calls.
+> **Note:** `reqwest` (HTTP) and `keyring` (OS keychain) are installed. The
+> keychain backends are selected per platform in `src-tauri/Cargo.toml` so the
+> cross-platform build doesn't pull the other platforms' native dependencies.
+>
+> Worked example: `src-tauri/src/commands/api_key.rs` — secret in the keychain,
+> read only in Rust, with a pure classification function so the outcome mapping
+> is testable without a network.
 
 ## Rust vs Frontend: When to Use Which
 

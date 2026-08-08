@@ -39,6 +39,16 @@ vi.mock('@/lib/tauri-bindings', () => ({
     cleanupOldRecoveryFiles: vi
       .fn()
       .mockResolvedValue({ status: 'ok', data: 0 }),
+    hasFalApiKey: vi.fn().mockResolvedValue({ status: 'ok', data: false }),
+    saveFalApiKey: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { outcome: 'valid', balance: null, status: null },
+    }),
+    checkFalApiKey: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { outcome: 'missing', balance: null, status: null },
+    }),
+    clearFalApiKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   unwrapResult: vi.fn((result: { status: string; data?: unknown }) => {
     if (result.status === 'ok') return result.data

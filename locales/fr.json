@@ -16,6 +16,7 @@
   "preferences.general": "Général",
   "preferences.appearance": "Apparence",
   "preferences.advanced": "Avancé",
+  "preferences.apiKey": "Clé API",
 
   "preferences.general.keyboardShortcuts": "Raccourcis clavier",
   "preferences.general.quickPaneShortcut": "Raccourci du panneau rapide",
@@ -26,6 +27,23 @@
   "preferences.general.exampleTextPlaceholder": "Saisissez un texte d'exemple",
   "preferences.general.exampleToggle": "Paramètre de bascule d'exemple",
   "preferences.general.exampleToggleDescription": "Ceci est un exemple de paramètre de bascule (non persisté)",
+
+  "preferences.apiKey.title": "Clé API fal.ai",
+  "preferences.apiKey.label": "Clé API",
+  "preferences.apiKey.placeholder": "Collez votre clé fal.ai",
+  "preferences.apiKey.description": "La génération est facturée sur votre propre compte fal.ai. La clé est stockée dans votre trousseau et ne quitte jamais cet ordinateur.",
+  "preferences.apiKey.save": "Enregistrer et vérifier",
+  "preferences.apiKey.replace": "Remplacer et vérifier",
+  "preferences.apiKey.test": "Tester la clé enregistrée",
+  "preferences.apiKey.clear": "Effacer la clé",
+  "preferences.apiKey.saved": "Une clé est enregistrée.",
+  "preferences.apiKey.none": "Aucune clé enregistrée.",
+  "preferences.apiKey.checking": "Vérification auprès de fal.ai...",
+  "preferences.apiKey.valid": "Cette clé fonctionne.",
+  "preferences.apiKey.validWithBalance": "Cette clé fonctionne. Solde : {{balance}} $",
+  "preferences.apiKey.rejected": "fal.ai a refusé cette clé. Vérifiez qu'elle est complète et qu'elle n'a pas été révoquée.",
+  "preferences.apiKey.unreachable": "Impossible de joindre fal.ai, la clé n'a donc pas été vérifiée. Vérifiez votre connexion et réessayez.",
+  "preferences.apiKey.unexpected": "Réponse inattendue de fal.ai (statut {{status}}). Réessayez dans un instant.",
 
   "preferences.appearance.theme": "Thème",
   "preferences.appearance.colorTheme": "Thème de couleur",
@@ -105,5 +123,9 @@
   "toast.error.windowMinimizeFailed": "Échec de la réduction de la fenêtre : {{message}}",
   "toast.error.windowMaximizeFailed": "Échec du basculement de l'agrandissement : {{message}}",
   "toast.error.fullscreenEnterFailed": "Échec du passage en plein écran : {{message}}",
-  "toast.error.fullscreenExitFailed": "Échec de la sortie du plein écran : {{message}}"
+  "toast.error.fullscreenExitFailed": "Échec de la sortie du plein écran : {{message}}",
+  "toast.error.apiKeySaveFailed": "Impossible d'enregistrer la clé",
+  "toast.error.apiKeyTestFailed": "Impossible de tester la clé",
+  "toast.error.apiKeyClearFailed": "Impossible d'effacer la clé",
+  "toast.success.apiKeyCleared": "Clé API effacée"
 }

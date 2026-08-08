@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Settings, Palette, Zap } from 'lucide-react'
+import { Settings, Palette, Zap, KeyRound } from 'lucide-react'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,14 +29,20 @@ import { useUIStore } from '@/store/ui-store'
 import { GeneralPane } from './panes/GeneralPane'
 import { AppearancePane } from './panes/AppearancePane'
 import { AdvancedPane } from './panes/AdvancedPane'
+import { ApiKeyPane } from './panes/ApiKeyPane'
 
-type PreferencePane = 'general' | 'appearance' | 'advanced'
+type PreferencePane = 'general' | 'apiKey' | 'appearance' | 'advanced'
 
 const navigationItems = [
   {
     id: 'general' as const,
     labelKey: 'preferences.general',
     icon: Settings,
+  },
+  {
+    id: 'apiKey' as const,
+    labelKey: 'preferences.apiKey',
+    icon: KeyRound,
   },
   {
     id: 'appearance' as const,
@@ -119,6 +125,7 @@ export function PreferencesDialog() {
 
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4 pt-0 max-h-[calc(600px-4rem)]">
               {activePane === 'general' && <GeneralPane />}
+              {activePane === 'apiKey' && <ApiKeyPane />}
               {activePane === 'appearance' && <AppearancePane />}
               {activePane === 'advanced' && <AdvancedPane />}
             </div>

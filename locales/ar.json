@@ -16,6 +16,7 @@
   "preferences.general": "عام",
   "preferences.appearance": "المظهر",
   "preferences.advanced": "متقدم",
+  "preferences.apiKey": "مفتاح API",
 
   "preferences.general.keyboardShortcuts": "اختصارات لوحة المفاتيح",
   "preferences.general.quickPaneShortcut": "اختصار اللوحة السريعة",
@@ -26,6 +27,23 @@
   "preferences.general.exampleTextPlaceholder": "أدخل نص المثال",
   "preferences.general.exampleToggle": "إعداد تبديل المثال",
   "preferences.general.exampleToggleDescription": "هذا مثال على إعداد المفتاح/التبديل (غير محفوظ)",
+
+  "preferences.apiKey.title": "مفتاح fal.ai API",
+  "preferences.apiKey.label": "مفتاح API",
+  "preferences.apiKey.placeholder": "الصق مفتاح fal.ai الخاص بك",
+  "preferences.apiKey.description": "تُحتسب تكلفة التوليد على حسابك في fal.ai. يُخزَّن المفتاح في سلسلة المفاتيح ولا يغادر هذا الجهاز.",
+  "preferences.apiKey.save": "حفظ وتحقق",
+  "preferences.apiKey.replace": "استبدال وتحقق",
+  "preferences.apiKey.test": "اختبار المفتاح المحفوظ",
+  "preferences.apiKey.clear": "مسح المفتاح",
+  "preferences.apiKey.saved": "يوجد مفتاح محفوظ.",
+  "preferences.apiKey.none": "لا يوجد مفتاح محفوظ.",
+  "preferences.apiKey.checking": "جارٍ التحقق مع fal.ai...",
+  "preferences.apiKey.valid": "هذا المفتاح يعمل.",
+  "preferences.apiKey.validWithBalance": "هذا المفتاح يعمل. الرصيد: {{balance}} دولار",
+  "preferences.apiKey.rejected": "رفض fal.ai هذا المفتاح. تأكد من لصقه كاملاً ومن أنه لم يُلغَ.",
+  "preferences.apiKey.unreachable": "تعذّر الوصول إلى fal.ai، لذلك لم يتم التحقق من المفتاح. تحقق من اتصالك وحاول مرة أخرى.",
+  "preferences.apiKey.unexpected": "استجابة غير متوقعة من fal.ai (الحالة {{status}}). حاول مرة أخرى بعد قليل.",
 
   "preferences.appearance.theme": "السمة",
   "preferences.appearance.colorTheme": "سمة اللون",
@@ -105,5 +123,9 @@
   "toast.error.windowMinimizeFailed": "فشل تصغير النافذة: {{message}}",
   "toast.error.windowMaximizeFailed": "فشل تبديل التكبير: {{message}}",
   "toast.error.fullscreenEnterFailed": "فشل الدخول إلى ملء الشاشة: {{message}}",
-  "toast.error.fullscreenExitFailed": "فشل الخروج من ملء الشاشة: {{message}}"
+  "toast.error.fullscreenExitFailed": "فشل الخروج من ملء الشاشة: {{message}}",
+  "toast.error.apiKeySaveFailed": "تعذّر حفظ المفتاح",
+  "toast.error.apiKeyTestFailed": "تعذّر اختبار المفتاح",
+  "toast.error.apiKeyClearFailed": "تعذّر مسح المفتاح",
+  "toast.success.apiKeyCleared": "تم مسح مفتاح API"
 }
