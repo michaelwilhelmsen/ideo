@@ -12,13 +12,17 @@ Dato: 2026-08-08. Bygger på tidligere bekreftet: FLUX støtter ikke negative pr
 - Praktisk implikasjon for preset-biblioteket: **å hekte en kommaseparert stil-fragment bak en prosa-subjektsetning svekker sannsynligvis FLUX-resultatet** fordi det bryter den prosaflyten encoderen er trent på — dette er den mest sannsynlige tolkningen av kildene, men ikke A/B-testet i noen kilde jeg fant. [SANNSYNLIG, ikke [DOK]].
 
 **Anbefalt mal (FLUX):**
+
 ```
 {subject_prose}, {style_clause_woven_as_prose}
 ```
+
 Konkret eksempel (film grain-stil, se §2 for full preset):
+
 ```
 A woman in her 30s standing at a rain-soaked Tokyo crosswalk, captured on grainy 35mm film with visible halation and soft, slightly desaturated color, warm tungsten street light mixing with cool blue dusk sky.
 ```
+
 Dvs. subjektsetningen kommer først (høyest attention), og stilen fortsetter som naturlig fortsettelse av samme setning/prosa-blokk — ikke `subject, tag1, tag2, tag3`.
 
 **Hull:** Fant ikke en direkte, åpnbar primærkilde på docs.bfl.ml med et eksplisitt "style leder/følger"-avsnitt; guiden `https://docs.bfl.ml/guides/prompting_guide_t2i_fundamentals` returnerte 404 ved fetch 2026-08-08 (kan ha flyttet URL eller kreve annen sti). Konklusjonen over bygger på konsistente sekundærkilder (fal.ai learn, Ambience AI, deAPI.ai) som alle refererer til BFL sin offisielle guide, men jeg har ikke selv lest primærteksten.
@@ -28,6 +32,7 @@ Dvs. subjektsetningen kommer først (høyest attention), og stilen fortsetter so
 Prinsipp: hold felles metadata på toppnivå, og legg modellspesifikke felt i en `variants`-map keyet på modell-familie (`flux`, `sdxl`), slik at nye modeller kan legges til uten å bryte skjemaet. FLUX-varianten har ALDRI `negative_prompt` eller `guidance` som fri parameter (fast CFG ~1, bekreftet i forrige runde); SDXL-varianten har begge pluss vektings-syntaks (`(word:1.3)` etc.).
 
 **Skjemaforslag (JSON):**
+
 ```json
 {
   "id": "film-grain",
@@ -56,6 +61,7 @@ Prinsipp: hold felles metadata på toppnivå, og legg modellspesifikke felt i en
 ```
 
 Nøkkelpunkter i skjemaet:
+
 - `variants` er en **map**, ikke en fast liste — nye modellfamilier (f.eks. Midjourney, Ideogram) legges til som nye keys uten migrasjon.
 - Felt som ikke gjelder for en modell (`negative_prompt`, `guidance` for FLUX) settes explicit til `null` heller enn å utelates, slik at applikasjonslaget kan skille "ikke støttet av modell" fra "mangler data".
 - `compose.*_template` holder komposisjonsregelen (jf. §1) per modellfamilie i selve preset-filen, slik at ordrelogikken ikke gjemmes i applikasjonskode og kan endres per stil om nødvendig (noen stiler kan trenge stilen først, f.eks. en sterk kunstretning som skal dominere).

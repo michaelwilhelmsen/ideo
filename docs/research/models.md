@@ -3,6 +3,7 @@
 Research date: 2026-08-08. Search budget brukt: 11 av maks 12 web-søk/fetch.
 
 ## Sammendrag
+
 - **Text-to-image:** `fal-ai/flux-pro/v1.1` [DOK] har ingen native 21:9/3:2 preset — bruk custom width×height. FLUX.2-familien (`fal-ai/flux-2-pro`, `fal-ai/flux-2`) er nyere/rimeligere men ikke verifisert i detalj [SANNSYNLIG].
 - **Image-to-image:** `fal-ai/flux-1/dev/image-to-image` [DOK] har en eksplisitt `strength`-parameter (default 0.95). Fals egen anbefaling ("higher is better for this model") er kontraintuitiv for komposisjonsbevarende restyling — må testes empirisk, ikke bare stole på default.
 - **Image-to-video / loop:** `fal-ai/kling-video/o1/image-to-video` [DOK] har et eksplisitt `end_image_url`-parameter direkte på i2v-endepunktet — sett det likt startbildet for en sømløs loop. Dette er den klareste og best dokumenterte loop-mekanismen funnet. Flere andre modeller (Veo 3.1 first-last-frame, Vidu start-end, Framepack flf2v) har lignende mekanismer men er ikke verifisert i samme detalj. Kling/MiniMax/Seedance/Wan/LTX "standard" i2v-varianter har **ingen** dokumentert loop/end-frame-støtte i denne runden.
@@ -12,6 +13,7 @@ Research date: 2026-08-08. Search budget brukt: 11 av maks 12 web-søk/fetch.
 ## 1. Text-to-image (bred aspect, abstrakte/grafiske bakgrunner)
 
 Kandidater funnet så langt (fal.ai/models):
+
 - `fal-ai/flux-pro/v1.1` — FLUX Pro 1.1. Pris ~$0.055/megapixel [SANNSYNLIG — pricepertoken.com aggregator, ikke fal selv, må verifiseres]. https://fal.ai/models/fal-ai/flux-pro/v1.1
 - `fal-ai/flux-2-pro` — FLUX.2 [pro], nyere modell, ~$0.03/megapixel [SANNSYNLIG], opptil 4MP output, forbedret typografi. https://fal.ai/models/fal-ai/flux-2-pro
 - `fal-ai/flux-2` — FLUX.2 [dev], støtter LoRA, rimeligere/raskere enn pro. https://fal.ai/models/fal-ai/flux-2
@@ -20,6 +22,7 @@ Kandidater funnet så langt (fal.ai/models):
 - `fal-ai/flux-general` — generell FLUX-variant (playground funnet, ikke verifisert schema).
 
 ### `fal-ai/flux-pro/v1.1` — verifisert fra fal API-spec-side [DOK] (https://fal.ai/models/fal-ai/flux-pro/v1.1/api)
+
 - **image_size** presets: `square_hd`, `square`, `portrait_4_3`, `portrait_16_9`, `landscape_4_3`, `landscape_16_9` — **ingen native 21:9 eller 3:2 preset**. Custom width/height objekt kan brukes i stedet for enum → 21:9/3:2 må settes som eksplisitt bredde×høyde.
 - Params: `prompt`, `image_size`, `seed`, `num_images` (default 1), `output_format` (jpeg/png), `safety_tolerance` (1-6), `enhance_prompt`, `sync_mode`.
 - Maks oppløsning: ikke dokumentert på siden [IKKE FUNNET].
@@ -28,6 +31,7 @@ Kandidater funnet så langt (fal.ai/models):
 - Lisens: bruk må følge "FLUX.1 PRO Terms of Service".
 
 Andre kandidater (kun sett via search-snippets, IKKE verifisert mot egen API-spec-side ennå):
+
 - `fal-ai/flux-2-pro` — FLUX.2 [pro], ~$0.03/MP [SANNSYNLIG], opptil 4MP output. https://fal.ai/models/fal-ai/flux-2-pro
 - `fal-ai/flux-2` — FLUX.2 [dev], støtter LoRA.
 - `fal-ai/flux/schnell` — FLUX.1 [schnell], ultra-rask/billig.
@@ -38,14 +42,16 @@ Anbefaling for brede/grafiske bakgrunner: bruk custom width×height (ikke preset
 ## 2. Image-to-image / restyling
 
 ### `fal-ai/flux-1/dev/image-to-image` [DOK] (https://fal.ai/models/fal-ai/flux-1/dev/image-to-image/api)
+
 - Bildeinput: aksepterer offentlig URL **eller** base64 data-URI (fil-opplasting også nevnt).
-- Strength-parameter kalles eksplisitt **`strength`**, default `0.95`, beskrevet som "strength of the initial image"; dokumentasjonen sier "higher strength values are better for this model" — merk: 0.95 er et *høyt* endringsnivå (mindre komposisjons-bevaring). For god komposisjons-bevaring ved restyling bør man sannsynligvis teste lavere verdier (f.eks. 0.4-0.7), men fal sin egen anbefaling går motsatt vei — dette bør A/B-testes, ikke tas for gitt.
+- Strength-parameter kalles eksplisitt **`strength`**, default `0.95`, beskrevet som "strength of the initial image"; dokumentasjonen sier "higher strength values are better for this model" — merk: 0.95 er et _høyt_ endringsnivå (mindre komposisjons-bevaring). For god komposisjons-bevaring ved restyling bør man sannsynligvis teste lavere verdier (f.eks. 0.4-0.7), men fal sin egen anbefaling går motsatt vei — dette bør A/B-testes, ikke tas for gitt.
 - Andre parametre: `num_inference_steps` (default 40), `guidance_scale` (default 3.5), `num_images`, `seed`, `enable_safety_checker`, `output_format`, `acceleration`.
 - Komposisjonsbevaring: ikke eksplisitt dokumentert på siden [IKKE FUNNET] — er implisitt i img2img-mekanismen (strength styrer dette), men fal beskriver det ikke direkte som "preserves composition".
 - Pris: ikke oppgitt på API-spec-siden, henvises til /pricing [IKKE FUNNET i denne runden].
 - Lisensiering: "suitable for personal and commercial use".
 
 Andre kandidater sett i søk (ikke verifisert i detalj):
+
 - `fal-ai/clarity-upscaler` — img2img, mer for oppskalering/detalj-restaurering enn stilrestyling.
 - LoRA-baserte img2img-varianter (`fal-ai/lora/inpaint` m.fl.) — mer for inpainting enn full restyling.
 - Merk: FLUX.2-familien har sannsynligvis også en image-to-image/editing-variant (`fal-ai/flux-2/...`) men endepunkt-ID og strength-parameternavn er ikke verifisert i denne research-runden [IKKE FUNNET — bør sjekkes ved behov for nyere/bedre kvalitet enn flux-1/dev].
@@ -55,6 +61,7 @@ Andre kandidater sett i søk (ikke verifisert i detalj):
 **Nøkkelfunn: for sømløse loops er det first/last-frame (start+end image) conditioning som er den relevante mekanismen** — sett `end_image_url` = samme bilde som `start`/input-bilde, og modellen genererer en overgang som lander tilbake der den startet. Ingen fal-modell nevner en dedikert "loop flag" i denne søkerunden.
 
 ### Modeller MED start/end-frame (last-frame) støtte → kan brukes til seamless loops
+
 - **`fal-ai/kling-video/o1/image-to-video`** — Kling O1, "First Frame to Last Frame" generator, dual-keyframe interpolasjon mellom start- og sluttbilde med tekst-styrt stil. [DOK — modellnavn/beskrivelse] https://fal.ai/models/fal-ai/kling-video/o1/image-to-video — pris/varighet/oppløsning IKKE verifisert i denne runden.
 - **Kling 3.0 Pro** — aksepterer `end_image_url` parameter i tillegg til start-bilde, samme start→end-transition-mønster [SANNSYNLIG, fra søk-snippet, ikke fetch-verifisert]. Eksakt endepunkt-ID ikke bekreftet (sannsynligvis `fal-ai/kling-video/v3/pro/image-to-video` -stil, men IKKE FUNNET direkte).
 - **`fal-ai/veo3.1/first-last-frame-to-video`** og fast-variant **`fal-ai/veo3.1/fast/first-last-frame-to-video`** — Google Veo 3.1, dedikerte first/last-frame-endepunkter. [DOK — endepunkt-ID fra søk] https://fal.ai/models/fal-ai/veo3.1/first-last-frame-to-video — pris/varighet ikke verifisert.
@@ -62,6 +69,7 @@ Andre kandidater sett i søk (ikke verifisert i detalj):
 - **`fal-ai/framepack/flf2v`** — "flf2v" = First-Last-Frame-to-Video, egen Framepack-variant nettopp for dette. [DOK — navn tyder klart på funksjon] https://fal.ai/models/fal-ai/framepack/flf2v
 
 ### Modeller UTEN dokumentert last-frame/loop-støtte (kun bekreftet som ren image-to-video, start-bilde → fri bevegelse)
+
 - **`fal-ai/kling-video/v2.1/standard/image-to-video`** (eller lignende "Kling 2.1 Standard") — standard i2v, IKKE nevnt med end-frame-parameter i søkeresultatene → sannsynligvis **ingen** loop/end-frame-støtte på denne enklere/billigere varianten [SANNSYNLIG, basert på fravær i søk, ikke eksplisitt bekreftet "does not support"].
 - **MiniMax Hailuo-02 Image-to-Video** — 768p/512p oppløsning nevnt, ingen end-frame/loop-mekanisme funnet i søk → **antatt ingen** first/last-frame-støtte [IKKE BEKREFTET NEGATIVT — kun fravær av omtale].
 - **Seedance 2.0 Mini** — beskrevet som rask/billig variant, ingen loop/end-frame-omtale funnet [IKKE FUNNET].
@@ -70,6 +78,7 @@ Andre kandidater sett i søk (ikke verifisert i detalj):
 - **Luma Ray** — ikke dukket opp i søkeresultatene i det hele tatt i denne runden; fal har historisk hostet Luma Dream Machine/Ray-modeller, men verken tilstedeværelse, endepunkt-ID eller loop-støtte er bekreftet [IKKE FUNNET — bør søkes spesifikt "fal.ai Luma Ray2 image-to-video" hvis dette er en prioritert kandidat].
 
 ### Fortsatt uverifisert for ALLE video-kandidater (pga søkebudsjett)
+
 - Eksakt maks varighet (sekunder) pr modell.
 - Eksakt oppløsning pr modell (utover Hailuo-02s 768p/512p).
 - Pris pr sekund eller pr klipp — ingen tall funnet i denne runden for noen video-modell [IKKE FUNNET].
@@ -78,6 +87,7 @@ Andre kandidater sett i søk (ikke verifisert i detalj):
 **Praktisk konklusjon for "seamless ambient loops":** sett `image_url` (start) og `end_image_url`/`tail_image_url` (samme bilde eller en subtilt beveget variant) på en first/last-frame-modell. Kling O1 og Veo 3.1 first-last-frame ser mest lovende ut basert på beskrivelse, men pris/kvalitet/latency må testes — ingen av disse er billige high-volume modeller sannsynligvis (Veo/Kling er typisk premium-priset per klipp).
 
 ### `fal-ai/kling-video/o1/image-to-video` — verifisert fra egen API-spec-side [DOK] (https://fal.ai/models/fal-ai/kling-video/o1/image-to-video/api)
+
 - Parametre: `prompt` (kan referere `@Image1`/`@Image2` for start/slutt), **`start_image_url`** (required), **`end_image_url`** (optional — dette er selve loop-mekanismen: sett lik `start_image_url` for en sømløs loop), `duration` (enum: 3-10 sekunder, default 5).
 - Bildekrav: maks 10.0MB, min 300px pr side, aspect ratio 0.40–2.50.
 - Output: én MP4-fil (URL, filstørrelse, content-type, filnavn).
@@ -91,6 +101,7 @@ Andre kandidater sett i søk (ikke verifisert i detalj):
 Verifisert direkte fra fal sin dokumentasjonsside [DOK] (https://fal.ai/docs/documentation/model-apis/inference/queue):
 
 **Endepunkt-URL-former (queue.fal.run):**
+
 - Submit: `POST https://queue.fal.run/{model-id}` (evt. med ekstra path for sub-endepunkter, f.eks. `/image-to-image`)
 - Status: `GET https://queue.fal.run/{model-id}/requests/{request_id}/status`
 - Status (streaming): `GET https://queue.fal.run/{model-id}/requests/{request_id}/status/stream` — **SSE støttes** (`text/event-stream`), altså ikke bare polling.
@@ -102,6 +113,7 @@ Verifisert direkte fra fal sin dokumentasjonsside [DOK] (https://fal.ai/docs/doc
 **Webhooks:** query-param `?fal_webhook=https://din-server.com/webhook` på submit-URL (evt. SDK-parameter `webhook_url`). Webhook-payload-format: `{ "request_id": "...", "gateway_request_id": "...", "status": "OK"|"ERROR", "payload": {...} }`.
 
 **Andre nyttige headere:**
+
 - `?logs=1` (eller SDK `with_logs=True`/`logs: true`) — inkluderer logger i status-svar.
 - `X-Fal-No-Retry: 1` — deaktiverer automatisk retry.
 - `X-Fal-Request-Timeout` — absolutt deadline i sekunder.
@@ -112,6 +124,7 @@ Verifisert direkte fra fal sin dokumentasjonsside [DOK] (https://fal.ai/docs/doc
 **Rate limits:** ingen eksplisitt tallfestet grense funnet i denne dokumentasjonsutdraget [IKKE FUNNET — søkte "fal.ai rate limit requests per minute", ingen konkrete tall dukket opp i søkeresultatene. Automatisk retry ved 429/rate-limit antyder at grenser finnes og håndteres server-side, men uten dokumenterte tall bør en desktop-klient selv implementere backoff/kø.]
 
 **Bildeopplasting for input:**
+
 - Tre metoder bekreftet: (1) offentlig tilgjengelig URL, (2) base64 data-URI direkte i requesten, (3) fals egen filopplasting via `fal.storage.upload()` (JS-klient) som returnerer en CDN-URL å bruke i requesten. [DOK for (1)+(2) fra flux-1/dev/image-to-image-siden; DOK for (3) fra queue/client-libraries-søk.]
 - For et lokalt desktop-verktøy: `fal.storage.upload()`/tilsvarende REST-opplasting er sannsynligvis mest robust for store lokale bilder (unngår data-URI-størrelsesbegrensninger i selve JSON-payloaden), men eksakt REST-endepunkt for opplasting (utenom JS-SDK-metoden) er IKKE verifisert i denne runden [IKKE FUNNET — bør sjekkes mot docs.fal.ai storage-referanse hvis Tauri-appen ikke bruker JS-SDK-en direkte].
 

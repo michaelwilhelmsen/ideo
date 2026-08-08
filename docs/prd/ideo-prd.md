@@ -153,24 +153,24 @@ supports end frames."
 
 The UI **derives from this registry** rather than hardcoding controls. Per model:
 
-| Field | Purpose |
-|---|---|
-| `id` | Provider's model/endpoint identifier |
-| `provider` | `fal` for v1; field exists so a second provider is additive |
-| `stage` | `image` \| `restyle` \| `video` |
-| `promptStyle` | `prose` \| `tags` — selects which preset variant to use |
-| `supportsNegativePrompt` | Whether a negative prompt field is sent at all |
-| `supportsSeed` | Gates seed recording/pinning UI |
-| `strengthParam` | **The actual API field name**, or null |
-| `aspect` | `{minRatio, maxRatio, allowedPresets, allowsCustomWidthHeight, maxResolution}` |
-| `durations` | Allowed duration values (video) — **verbatim**, since formats differ |
-| `durationFormat` | `string` \| `secondsSuffixed` \| `integer` — see §9.1; four models, three formats |
-| `endFrameParam` | Field name, or null — **gates whether the loop option appears** |
-| `aspectParam` | Field name, or null when aspect is inherited from the source image |
-| `resolutionParam` | Field name + allowed values; needed because some models default low |
-| `defaults` | Our chosen defaults, **not** the API's — see §6.3 |
-| `price` | `{unit, amount, verifiedOn}` |
-| `notes` | Free text, including known-unverified caveats |
+| Field                    | Purpose                                                                           |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| `id`                     | Provider's model/endpoint identifier                                              |
+| `provider`               | `fal` for v1; field exists so a second provider is additive                       |
+| `stage`                  | `image` \| `restyle` \| `video`                                                   |
+| `promptStyle`            | `prose` \| `tags` — selects which preset variant to use                           |
+| `supportsNegativePrompt` | Whether a negative prompt field is sent at all                                    |
+| `supportsSeed`           | Gates seed recording/pinning UI                                                   |
+| `strengthParam`          | **The actual API field name**, or null                                            |
+| `aspect`                 | `{minRatio, maxRatio, allowedPresets, allowsCustomWidthHeight, maxResolution}`    |
+| `durations`              | Allowed duration values (video) — **verbatim**, since formats differ              |
+| `durationFormat`         | `string` \| `secondsSuffixed` \| `integer` — see §9.1; four models, three formats |
+| `endFrameParam`          | Field name, or null — **gates whether the loop option appears**                   |
+| `aspectParam`            | Field name, or null when aspect is inherited from the source image                |
+| `resolutionParam`        | Field name + allowed values; needed because some models default low               |
+| `defaults`               | Our chosen defaults, **not** the API's — see §6.3                                 |
+| `price`                  | `{unit, amount, verifiedOn}`                                                      |
+| `notes`                  | Free text, including known-unverified caveats                                     |
 
 Two fields exist purely because of things the spike caught:
 
@@ -265,13 +265,13 @@ rather than restate the subject**.
 **Measured on `flux-1/dev/image-to-image`, 2026-08-08** — same source, prompt and seed,
 sweeping `strength`:
 
-| Value | Result |
-|---|---|
-| 0.3 | source returned essentially unchanged; no style |
-| 0.5 | negligible style; composition intact |
-| **0.65** | style clearly visible; composition intact |
-| **0.75** | style stronger; composition still intact |
-| 0.85 | strong style, but composition drifts — reframed and zoomed |
+| Value    | Result                                                     |
+| -------- | ---------------------------------------------------------- |
+| 0.3      | source returned essentially unchanged; no style            |
+| 0.5      | negligible style; composition intact                       |
+| **0.65** | style clearly visible; composition intact                  |
+| **0.75** | style stronger; composition still intact                   |
+| 0.85     | strong style, but composition drifts — reframed and zoomed |
 | **0.95** | **input discarded entirely — returned an unrelated image** |
 
 0.95 is **fal's own documented default**, and it does not restyle at all; it generates
@@ -308,7 +308,8 @@ Consequences:
   for lack of funds.
 
   A key is 69 characters, `uuid:hex32`. Do not validate on that shape alone.
-- **Blocking behaviour**: browsing is allowed without a key; the first *generate*
+
+- **Blocking behaviour**: browsing is allowed without a key; the first _generate_
   requires one.
 - **Onboarding is a replayable modal** over the main UI, driven by a declarative step
   array so adding a step later is one entry rather than new routing. Completion is
@@ -332,13 +333,13 @@ talks to, so bundling later is a contained change if this ever ships externally.
 Verification strength matters more than benchmark scores here, because an unverified
 capability becomes a runtime failure at the most expensive step.
 
-| Stage | Recommended | Rationale |
-|---|---|---|
-| Text-to-image | **FLUX Kontext (pro/max)** | Only image model with **confirmed** 21:9/9:21 enum, plus seed determinism and a documented `strength` |
-| Text-to-image (alt) | **Nano Banana Pro** | 21:9 confirmed in an 11-ratio enum, multimodal input |
-| Restyle | **FLUX Kontext** | Same family, `strength` documented (default 0.1) |
-| Video loop | **Kling O1** | Only video model with a **confirmed** aspect range (0.40–2.50) covering 21:9; has an end-frame parameter |
-| `tags` exemplar | **Qwen-Image 2.0** | Has a real `negative_prompt`, which justifies the two-variant preset schema |
+| Stage               | Recommended                | Rationale                                                                                                |
+| ------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Text-to-image       | **FLUX Kontext (pro/max)** | Only image model with **confirmed** 21:9/9:21 enum, plus seed determinism and a documented `strength`    |
+| Text-to-image (alt) | **Nano Banana Pro**        | 21:9 confirmed in an 11-ratio enum, multimodal input                                                     |
+| Restyle             | **FLUX Kontext**           | Same family, `strength` documented (default 0.1)                                                         |
+| Video loop          | **Kling O1**               | Only video model with a **confirmed** aspect range (0.40–2.50) covering 21:9; has an end-frame parameter |
+| `tags` exemplar     | **Qwen-Image 2.0**         | Has a real `negative_prompt`, which justifies the two-variant preset schema                              |
 
 ### 9.1 Ultrawide video: risk refuted, two options confirmed
 
@@ -346,13 +347,13 @@ Originally flagged as a single point of failure. **Resolved 2026-08-08** by read
 schemas — there are two ultrawide-capable loop models, and **Luma Ray 2 is arguably the
 better primary**:
 
-| Model | End-frame param | Duration | Ultrawide | Notes |
-|---|---|---|---|---|
-| **Luma Ray 2** | `end_image_url` | `"5s"`, `"9s"` | **explicit `21:9` + `9:21` enum** | also `resolution` 540p/720p/1080p — **defaults to 540p**, must be overridden |
-| **Kling O1** | `end_image_url` | `"3"`–`"10"` | inherited from source image (0.40–2.50) | no aspect, resolution or **seed** param at all → video is **not reproducible** |
-| Veo 3.1 | **`last_frame_url`** | `"4s"`,`"6s"`,`"8s"` | no — `auto`/16:9/9:16 | has `seed` |
-| Wan FLF2V | `end_image_url` | — | no — adds 1:1 only | has `seed` |
-| Vidu Q2 | `end_image_url` | **integers `2`–`8`** | no | has `seed` |
+| Model          | End-frame param      | Duration             | Ultrawide                               | Notes                                                                          |
+| -------------- | -------------------- | -------------------- | --------------------------------------- | ------------------------------------------------------------------------------ |
+| **Luma Ray 2** | `end_image_url`      | `"5s"`, `"9s"`       | **explicit `21:9` + `9:21` enum**       | also `resolution` 540p/720p/1080p — **defaults to 540p**, must be overridden   |
+| **Kling O1**   | `end_image_url`      | `"3"`–`"10"`         | inherited from source image (0.40–2.50) | no aspect, resolution or **seed** param at all → video is **not reproducible** |
+| Veo 3.1        | **`last_frame_url`** | `"4s"`,`"6s"`,`"8s"` | no — `auto`/16:9/9:16                   | has `seed`                                                                     |
+| Wan FLF2V      | `end_image_url`      | —                    | no — adds 1:1 only                      | has `seed`                                                                     |
+| Vidu Q2        | `end_image_url`      | **integers `2`–`8`** | no                                      | has `seed`                                                                     |
 
 Luma gives explicit aspect control where Kling only inherits it from the source, which
 fits the locked-aspect design in §4.4 far better.
@@ -420,7 +421,7 @@ Split by **whether changing it should affect existing projects**:
 
 - **Seeded from globals at project creation, then owned by the project**: aspect ratio,
   batch sizes. Changing a default later must **not** mutate old projects — so creation
-  *copies* defaults rather than referencing them.
+  _copies_ defaults rather than referencing them.
 - **Genuinely app-wide**: concurrency limit, ffmpeg path, export folder.
 
 ## 12. Known-unverified facts
@@ -429,20 +430,20 @@ Rows are answered in place, never deleted — the table is the honest record of 
 was assumed and what was checked. **Verified against the live API on 2026-08-08**
 (E0 spike, total spend $0.23).
 
-| Unknown | Status |
-|---|---|
-| Free key validation | **RESOLVED.** `GET https://rest.alpha.fal.ai/billing/user_balance` → `200` + bare number with a valid key; `401` for bad, malformed, or absent. Free. Note the **underscore** — the hyphenated variant 404s. |
-| Real pricing | **MEASURED** by balance delta: `flux-pro/v1.1` **$0.04**/image and `flux-1/dev/image-to-image` **$0.025**/image at 0.90 MP. Billing lags a few minutes, so read the balance twice. Video prices still unmeasured. |
-| **Kling O1 duration** (three contradictory research answers) | **RESOLVED.** Enum `"3"`–`"10"`, default `"5"` — **strings, not integers**. |
-| Whether FLUX prefers prose over tag-lists | **RESOLVED — no rewrite.** See §6.2. |
-| Correct `strength` range | **RESOLVED.** See §6.3. fal's own default of 0.95 destroys the input. |
-| Whether any video model other than Kling O1 supports 21:9 | **RESOLVED — yes.** Luma Ray 2 has an explicit `aspect_ratio` enum containing `21:9` and `9:21`, plus `end_image_url`. §9.1's risk is refuted. |
-| Key format | **RESOLVED.** 69 chars, `uuid:hex32`. |
-| Queue URL construction | **RESOLVED — do not construct.** Submit returns `status_url` / `response_url` / `cancel_url`, and they drop the version sub-path (`fal-ai/flux-pro/requests/...`, not `.../flux-pro/v1.1/requests/...`). Constructing the versioned form returns `405`. Always use the returned URLs. |
-| Requested dimensions honoured? | **NO.** 1280×720 came back as 1280×704 — height snapped to a multiple of 16, changing the aspect from 1.78 to 1.82. Validation must tolerate adjustment; do not assume exact output dimensions. |
-| REST file-upload flow | **STILL OPEN.** Sidestepped in the spike by reusing fal-hosted result URLs as img2img input, which works and is free. Needs testing before local uploads (#27) ship. |
-| fal rate limits | **STILL OPEN.** Untested. Client-side backoff needed regardless. |
-| Whether gpt-image-2 is reachable via fal | **STILL OPEN.** Untested. |
+| Unknown                                                      | Status                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Free key validation                                          | **RESOLVED.** `GET https://rest.alpha.fal.ai/billing/user_balance` → `200` + bare number with a valid key; `401` for bad, malformed, or absent. Free. Note the **underscore** — the hyphenated variant 404s.                                                                          |
+| Real pricing                                                 | **MEASURED** by balance delta: `flux-pro/v1.1` **$0.04**/image and `flux-1/dev/image-to-image` **$0.025**/image at 0.90 MP. Billing lags a few minutes, so read the balance twice. Video prices still unmeasured.                                                                     |
+| **Kling O1 duration** (three contradictory research answers) | **RESOLVED.** Enum `"3"`–`"10"`, default `"5"` — **strings, not integers**.                                                                                                                                                                                                           |
+| Whether FLUX prefers prose over tag-lists                    | **RESOLVED — no rewrite.** See §6.2.                                                                                                                                                                                                                                                  |
+| Correct `strength` range                                     | **RESOLVED.** See §6.3. fal's own default of 0.95 destroys the input.                                                                                                                                                                                                                 |
+| Whether any video model other than Kling O1 supports 21:9    | **RESOLVED — yes.** Luma Ray 2 has an explicit `aspect_ratio` enum containing `21:9` and `9:21`, plus `end_image_url`. §9.1's risk is refuted.                                                                                                                                        |
+| Key format                                                   | **RESOLVED.** 69 chars, `uuid:hex32`.                                                                                                                                                                                                                                                 |
+| Queue URL construction                                       | **RESOLVED — do not construct.** Submit returns `status_url` / `response_url` / `cancel_url`, and they drop the version sub-path (`fal-ai/flux-pro/requests/...`, not `.../flux-pro/v1.1/requests/...`). Constructing the versioned form returns `405`. Always use the returned URLs. |
+| Requested dimensions honoured?                               | **NO.** 1280×720 came back as 1280×704 — height snapped to a multiple of 16, changing the aspect from 1.78 to 1.82. Validation must tolerate adjustment; do not assume exact output dimensions.                                                                                       |
+| REST file-upload flow                                        | **STILL OPEN.** Sidestepped in the spike by reusing fal-hosted result URLs as img2img input, which works and is free. Needs testing before local uploads (#27) ship.                                                                                                                  |
+| fal rate limits                                              | **STILL OPEN.** Untested. Client-side backoff needed regardless.                                                                                                                                                                                                                      |
+| Whether gpt-image-2 is reachable via fal                     | **STILL OPEN.** Untested.                                                                                                                                                                                                                                                             |
 
 ## 13. Work breakdown
 
@@ -453,21 +454,21 @@ Dependencies arrive with the first slice that needs them rather than in a founda
 ticket. Blocking edges use GitHub's native issue dependencies, so the frontier is
 queryable rather than described here.
 
-| Issue | Slice | Blocked by |
-|---|---|---|
-| ~~#20~~ | ~~Verify fal.ai facts with a real key~~ — **done, results in §12** | — |
-| #21 | Enter, store and validate a fal API key | #20 |
-| #22 | Generate one image from a prompt and see it — **the tracer bullet** | #21 |
-| #23 | Save a generation as a project you can reopen | #22 |
-| #24 | Jobs survive quit, and can be cancelled | #23 |
-| #25 | Pick a model; controls follow its capabilities | #20, #22 |
-| #26 | Generate four candidates and pick one | #23, #25 |
-| #27 | Upload your own image as the source | #23 |
-| #28 | Apply a style preset to an image | #20, #25, #27 |
-| #29 | Animate a still into a clip | #25, #28 |
-| #30 | Make the clip loop seamlessly | #29 |
-| #31 | Export web-ready files | #29 |
-| #32 | Onboarding walks a new user to their first key | #21 |
+| Issue   | Slice                                                               | Blocked by    |
+| ------- | ------------------------------------------------------------------- | ------------- |
+| ~~#20~~ | ~~Verify fal.ai facts with a real key~~ — **done, results in §12**  | —             |
+| #21     | Enter, store and validate a fal API key                             | #20           |
+| #22     | Generate one image from a prompt and see it — **the tracer bullet** | #21           |
+| #23     | Save a generation as a project you can reopen                       | #22           |
+| #24     | Jobs survive quit, and can be cancelled                             | #23           |
+| #25     | Pick a model; controls follow its capabilities                      | #20, #22      |
+| #26     | Generate four candidates and pick one                               | #23, #25      |
+| #27     | Upload your own image as the source                                 | #23           |
+| #28     | Apply a style preset to an image                                    | #20, #25, #27 |
+| #29     | Animate a still into a clip                                         | #25, #28      |
+| #30     | Make the clip loop seamlessly                                       | #29           |
+| #31     | Export web-ready files                                              | #29           |
+| #32     | Onboarding walks a new user to their first key                      | #21           |
 
 An earlier horizontal breakdown (E0–E9 epics, issues #1–#10) was closed as superseded:
 slicing by layer meant nothing was demoable until several tickets landed together.
@@ -477,12 +478,12 @@ slicing by layer meant nothing was demoable until several tickets landed togethe
 Raw notes, with per-claim `[CONFIRMED]`/`[UNVERIFIED]` markers, in
 [`docs/research/`](../research/):
 
-| File | Contents |
-|---|---|
-| `models.md` | fal queue mechanics, auth, Kling O1 params, FLUX img2img |
-| `models-gaps.md` | Pricing gaps, key validation, REST upload, rate limits |
-| `style-presets.md` | 22 drafted style presets (tag-list idiom) |
-| `preset-schema.md` | Variant schema, composition order, motion fragments |
+| File               | Contents                                                          |
+| ------------------ | ----------------------------------------------------------------- |
+| `models.md`        | fal queue mechanics, auth, Kling O1 params, FLUX img2img          |
+| `models-gaps.md`   | Pricing gaps, key validation, REST upload, rate limits            |
+| `style-presets.md` | 22 drafted style presets (tag-list idiom)                         |
+| `preset-schema.md` | Variant schema, composition order, motion fragments               |
 | `model-catalog.md` | Model/provider survey, capability matrix, video ultrawide support |
 
 Two notes on these files: they are written in Norwegian, and several claims are marked

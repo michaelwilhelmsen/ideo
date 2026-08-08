@@ -30,13 +30,13 @@ mkdir -p /tmp/ideo-spike && cd /tmp/ideo-spike
 
 Confirmed API shapes (from `docs/research/models.md`):
 
-| Operation | Request |
-|---|---|
-| Submit (queue) | `POST https://queue.fal.run/{model-id}` |
-| Status | `GET https://queue.fal.run/{model-id}/requests/{id}/status` |
-| Result | `GET https://queue.fal.run/{model-id}/requests/{id}` |
-| Cancel | `PUT https://queue.fal.run/{model-id}/requests/{id}/cancel` |
-| Auth header | `Authorization: Key $FAL_KEY` |
+| Operation      | Request                                                     |
+| -------------- | ----------------------------------------------------------- |
+| Submit (queue) | `POST https://queue.fal.run/{model-id}`                     |
+| Status         | `GET https://queue.fal.run/{model-id}/requests/{id}/status` |
+| Result         | `GET https://queue.fal.run/{model-id}/requests/{id}`        |
+| Cancel         | `PUT https://queue.fal.run/{model-id}/requests/{id}/cancel` |
+| Auth header    | `Authorization: Key $FAL_KEY`                               |
 
 `https://fal.run/{model-id}` (synchronous, no queue) is widely referenced but
 **unverified** — test 4 confirms whether it works, since it would simplify the
@@ -260,17 +260,17 @@ and each one's end-frame parameter name.
 
 ## Results — run 2026-08-08, total spend $0.23
 
-| # | Question | Answer | Verified |
-|---|---|---|---|
-| 1 | Free validation endpoint | **Yes.** `GET rest.alpha.fal.ai/billing/user_balance` → 200 + bare number; 401 on bad/malformed/absent key. Note the underscore; `user-balance` 404s. | ✅ live |
-| 2 | 401 vs 404 discriminates | **Moot** — the constructed status URL returns 405 regardless of key. Not needed; #1 is better. | ✅ live |
-| 3 | Registry fields missing | Added `durationFormat`, `aspectParam`, `resolutionParam`, `defaults`. Duration appears as bare string / `"5s"` / integer across models; end-frame is `end_image_url` on four models but `last_frame_url` on Veo. | ✅ live schemas |
-| 4 | Kling O1 duration enum | `"3"`–`"10"`, default `"5"` — **strings**. Settles the three-way contradiction. Kling has **no** aspect, resolution or seed param. | ✅ live |
-| 4 | Real prices | `flux-pro/v1.1` **$0.04**/img; `flux-1/dev/image-to-image` **$0.025**/img at 0.90 MP. Measured by balance delta; billing lags minutes. Video unmeasured. | ✅ measured |
-| 5 | Prose or tag-list | **Tag-list — no rewrite.** Prose was smoother, i.e. further from the brief. Separately: **neither showed film grain**, so texture-led styles are unreliable on this model. | ✅ images |
-| 6 | Restyle strength | 0.3 no-op → 0.65/0.75 style + composition intact → 0.85 drifts → **0.95 (fal's default) discards the input**. Ship 0.7. | ✅ images |
-| 7 | REST upload / base64 ceiling | **Still open.** Sidestepped by reusing fal-hosted result URLs as img2img input (works, free). Must be settled before #27. | ❌ |
-| 8 | Ultrawide video fallback | **Yes — Luma Ray 2**, explicit `21:9`/`9:21` enum plus `end_image_url`. Arguably the better primary since Kling only inherits aspect from the source. | ✅ live schemas |
+| #   | Question                     | Answer                                                                                                                                                                                                           | Verified        |
+| --- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| 1   | Free validation endpoint     | **Yes.** `GET rest.alpha.fal.ai/billing/user_balance` → 200 + bare number; 401 on bad/malformed/absent key. Note the underscore; `user-balance` 404s.                                                            | ✅ live         |
+| 2   | 401 vs 404 discriminates     | **Moot** — the constructed status URL returns 405 regardless of key. Not needed; #1 is better.                                                                                                                   | ✅ live         |
+| 3   | Registry fields missing      | Added `durationFormat`, `aspectParam`, `resolutionParam`, `defaults`. Duration appears as bare string / `"5s"` / integer across models; end-frame is `end_image_url` on four models but `last_frame_url` on Veo. | ✅ live schemas |
+| 4   | Kling O1 duration enum       | `"3"`–`"10"`, default `"5"` — **strings**. Settles the three-way contradiction. Kling has **no** aspect, resolution or seed param.                                                                               | ✅ live         |
+| 4   | Real prices                  | `flux-pro/v1.1` **$0.04**/img; `flux-1/dev/image-to-image` **$0.025**/img at 0.90 MP. Measured by balance delta; billing lags minutes. Video unmeasured.                                                         | ✅ measured     |
+| 5   | Prose or tag-list            | **Tag-list — no rewrite.** Prose was smoother, i.e. further from the brief. Separately: **neither showed film grain**, so texture-led styles are unreliable on this model.                                       | ✅ images       |
+| 6   | Restyle strength             | 0.3 no-op → 0.65/0.75 style + composition intact → 0.85 drifts → **0.95 (fal's default) discards the input**. Ship 0.7.                                                                                          | ✅ images       |
+| 7   | REST upload / base64 ceiling | **Still open.** Sidestepped by reusing fal-hosted result URLs as img2img input (works, free). Must be settled before #27.                                                                                        | ❌              |
+| 8   | Ultrawide video fallback     | **Yes — Luma Ray 2**, explicit `21:9`/`9:21` enum plus `end_image_url`. Arguably the better primary since Kling only inherits aspect from the source.                                                            | ✅ live schemas |
 
 ### Also found, unprompted
 
