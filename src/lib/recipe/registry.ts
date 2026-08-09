@@ -62,14 +62,24 @@ const IMAGE_PARAM_SHAPES: Readonly<Record<string, ImageParamShape>> = {
   // single URL. That disagreement is the registry's whole case (PRD §9.1).
   start_image_url: 'url',
   first_frame_url: 'url',
+  // The animate stage's end frame (#30), which a seamless loop fills with the
+  // start still all over again. Two names for it — `last_frame_url` on Veo's
+  // first/last-frame endpoint and `end_image_url` everywhere else — and both
+  // single URLs, but recorded rather than assumed for the same reason as above.
+  end_image_url: 'url',
+  last_frame_url: 'url',
 }
 
-/** How this model's image field is shaped, or `null` when it takes none. */
-export function imageParamShape(
-  model: ModelCapabilities
-): ImageParamShape | null {
-  if (model.imageParam === null) return null
-  return IMAGE_PARAM_SHAPES[model.imageParam] ?? null
+/**
+ * How an image field is shaped, or `null` when there is no field or no
+ * recorded shape for its name.
+ *
+ * Takes the field name rather than the model, because a model has two of them —
+ * `imageParam` and `endFrameParam` — and they are the same question asked twice.
+ */
+export function imageParamShape(param: string | null): ImageParamShape | null {
+  if (param === null) return null
+  return IMAGE_PARAM_SHAPES[param] ?? null
 }
 
 /**
@@ -189,11 +199,10 @@ export interface ModelCapabilities {
    * A separate answer from having the field, and the two are not the same
    * capability: `blackforestlabs/flux-3/first-last-frame-to-video` and
    * `fal-ai/veo3.1/first-last-frame-to-video` both refuse a submit that names
-   * only a start frame. Until looping lands (#30) there is no second frame to
-   * send, so those rows cannot serve an animate run at all — and that is a
-   * disabled button with a reason on it (PRD §10.1), not a hidden row: the
-   * models are real, they are the ones a seamless loop will want, and pretending
-   * they do not exist would be the wrong half of the story.
+   * only a start frame. Since #30 there is always a second frame to send — the
+   * start still again — so those rows run like any other animate model and what
+   * this field decides is that their loop cannot be switched *off*:
+   * `controlAvailability` answers `forced` rather than `available`.
    *
    * `false` on every row with no end frame at all, which `validateRegistry`
    * enforces — "requires the field it does not have" is not a state.
@@ -239,9 +248,18 @@ export type ControlId =
  * PRD §10.1. `disabled` keeps the control on screen with a reason, so the tool
  * never looks like it lacks the feature someone picked it for; `hidden` drops
  * it, because nobody needs to be told a model has no negative-prompt field.
+ *
+ * `forced` is the fourth answer #30 needed and the one neither of the others
+ * could give: on the first/last-frame endpoints the end frame is *required*, so
+ * every run of them loops. `available` would offer a switch that changes
+ * nothing, `disabled` would read as "this model cannot loop", and `hidden`
+ * would hide the one capability those rows are chosen for. So the control is
+ * shown in the state it is genuinely in — on, unclickable, with the reason
+ * beside it.
  */
 export type ControlAvailability =
   | { readonly state: 'available' }
+  | { readonly state: 'forced'; readonly reasonKey: string }
   | { readonly state: 'disabled'; readonly reasonKey: string }
   | { readonly state: 'hidden' }
 
@@ -265,26 +283,26 @@ export function controlAvailability(
         ? AVAILABLE
         : { state: 'disabled', reasonKey: 'editor.reason.noSeed' }
 
+    // PRD §4.5, built in #30: looping is the start still sent a second time as
+    // the end frame, so the field's existence is the whole capability.
     case 'loop':
       if (model.endFrameParam === null) {
         return { state: 'disabled', reasonKey: 'editor.reason.noEndFrame' }
       }
-      // #30 — the model has somewhere to put an end frame, but nothing builds
-      // one yet: `buildRequest` never reads `options.loop`, so an enabled
-      // switch here would sell a loop the request does not ask for, at video
-      // prices. Disabled with a reason rather than hidden (PRD §10.1) — the
-      // capability is real and one slice away.
-      //
-      // #30 REMOVES THIS BRANCH: when the request builder sends the end frame,
-      // this returns AVAILABLE again and the branch above is the only refusal.
-      return { state: 'disabled', reasonKey: 'editor.reason.loopNotReady' }
+      // The two first/last-frame endpoints refuse a submit that names only a
+      // start frame, so their runs are loops whether or not anybody asked.
+      // Locked on rather than merely on: a switch that can be turned off would
+      // promise a non-looping run those rows cannot serve.
+      return model.endFrameRequired
+        ? { state: 'forced', reasonKey: 'editor.reason.alwaysLoops' }
+        : AVAILABLE
 
     // Rewind is ffmpeg, not the model (PRD §4.5), so no registry column gates
-    // it — but the ffmpeg pass ships with looping in #30 and `buildRequest`
-    // ignores `options.rewind` today. Same rule as above: visible, disabled,
-    // and honest about why.
+    // it — and there is no ffmpeg layer yet. Visible, disabled, and honest
+    // about why, exactly as looping was before #30 landed.
     //
-    // #30 REMOVES THIS: rewind goes back to being unconditionally AVAILABLE.
+    // #45 REMOVES THIS: once the ping-pong pass exists, rewind is
+    // unconditionally AVAILABLE.
     case 'rewind':
       return { state: 'disabled', reasonKey: 'editor.reason.rewindNotReady' }
 
@@ -301,6 +319,28 @@ export function controlAvailability(
     case 'resolution':
       return model.resolutionParam === null ? HIDDEN : AVAILABLE
   }
+}
+
+/**
+ * Whether this run ends on the frame it started from (PRD §4.5, #30).
+ *
+ * Derived at request time rather than stored, because the switch's position and
+ * the effective answer disagree in both directions. A model that *requires* an
+ * end frame loops with the option off; a model with no end-frame field does not
+ * loop with it on. Deriving it is what lets `options.loop` survive a model
+ * change untouched — nothing is silently rewritten under the user, the intent
+ * is simply not acted on where the model cannot act on it.
+ *
+ * `options` rather than the whole recipe: this is a question about the two
+ * booleans, and the request builder and the input builder both have to agree on
+ * the answer.
+ */
+export function loopsOnEndFrame(
+  model: ModelCapabilities,
+  options: StageParams
+): boolean {
+  if (model.endFrameParam === null) return false
+  return model.endFrameRequired || options.loop === true
 }
 
 /**
@@ -600,7 +640,10 @@ export function validateRegistry(
     }
     // Whether the field is a string or an array decides the request body, and a
     // name nobody has recorded a shape for would be guessed at (#28).
-    if (model.imageParam !== null && imageParamShape(model) === null) {
+    if (
+      model.imageParam !== null &&
+      imageParamShape(model.imageParam) === null
+    ) {
       fail(
         `sends its image in "${model.imageParam}", whose shape is not recorded`
       )
@@ -610,6 +653,17 @@ export function validateRegistry(
     // in, so a row claiming it is a typo rather than a capability.
     if (model.endFrameRequired && model.endFrameParam === null) {
       fail('requires an end frame but names no field to put one in')
+    }
+    // Same rule as the start frame, one field along (#30): the loop fills this
+    // one with a whole image, and a name nobody has recorded a shape for would
+    // be guessed at — a 422 at the paid step, on a video call.
+    if (
+      model.endFrameParam !== null &&
+      imageParamShape(model.endFrameParam) === null
+    ) {
+      fail(
+        `takes its end frame in "${model.endFrameParam}", whose shape is not recorded`
+      )
     }
 
     if ((model.durationParam === null) !== (model.durationFormat === null)) {

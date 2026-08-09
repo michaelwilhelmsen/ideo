@@ -286,10 +286,11 @@ and its result is collected from the job store.
 | `claimJob`      | `requestId: string`     | `Result<null, string>`                  | Off the books — only after the save       |
 | `cancelJob`     | `requestId: string`     | `Result<null, string>`                  | Stop watching, and ask fal to stop        |
 
-`StartRequest.imageInput` is how an image-to-image call gets its input: a generation id
-plus the model's field name and shape, never the pixels. Rust reads the file and inlines
-it as base64, and refuses a `style` submit that has none — see
-[external-apis.md](./external-apis.md).
+`StartRequest.imageInputs` is how an image-to-image call gets its input: one entry per image
+field, each a generation id plus the model's field name and shape, never the pixels. Rust
+reads the file and inlines it as base64, and refuses a `style` submit whose list is empty.
+A looping animate run sends two entries naming the same generation — start frame and end
+frame — and it is encoded once. See [external-apis.md](./external-apis.md).
 
 Two event payloads are registered with `.typ::<T>()` rather than appearing in any
 signature, because they are emitted while a command is still running:

@@ -27,6 +27,7 @@ import {
   MAX_BATCH_SIZE,
   MIN_BATCH_SIZE,
   estimateCost,
+  loopsOnEndFrame,
   MODEL_REGISTRY,
   modelAvailability,
   modelById,
@@ -80,7 +81,7 @@ export function StageParameters({
   const blocked =
     usable.state === 'disabled'
       ? usable.reasonKey
-      : blockedReasonKey(MODEL_REGISTRY, project, stage)
+      : blockedReasonKey(project, stage)
 
   const availabilityOf = (control: ControlId): ControlAvailability =>
     controlAvailability(model, control)
@@ -338,11 +339,15 @@ export function StageParameters({
             </Field>
           )}
 
-          {/* Loop and rewind are on screen and switched off (#30). Both write
-              an option `buildRequest` does not read yet, so an enabled switch
-              would take money for a clip that will not loop — the registry
-              disables them with the reason attached (PRD §10.1) and this
-              renders whatever it says, here as everywhere else. */}
+          {/* Looping is real since #30: the still goes out again as the end
+              frame. The switch shows what the *run* would do rather than what
+              the draft stores, because the two disagree in both directions —
+              a required end frame loops with the option off, and a model with
+              no end-frame field does not loop with a carried-over `true` on.
+              `loopsOnEndFrame` is the same answer the request builder acts on,
+              asked once. The stored `options.loop` is left exactly as the user
+              set it, because switching back to an optional model has to bring
+              their answer back with it. */}
           <Gated
             availability={availabilityOf('loop')}
             label={t('editor.field.loop')}
@@ -351,7 +356,7 @@ export function StageParameters({
               <div className="flex items-center gap-2">
                 <Switch
                   id={`${stage}-loop`}
-                  checked={draft.options.loop === true}
+                  checked={loopsOnEndFrame(model, draft.options)}
                   disabled={disabled}
                   onCheckedChange={checked =>
                     dispatch({
@@ -590,7 +595,13 @@ function Field({
 
 /**
  * PRD §10.1 in one component: hidden means gone, disabled means visible with
- * the reason attached.
+ * the reason attached — and `forced` means visible, unclickable, and *on*,
+ * which is the one state the control's own value has to come from the registry
+ * rather than from the draft (#30).
+ *
+ * `forced` renders exactly like `disabled` here. The difference is entirely the
+ * child's: a locked-on switch has to show itself checked, and only the caller
+ * knows what "on" looks like for the control it is rendering.
  */
 function Gated({
   availability,
@@ -605,16 +616,17 @@ function Gated({
 
   if (availability.state === 'hidden') return null
 
-  const disabled = availability.state === 'disabled'
+  // Both non-available states take the control out of the user's hands, and
+  // both owe them a sentence saying why.
+  const disabled = availability.state !== 'available'
+  const reasonKey = 'reasonKey' in availability ? availability.reasonKey : null
 
   return (
     <div className={cn('space-y-2', disabled && 'opacity-60')}>
       <Label>{label}</Label>
       {children(disabled)}
-      {availability.state === 'disabled' && (
-        <p className="text-xs text-muted-foreground">
-          {t(availability.reasonKey)}
-        </p>
+      {reasonKey !== null && (
+        <p className="text-xs text-muted-foreground">{t(reasonKey)}</p>
       )}
     </div>
   )

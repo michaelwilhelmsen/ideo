@@ -106,16 +106,24 @@ sends the _generation id_ instead, and Rust reads the file and inlines it — se
 Two separate answers, and a row that conflated them would 422 at the paid step:
 
 - `endFrameParam` — the field's **name**, or `null`. Its presence is what makes looping
-  offerable (`controlAvailability(model, 'loop')`).
+  offerable (`controlAvailability(model, 'loop')`). Two spellings live:
+  `last_frame_url` on Veo's first/last-frame endpoint, `end_image_url` everywhere else.
 - `endFrameRequired` — whether the schema makes it **mandatory**. True on
   `blackforestlabs/flux-3/first-last-frame-to-video` and
   `fal-ai/veo3.1/first-last-frame-to-video`, which refuse a submit naming only a start
-  frame. Until looping lands (#30) there is no second frame to send, so `blockedReasonKey`
-  disables the run with `editor.reason.needsEndFrame` — visible with a reason rather than
-  hidden, because these are the rows a seamless loop will want.
+  frame. Since #30 that is not a blocked run but a **locked-on loop**:
+  `controlAvailability` answers `{state: 'forced', reasonKey: 'editor.reason.alwaysLoops'}`,
+  and the switch renders checked and disabled with the reason beside it.
 
-`validateRegistry` refuses `endFrameRequired` on a row with no `endFrameParam`: "requires
-the field it does not have" is not a state a model can be in.
+A loop is one mechanism everywhere (PRD §4.5): the start still, sent again under
+`endFrameParam`. No ffmpeg pass, and deliberately not Luma Ray 2's native `loop` boolean —
+see the correction in `docs/research/model-schemas.md` §4. Never read `options.loop`
+directly; ask `loopsOnEndFrame(model, options)`, which is the only place the stored intent
+and the model's capability are reconciled.
+
+`validateRegistry` refuses `endFrameRequired` on a row with no `endFrameParam` ("requires
+the field it does not have" is not a state a model can be in), and holds `endFrameParam`
+to the same shape table as the start frame.
 
 ## Durations
 

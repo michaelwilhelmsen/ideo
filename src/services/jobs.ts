@@ -97,12 +97,15 @@ export interface GenerationRequest {
    *
    * An id rather than the pixels: Rust reads the file out of the project folder
    * and inlines it as base64, so a hero-size image never crosses the IPC
-   * boundary twice for no reason. `null` on a stage that takes no input image —
-   * and a *style* submit with `null` is refused by Rust before any paid call,
-   * because a missing source degrades silently to text-to-image on the models
-   * whose image field is optional.
+   * boundary twice for no reason. Empty on a stage that takes no input image —
+   * and an empty list on a *style* submit is refused by Rust before any paid
+   * call, because a missing source degrades silently to text-to-image on the
+   * models whose image field is optional.
+   *
+   * Two entries on a looping animate run, naming the same generation under the
+   * start-frame and end-frame fields (#30). Rust encodes it once.
    */
-  readonly imageInput: ImageInput | null
+  readonly imageInputs: readonly ImageInput[]
 }
 
 /**
@@ -125,7 +128,7 @@ export function useSubmitGeneration() {
         prompt: request.prompt,
         modelId: request.modelId,
         params: request.params as unknown as JsonValue,
-        imageInput: request.imageInput,
+        imageInputs: [...request.imageInputs],
       })
 
       if (result.status === 'error') {

@@ -206,6 +206,25 @@ No video model accepts explicit dimensions, so here the enum is the whole story:
 #11's "one video model is a single point of failure for 21:9" risk is retired either way: there are now three
 end-frame models with wide ratios, plus Veo as a 16:9 fallback.
 
+> **Correction, 2026-08-09 — Luma Ray 2 has a native `loop` boolean, and the table above omitted it.**
+>
+> Re-fetched live and unauthenticated from
+> `https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/luma-dream-machine/ray-2/image-to-video`:
+>
+> | Endpoint                                         | Field  | Schema                                                                                                             |
+> | ------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------ |
+> | `fal-ai/luma-dream-machine/ray-2/image-to-video` | `loop` | `{ type: boolean, default: false }` — "Whether the video should loop (end of video is blended with the beginning)" |
+>
+> It is the only native loop flag in the surveyed field, and #30 **deliberately does not use it**. Read the
+> description: it is a _blend_ of the tail into the head, applied after the fact, not end-frame conditioning. The
+> model is never told to arrive back at the first frame, so the motion is not built to close — the blend hides a cut
+> rather than removing one, and it would be the one animate model in the registry looping by a different mechanism
+> from all the others. #30 sends the start still again under `end_image_url` on this row exactly as on Kling,
+> Seedance, LTX and FLUX 3.
+>
+> Kept in reserve: if end-frame conditioning turns out to leave a visible seam, `loop: true` is one `extraParams`
+> entry away on this row alone.
+
 ### 5. Kling O1's duration is settled
 
 Integer enum `3,4,5,6,7,8,9,10`, default `5` — closing #11's "three contradictory answers". The idiom varies across

@@ -570,10 +570,14 @@ queuePosition: number | null; elapsedMs: number }
  * candidate* the stage is working from and nothing about the folder, and the
  * field name and shape are the registry's answer (PRD §5) rather than
  * something Rust should hold a second copy of.
+ * 
+ * One of these per *field*, not per image — a loop names the same generation
+ * twice, under `imageParam` and under `endFrameParam` (#30).
  */
 export type ImageInput = { generationId: string; 
 /**
- * The model's own field name, from the registry's `imageParam`.
+ * The model's own field name, from the registry's `imageParam` or
+ * `endFrameParam`.
  */
 param: string; shape: ImageParamShape }
 /**
@@ -892,13 +896,16 @@ modelId: string;
 params: JsonValue; 
 /**
  * Which generation's image this run consumes, and the field it goes in
- * (#28). `None` on a stage that takes no input image.
+ * (#28). Empty on a stage that takes no input image.
  * 
  * A generation id rather than the bytes: the image is read and encoded on
  * this side, so a hero-size payload never crosses the IPC boundary, and the
  * webview never has to be handed a path into the project folder.
+ * 
+ * A list because a looping animate run names the same still twice — once
+ * as the first frame, once as the last (#30, PRD §4.5).
  */
-imageInput: ImageInput | null }
+imageInputs: ImageInput[] }
 /**
  * What the caller gets back: a job that is now on the books, not a result.
  */

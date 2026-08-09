@@ -84,6 +84,20 @@ Andre kandidater sett i søk (ikke verifisert i detalj):
 - Pris pr sekund eller pr klipp — ingen tall funnet i denne runden for noen video-modell [IKKE FUNNET].
 - Om noen modell har en ekte "loop"-boolean-parameter (motsatt av å manuelt sette end_image = start_image) — ikke observert noe sted.
 
+> **Rettelse, 2026-08-09 (#30): påstanden over er feil — én modell har en ekte `loop`-boolean.**
+>
+> `fal-ai/luma-dream-machine/ray-2/image-to-video` deklarerer `loop: { type: boolean, default: false }`, verifisert
+> live og uautentisert mot
+> `https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/luma-dream-machine/ray-2/image-to-video`.
+> Den er den eneste i hele feltet vi har kartlagt. Beskrivelsen i skjemaet er verdt å lese nøye: _"Whether the video
+> should loop (end of video is blended with the beginning)"_ — altså en **blanding** av slutten inn i starten i
+> etterkant, ikke betinging på et sluttbilde.
+>
+> #30 bruker den derfor **ikke**. Modellen får aldri beskjed om å komme tilbake til første bilde, så bevegelsen er
+> ikke laget for å lukke seg; blandingen skjuler et klipp i stedet for å fjerne det. Vi sender start-stillbildet på
+> nytt i `end_image_url` også på denne raden, akkurat som på Kling, Seedance, LTX og FLUX 3 — én mekanisme på tvers
+> av hele registeret. `loop: true` er holdt i reserve dersom sluttbilde-betinging viser seg å gi en synlig skjøt.
+
 **Praktisk konklusjon for "seamless ambient loops":** sett `image_url` (start) og `end_image_url`/`tail_image_url` (samme bilde eller en subtilt beveget variant) på en first/last-frame-modell. Kling O1 og Veo 3.1 first-last-frame ser mest lovende ut basert på beskrivelse, men pris/kvalitet/latency må testes — ingen av disse er billige high-volume modeller sannsynligvis (Veo/Kling er typisk premium-priset per klipp).
 
 ### `fal-ai/kling-video/o1/image-to-video` — verifisert fra egen API-spec-side [DOK] (https://fal.ai/models/fal-ai/kling-video/o1/image-to-video/api)

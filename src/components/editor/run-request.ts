@@ -26,6 +26,7 @@ import {
   buildRequest,
   freezeRecipe,
   imageParamShape,
+  loopsOnEndFrame,
   modelById,
   planBatch,
   sentRecipe,
@@ -76,44 +77,68 @@ export async function requireFalApiKey(
 }
 
 /**
- * What a stage needs to send its input image — three answers, not two.
+ * What a stage needs to send its input images — a list, or a refusal.
  *
- * `needsNone` is a model with no `imageParam` at all, which is every source
- * model. `missing` is a model that *has* one and has no input generation to
- * point it at: the run is refused rather than submitted, because the Nano Banana
- * edit endpoints do not require their image field — so the same call without a
- * source is a paid text-to-image of whatever the prompt happens to say (#28).
- *
- * Told apart by a tag rather than by `null` versus a magic string, because the
- * two absences mean opposite things — one submits, one refuses — and a caller
- * that forgets which is which spends money on the difference.
+ * `missing` earns its own variant because it is not an empty list: a source
+ * model legitimately sends no image, while a model that *has* an image field and
+ * no input generation to point it at must not submit at all. The Nano Banana
+ * edit endpoints do not require their image field, so the same call without a
+ * source is a paid text-to-image of whatever the prompt happens to say (#28) —
+ * and a caller reading an empty list would not be able to tell the two apart.
  */
-type ResolvedImageInput =
-  | { readonly kind: 'needsNone' }
+type ResolvedImageInputs =
+  | { readonly kind: 'names'; readonly inputs: readonly ImageInput[] }
   | { readonly kind: 'missing' }
-  | { readonly kind: 'names'; readonly input: ImageInput }
 
-function imageInputFor(
+/**
+ * The image fields this run fills, in the order the model reads them.
+ *
+ * Empty on a source model, one entry on every other stage — and two on a
+ * looping animate: PRD §4.5's seamless loop is the start still sent again as
+ * the end frame, so both entries name the *same* generation and differ only in
+ * the field they go in. Rust encodes it once.
+ */
+function imageInputsFor(
   model: ModelCapabilities,
   recipe: StageRecipe
-): ResolvedImageInput {
-  const shape = imageParamShape(model)
-  if (model.imageParam === null || shape === null) return { kind: 'needsNone' }
+): ResolvedImageInputs {
+  const shape = imageParamShape(model.imageParam)
+  if (model.imageParam === null || shape === null) {
+    return { kind: 'names', inputs: [] }
+  }
 
   // Whichever candidate the stage is working from — a generated source or one
   // the user dropped in (#27). Both are a file in the assets folder named after
   // their generation, which is the whole reason the upload converged on that
   // shape and the reason this needs no branch for it.
-  if (recipe.inputGenerationId === null) return { kind: 'missing' }
+  const generationId = recipe.inputGenerationId
+  if (generationId === null) return { kind: 'missing' }
 
-  return {
-    kind: 'names',
-    input: {
-      generationId: recipe.inputGenerationId,
-      param: model.imageParam,
-      shape,
-    },
+  const inputs: ImageInput[] = [
+    { generationId, param: model.imageParam, shape },
+  ]
+
+  // Derived rather than read off `options.loop` alone (#30): the first/last-
+  // frame endpoints loop whether or not the switch was touched, and a model
+  // with no end-frame field does not loop even when a carried-over `true` says
+  // it should. `loopsOnEndFrame` is the one place that judgement is made.
+  //
+  // The end frame is the *same* still. That is the whole mechanism — no ffmpeg,
+  // no provider-side blend — and it is why both entries carry one generation id.
+  const endShape = imageParamShape(model.endFrameParam)
+  if (
+    model.endFrameParam !== null &&
+    endShape !== null &&
+    loopsOnEndFrame(model, recipe.options)
+  ) {
+    inputs.push({
+      generationId,
+      param: model.endFrameParam,
+      shape: endShape,
+    })
   }
+
+  return { kind: 'names', inputs }
 }
 
 /**
@@ -155,7 +180,7 @@ export function useRunStage(
     // carries the draft's own prompt, exactly as the form has it — seeding a
     // preset into that box happened earlier and elsewhere (#28), so what is
     // sent is what is on screen.
-    const recipe = freezeRecipe(project, stage)
+    const recipe = freezeRecipe(MODEL_REGISTRY, project, stage)
 
     // `null` means the stage has no input selected at all. The button is
     // disabled in that state (`blockedReasonKey`), so this is the unreachable
@@ -187,8 +212,8 @@ export function useRunStage(
     // no source to restyle must not reach fal at all: on the models whose image
     // field is optional it would quietly succeed as text-to-image and charge for
     // it (#28).
-    const imageInput = imageInputFor(model, recipe)
-    if (imageInput.kind === 'missing') {
+    const imageInputs = imageInputsFor(model, recipe)
+    if (imageInputs.kind === 'missing') {
       // The same refusal Rust makes on the far side, in the same words: this is
       // simply the cheaper place to find out.
       toast.error(t('generate.error.inputImageNoneNamed'))
@@ -231,9 +256,10 @@ export function useRunStage(
             prompt: recipe.prompt,
             modelId: built.modelId,
             params: built.params,
-            // The id, not the pixels — Rust reads the file and inlines it as
-            // base64 (#28, `docs/research/models-gaps.md` §4).
-            imageInput: imageInput.kind === 'names' ? imageInput.input : null,
+            // The ids, not the pixels — Rust reads the file and inlines it as
+            // base64 (#28, `docs/research/models-gaps.md` §4), once per
+            // generation however many fields name it (#30).
+            imageInputs: [...imageInputs.inputs],
           })
         } catch (error: unknown) {
           // `useSubmitGeneration` rejects with the reason Rust named, so the

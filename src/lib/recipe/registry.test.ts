@@ -16,6 +16,7 @@ import {
   estimateCost,
   imageParamShape,
   legalSizeFor,
+  loopsOnEndFrame,
   modelAvailability,
   reconcileParams,
   serializeDuration,
@@ -134,14 +135,12 @@ describe('legalSizeFor', () => {
  */
 describe('imageParamShape', () => {
   it('reads a single url from the singular name and an array from the plural', () => {
-    expect(imageParamShape(model({ imageParam: 'image_url' }))).toBe('url')
-    expect(imageParamShape(model({ imageParam: 'image_urls' }))).toBe(
-      'urlArray'
-    )
+    expect(imageParamShape('image_url')).toBe('url')
+    expect(imageParamShape('image_urls')).toBe('urlArray')
   })
 
   it('has nothing to say about a model that takes no image', () => {
-    expect(imageParamShape(model())).toBeNull()
+    expect(imageParamShape(null)).toBeNull()
   })
 
   it('knows all three spellings the video endpoints use for a start frame', () => {
@@ -149,15 +148,22 @@ describe('imageParamShape', () => {
     // endpoints, `start_image_url` on two and `first_frame_url` on one. All
     // three are a single URL; a name missing from the table is a startup crash.
     for (const param of ['image_url', 'start_image_url', 'first_frame_url']) {
-      expect(imageParamShape(model({ imageParam: param })), param).toBe('url')
+      expect(imageParamShape(param), param).toBe('url')
+    }
+  })
+
+  it('knows both spellings the end frame takes', () => {
+    // #30 — `last_frame_url` on Veo's first/last-frame endpoint and
+    // `end_image_url` everywhere else, both a single URL. The same question as
+    // the start frame, which is why it is the same helper.
+    for (const param of ['end_image_url', 'last_frame_url']) {
+      expect(imageParamShape(param), param).toBe('url')
     }
   })
 
   it('refuses to guess at a name nobody has recorded', () => {
     // `null` here is what `validateRegistry` turns into a startup crash.
-    expect(
-      imageParamShape(model({ imageParam: 'reference_images' }))
-    ).toBeNull()
+    expect(imageParamShape('reference_images')).toBeNull()
   })
 })
 
@@ -415,31 +421,39 @@ describe('estimateCost', () => {
 })
 
 /**
- * PRD §10.1's three states, on the two controls that promise something the
- * request builder does not send yet (#30).
+ * PRD §10.1's states on the loop switch, now that the end frame is real (#30),
+ * and on the rewind switch, which is still an ffmpeg pass nobody has written
+ * (#45).
  *
- * These are the assertions that stop a switch selling a feature: `buildRequest`
- * never reads `options.loop` or `options.rewind`, so an available loop toggle
- * would take money for a clip that ends where it ends. When #30 lands, the two
- * "not ready" cases below are the ones that change.
+ * The loop control is the one place three answers are needed rather than two:
+ * a model with no end-frame field cannot loop at all, a model with an optional
+ * one is a choice, and a model that *requires* one loops whether or not anyone
+ * asked — and saying "available" there would offer a switch that changes
+ * nothing.
  */
 describe('controlAvailability — loop and rewind (#30)', () => {
-  it('disables looping on a model that has an end frame, and says why', () => {
-    const availability = controlAvailability(
-      model({ endFrameParam: 'end_image_url' }),
-      'loop'
-    )
+  it('offers looping on a model that has somewhere to put an end frame', () => {
+    expect(
+      controlAvailability(model({ endFrameParam: 'end_image_url' }), 'loop')
+    ).toEqual({ state: 'available' })
+  })
 
-    expect(availability).toEqual({
-      state: 'disabled',
-      reasonKey: 'editor.reason.loopNotReady',
-    })
+  it('locks the switch on where the schema requires an end frame', () => {
+    // Veo 3.1 FLF and FLUX 3 FLF refuse a submit that names only a start
+    // frame, so every run of them is a loop. The switch stays on screen,
+    // checked and unclickable, with the reason attached — a hidden switch
+    // would read as "this model cannot loop".
+    expect(
+      controlAvailability(
+        model({ endFrameParam: 'last_frame_url', endFrameRequired: true }),
+        'loop'
+      )
+    ).toEqual({ state: 'forced', reasonKey: 'editor.reason.alwaysLoops' })
   })
 
   it('still blames the missing field on a model that has none', () => {
-    // Two different refusals, and the model-shaped one stays the truer answer:
-    // #30 will not make a loop possible on a model with nowhere to put the
-    // second frame.
+    // The model-shaped refusal, and the only one left: a model with nowhere to
+    // put the second frame cannot loop however the request is built.
     expect(controlAvailability(model(), 'loop')).toEqual({
       state: 'disabled',
       reasonKey: 'editor.reason.noEndFrame',
@@ -448,7 +462,8 @@ describe('controlAvailability — loop and rewind (#30)', () => {
 
   it('disables rewind everywhere, end frame or not', () => {
     // Rewind is an ffmpeg pass rather than a registry column (PRD §4.5), so it
-    // is not the model that is missing anything — the pass ships with #30.
+    // is not the model that is missing anything — the pass is #45, and until
+    // it exists the switch is visible, disabled and honest about why.
     for (const endFrameParam of [null, 'end_image_url']) {
       expect(controlAvailability(model({ endFrameParam }), 'rewind')).toEqual({
         state: 'disabled',
@@ -473,6 +488,54 @@ describe('controlAvailability — loop and rewind (#30)', () => {
         'duration'
       )
     ).toEqual({ state: 'available' })
+  })
+})
+
+/**
+ * The switch and the request are two different questions (#30).
+ *
+ * Whether a run *loops* is derived here rather than stored, because the stored
+ * answer and the effective one disagree in both directions: a required end
+ * frame loops with the option off, and a model with no end-frame field does not
+ * loop with it on. Deriving it is what lets `options.loop` survive a model
+ * switch untouched — the user's intent is kept, and simply not acted on where
+ * it cannot be.
+ */
+describe('loopsOnEndFrame', () => {
+  it('loops when the option is on and the model has a field for it', () => {
+    expect(
+      loopsOnEndFrame(model({ endFrameParam: 'end_image_url' }), { loop: true })
+    ).toBe(true)
+  })
+
+  it('does not loop when the option is off', () => {
+    expect(
+      loopsOnEndFrame(model({ endFrameParam: 'end_image_url' }), {
+        loop: false,
+      })
+    ).toBe(false)
+    expect(loopsOnEndFrame(model({ endFrameParam: 'end_image_url' }), {})).toBe(
+      false
+    )
+  })
+
+  it('loops on a model that requires an end frame, whatever the option says', () => {
+    // The switch is locked on for exactly this reason: the run is a loop and
+    // an option saying otherwise would be a promise the endpoint refuses.
+    const flf = model({
+      endFrameParam: 'last_frame_url',
+      endFrameRequired: true,
+    })
+
+    expect(loopsOnEndFrame(flf, { loop: false })).toBe(true)
+    expect(loopsOnEndFrame(flf, {})).toBe(true)
+  })
+
+  it('keeps a stored intent from looping a model that cannot', () => {
+    // Switching to a model with no end-frame field leaves `options.loop` alone
+    // (nothing is silently rewritten under the user), so the request builder is
+    // the thing that has to know better.
+    expect(loopsOnEndFrame(model(), { loop: true })).toBe(false)
   })
 })
 

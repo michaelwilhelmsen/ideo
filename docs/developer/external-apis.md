@@ -274,11 +274,19 @@ settled: it is the transfer confirmed to work on every image field surveyed, and
 two-step storage upload's wire protocol is still unverified. The ceiling is 10 MB raw,
 refused locally rather than discovered as a 4xx.
 
-The bytes never cross the IPC boundary. `StartRequest.imageInput` carries a **generation
-id**, the field name and its shape; `jobs::image_input::prepare` resolves the id to a file
-in the project's `assets` folder, sniffs its media type from the magic bytes, encodes it,
-and writes it into the params under that name — a string for `image_url`, a one-element
-array for `image_urls` — before `fal::submit` posts anything.
+The bytes never cross the IPC boundary. `StartRequest.imageInputs` carries one entry per
+image **field** — a **generation id**, the field name and its shape;
+`jobs::image_input::prepare` resolves each id to a file in the project's `assets` folder,
+sniffs its media type from the magic bytes, encodes it, and writes it into the params under
+that name — a string for `image_url`, a one-element array for `image_urls` — before
+`fal::submit` posts anything.
+
+A list rather than one entry because of the seamless loop (#30, PRD §4.5): a looping animate
+run names the same generation twice, once under the model's start-frame field and once under
+its end-frame field. `prepare` reads and encodes each **generation** once however many
+fields point at it, so the loop costs one read, one base64 string, and one measurement
+against the 10 MB ceiling. Every read happens before any write, so a body is either fully
+prepared or untouched — half a loop would be a paid call for a clip that does not loop.
 
 That module also holds a refusal worth copying: a `style` or `animate` submit with no
 resolvable input fails there, before the key is fetched and before a concurrency slot is

@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createEditorReducer,
   emptyEditorState,
+  freezeRecipe,
   type CompletedRun,
   type EditorAction,
 } from './reducer'
@@ -34,7 +35,7 @@ import {
   selectedGeneration,
   visibleGenerations,
 } from './selectors'
-import type { EditorState, Project, StageRecipe } from './types'
+import type { EditorState, Project, StageParams, StageRecipe } from './types'
 
 const reduce = createEditorReducer(MODEL_REGISTRY)
 
@@ -1404,5 +1405,72 @@ describe('a run outlives the view of it (#26)', () => {
     )
     // And no grid for a question that was never asked.
     expect(activeRunFor(state, ATLAS.id, 'source')).toBeNull()
+  })
+})
+
+/**
+ * What a frozen run says about the loop (#30).
+ *
+ * The draft holds an *intent*; the run is a fact, and PRD §4.5 makes the two
+ * disagree in both directions — a first/last-frame endpoint loops with the
+ * switch off, and a model with no end-frame field does not loop with a
+ * carried-over `true` on. What is persisted beside the candidate has to be the
+ * fact, or the recipe describes a clip nobody generated.
+ */
+describe('the frozen recipe records the loop that will happen (#30)', () => {
+  /** Atlas, whose style stage has a still selected, on the named model. */
+  function animatingWith(modelId: string, options: StageParams): Project {
+    return {
+      ...ATLAS,
+      drafts: {
+        ...ATLAS.drafts,
+        animate: { ...ATLAS.drafts.animate, modelId, options },
+      },
+    }
+  }
+
+  function frozenAnimate(project: Project): StageRecipe {
+    const recipe = freezeRecipe(MODEL_REGISTRY, project, 'animate')
+    if (recipe === null) throw new Error('there is no still to animate')
+    return recipe
+  }
+
+  it('records a loop on a model that cannot run without an end frame', () => {
+    const project = animatingWith(
+      'blackforestlabs/flux-3/first-last-frame-to-video',
+      { rewind: false }
+    )
+
+    expect(frozenAnimate(project).options.loop).toBe(true)
+    // And the draft keeps the user's own answer, untouched: switching back to
+    // a model that offers the choice has to bring it with them.
+    expect(project.drafts.animate.options).toEqual({ rewind: false })
+  })
+
+  it('records no loop on a model with nowhere to put an end frame', () => {
+    // Veo's plain image-to-video. A `true` carried over from an earlier model
+    // is an intent nothing acts on, and freezing it would claim a seam that
+    // is not there.
+    const project = animatingWith('fal-ai/veo3.1/image-to-video', {
+      rewind: false,
+      loop: true,
+    })
+
+    expect(frozenAnimate(project).options.loop).toBe(false)
+    expect(project.drafts.animate.options).toEqual({
+      rewind: false,
+      loop: true,
+    })
+  })
+
+  it('carries the answer through where the model offers the choice', () => {
+    const luma = 'fal-ai/luma-dream-machine/ray-2/image-to-video'
+
+    expect(
+      frozenAnimate(animatingWith(luma, { loop: true })).options.loop
+    ).toBe(true)
+    expect(
+      frozenAnimate(animatingWith(luma, { loop: false })).options.loop
+    ).toBe(false)
   })
 })

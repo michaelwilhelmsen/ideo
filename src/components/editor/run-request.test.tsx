@@ -364,7 +364,7 @@ describe('restyling the source', () => {
     readonly modelId: string
     readonly params: Record<string, unknown>
     readonly recipe: StageRecipe
-    readonly imageInput: ImageInput | null
+    readonly imageInputs: readonly ImageInput[]
   }
 
   function submitted(): Submitted[] {
@@ -411,12 +411,14 @@ describe('restyling the source', () => {
     await clickRun(ATLAS)
 
     await waitFor(() => expect(submitted()).toHaveLength(1))
-    expect(submitted()[0]?.imageInput).toEqual({
-      // The project's current source, whether it was generated or uploaded.
-      generationId: ATLAS.selection.source,
-      param: 'image_url',
-      shape: 'url',
-    })
+    expect(submitted()[0]?.imageInputs).toEqual([
+      {
+        // The project's current source, whether it was generated or uploaded.
+        generationId: ATLAS.selection.source,
+        param: 'image_url',
+        shape: 'url',
+      },
+    ])
     // Nothing image-shaped in the body itself: the URI is Rust's to build.
     expect(submitted()[0]?.params).not.toHaveProperty('image_url')
   })
@@ -429,8 +431,8 @@ describe('restyling the source', () => {
     )
 
     await waitFor(() => expect(submitted()).toHaveLength(1))
-    expect(submitted()[0]?.imageInput?.param).toBe('image_urls')
-    expect(submitted()[0]?.imageInput?.shape).toBe('urlArray')
+    expect(submitted()[0]?.imageInputs[0]?.param).toBe('image_urls')
+    expect(submitted()[0]?.imageInputs[0]?.shape).toBe('urlArray')
   })
 
   it('sends a negative only where the model has a field for it', async () => {
@@ -529,6 +531,35 @@ describe('restyling the source', () => {
     expect(said).toMatch(/10 MB/)
   })
 
+  /** One submitted animate request's image fields, in the order they were named. */
+  async function animateInputs(project: Project): Promise<ImageInput[]> {
+    function AnimateProbe() {
+      const { run } = useRunStage(project, 'animate', 1)
+      return <button onClick={run}>run</button>
+    }
+
+    render(<AnimateProbe />)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'run' }))
+    await waitFor(() => expect(mockCommands.generateImage).toHaveBeenCalled())
+
+    return (
+      mockCommands.generateImage.mock.calls[0]?.[0] as unknown as {
+        imageInputs: ImageInput[]
+      }
+    ).imageInputs
+  }
+
+  /** The same project, with a different animate draft. */
+  function animating(project: Project, draft: Partial<StageRecipe>): Project {
+    return {
+      ...project,
+      drafts: {
+        ...project.drafts,
+        animate: { ...project.drafts.animate, ...draft },
+      },
+    }
+  }
+
   it('submits animate against the styled still, under that model’s own field', async () => {
     // #29 — animate was the last fixture stage, and it now takes the same path
     // as the other two. The two things worth asserting are the two that cost
@@ -536,28 +567,110 @@ describe('restyling the source', () => {
     // selection, resolved by `freezeRecipe`) and what the endpoint calls the
     // field it goes in — `start_image_url` on Kling O1, `image_url` on most of
     // its neighbours.
-    function AnimateProbe() {
-      const { run } = useRunStage(ATLAS, 'animate', 1)
-      return <button onClick={run}>run</button>
-    }
-
-    render(<AnimateProbe />)
-    await userEvent.setup().click(screen.getByRole('button', { name: 'run' }))
-
-    await waitFor(() => expect(mockCommands.generateImage).toHaveBeenCalled())
+    const inputs = await animateInputs(
+      animating(ATLAS, { options: { loop: false, rewind: false } })
+    )
 
     const submitted = mockCommands.generateImage.mock.calls[0]?.[0] as {
       stage: string
       modelId: string
-      imageInput: { generationId: string; param: string; shape: string } | null
     }
 
     expect(submitted.stage).toBe('animate')
     expect(submitted.modelId).toBe('fal-ai/kling-video/o1/image-to-video')
-    expect(submitted.imageInput).toEqual({
-      generationId: ATLAS.selection.style,
-      param: 'start_image_url',
-      shape: 'url',
+    expect(inputs).toEqual([
+      {
+        generationId: ATLAS.selection.style,
+        param: 'start_image_url',
+        shape: 'url',
+      },
+    ])
+  })
+
+  /**
+   * The loop, as the request builder expresses it (#30, PRD §4.5).
+   *
+   * One mechanism everywhere: the end frame is the start frame. So the whole
+   * feature is visible here — a second image input, naming the same generation,
+   * under whatever that model calls its end-frame field — and every case that
+   * must *not* produce one is worth pinning, because each of them would be a
+   * 422 or a silent non-loop at video prices.
+   */
+  describe('looping (#30)', () => {
+    it('sends the still again as the end frame when looping is on', async () => {
+      // Atlas's animate draft has `loop: true` on Kling O1 already.
+      const inputs = await animateInputs(ATLAS)
+
+      expect(inputs).toEqual([
+        {
+          generationId: ATLAS.selection.style,
+          param: 'start_image_url',
+          shape: 'url',
+        },
+        {
+          generationId: ATLAS.selection.style,
+          param: 'end_image_url',
+          shape: 'url',
+        },
+      ])
+    })
+
+    it('uses the end-frame name the chosen model actually has', async () => {
+      // `last_frame_url` on Veo's first/last-frame endpoint, `end_image_url` on
+      // every other model that has one — the registry is the only thing that
+      // knows, and the wrong spelling is a 422 at the paid step.
+      // Veo has no ultrawide enum, so this one is asked of a 16:9 project.
+      const inputs = await animateInputs(
+        animating(
+          { ...ATLAS, aspect: '16:9' },
+          {
+            modelId: 'fal-ai/veo3.1/first-last-frame-to-video',
+            params: { duration: '6s' },
+          }
+        )
+      )
+
+      expect(inputs.map(i => i.param)).toEqual([
+        'first_frame_url',
+        'last_frame_url',
+      ])
+    })
+
+    it('loops a model that requires an end frame however the option is set', async () => {
+      // FLUX 3's first/last-frame endpoint refuses a submit naming only a start
+      // frame, so the effective answer is derived rather than read off the
+      // switch — which is also why the switch is locked on.
+      const inputs = await animateInputs(
+        animating(ATLAS, {
+          modelId: 'blackforestlabs/flux-3/first-last-frame-to-video',
+          params: { duration: '5' },
+          options: { loop: false, rewind: false },
+        })
+      )
+
+      expect(inputs.map(i => i.param)).toEqual([
+        'start_image_url',
+        'end_image_url',
+      ])
+    })
+
+    it('sends nothing extra on a model with nowhere to put an end frame', async () => {
+      // `options.loop` survives a model change untouched (nothing is rewritten
+      // under the user), so a stored `true` reaches a model that cannot act on
+      // it — and must not turn into a field the endpoint has never heard of.
+      const inputs = await animateInputs(
+        animating(
+          { ...ATLAS, aspect: '16:9' },
+          {
+            modelId: 'fal-ai/veo3.1/image-to-video',
+            params: { duration: '6s' },
+            options: { loop: true, rewind: false },
+          }
+        )
+      )
+
+      expect(inputs).toHaveLength(1)
+      expect(inputs[0]?.param).toBe('image_url')
     })
   })
 

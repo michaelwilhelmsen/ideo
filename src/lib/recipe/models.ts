@@ -844,8 +844,9 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: 'end_image_url',
-    // Required upstream, so this row cannot serve a non-looping animate — the
-    // run button says so rather than the 422 doing (#29, #30).
+    // Required upstream, so every run of this row loops (#30): the loop switch
+    // shows itself on and unclickable, and the end frame is the start still
+    // sent again. It cannot serve a *non*-looping animate at all.
     endFrameRequired: true,
     durationParam: 'duration',
     durations: [
@@ -896,7 +897,8 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     negativePromptParam: 'negative_prompt',
     // Spelled `last_frame_url` here and `end_image_url` on every other model.
     endFrameParam: 'last_frame_url',
-    // And required, so this row waits for #30 like its FLUX 3 neighbour.
+    // And required, so this row loops on every run like its FLUX 3 neighbour —
+    // selectable for animate since #30, with the switch locked on.
     endFrameRequired: true,
     durationParam: 'duration',
     durations: ['4s', '6s', '8s'],

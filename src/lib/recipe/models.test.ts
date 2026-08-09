@@ -100,13 +100,14 @@ describe('MODEL_REGISTRY', () => {
       expect(model.imageParam, model.id).toMatch(
         /^(image_url|start_image_url|first_frame_url)$/
       )
-      expect(imageParamShape(model), model.id).toBe('url')
+      expect(imageParamShape(model.imageParam), model.id).toBe('url')
     }
   })
 
   it('marks exactly the two endpoints that will not run without an end frame', () => {
-    // Both refuse a submit naming only a start frame, and looping is #30 — so
-    // until then they are disabled with a reason rather than quietly 422ing.
+    // Both refuse a submit naming only a start frame. Since #30 the still goes
+    // out again as the end frame, so what this marks is a loop that cannot be
+    // switched off rather than a run that cannot happen.
     const required = MODEL_REGISTRY.filter(model => model.endFrameRequired)
 
     expect(required.map(model => model.id)).toEqual([

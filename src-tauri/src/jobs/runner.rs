@@ -111,12 +111,15 @@ pub struct StartRequest {
     /// those.
     pub params: Value,
     /// Which generation's image this run consumes, and the field it goes in
-    /// (#28). `None` on a stage that takes no input image.
+    /// (#28). Empty on a stage that takes no input image.
     ///
     /// A generation id rather than the bytes: the image is read and encoded on
     /// this side, so a hero-size payload never crosses the IPC boundary, and the
     /// webview never has to be handed a path into the project folder.
-    pub image_input: Option<ImageInput>,
+    ///
+    /// A list because a looping animate run names the same still twice — once
+    /// as the first frame, once as the last (#30, PRD §4.5).
+    pub image_inputs: Vec<ImageInput>,
 }
 
 /// What the caller gets back: a job that is now on the books, not a result.
@@ -201,7 +204,7 @@ pub async fn start(app: AppHandle, request: StartRequest) -> Result<SubmittedJob
         &projects_root(&app)?,
         &request.project_id,
         &request.stage,
-        request.image_input.as_ref(),
+        &request.image_inputs,
         &mut params,
     )?;
 

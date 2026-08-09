@@ -5,7 +5,6 @@
  */
 
 import { aspectById } from './aspects'
-import { modelById, type ModelCapabilities } from './registry'
 import type {
   EditorState,
   Generation,
@@ -100,13 +99,15 @@ export function isFromAnotherInput(
 /**
  * Whether the stage could run right now, and if not, why.
  *
- * The registry is passed in rather than reached for, the same way the reducer
- * takes it: it is repo-committed data (PRD §5) that nothing here can change, and
- * a module-scope read would make this the one answer in the file that cannot be
- * asked of a different registry than the app happens to ship.
+ * Not a question about the *model* any more. #29 blocked whole animate runs on
+ * the two endpoints whose end frame is mandatory, because there was no second
+ * frame to send; #30 sends the start still again, so those rows run like any
+ * other and the fact that they always loop is said on the loop switch
+ * (`controlAvailability`) rather than on the run button. What is left here is
+ * the project's own arithmetic — the locked ratio and the upstream selection —
+ * neither of which needs the registry.
  */
 export function blockedReasonKey(
-  registry: readonly ModelCapabilities[],
   project: Project,
   stage: StageKind
 ): string | null {
@@ -115,19 +116,6 @@ export function blockedReasonKey(
   // costs a disabled button; saying it at submit costs the video call.
   if (stage === 'animate' && !aspectById(project.aspect).animatable) {
     return 'editor.reason.aspectNotAnimatable'
-  }
-
-  // #29 — two of the eight video endpoints refuse a submit that names only a
-  // start frame, and this slice has no second frame to send (looping is #30).
-  // Said here, where it costs a disabled button; said at submit, it would cost
-  // the video call. The model stays visible with the reason on it (PRD §10.1):
-  // these are the rows a seamless loop will want, and hiding them would tell
-  // half the story.
-  if (
-    stage === 'animate' &&
-    modelById(registry, project.drafts[stage].modelId).endFrameRequired
-  ) {
-    return 'editor.reason.needsEndFrame'
   }
 
   const upstream = upstreamOf(stage)

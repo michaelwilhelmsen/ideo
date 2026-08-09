@@ -22,11 +22,18 @@
 //! Since #29 the animate stage is under the same rule, and the argument only
 //! gets stronger: a video model handed no start frame produces a clip of
 //! whatever the motion prompt says, at up to $0.47 a second.
+//!
+//! And since #30 a run may name more than one image field, because that is what
+//! a seamless loop is: the same still as both the first and the last frame (PRD
+//! §4.5). The list is the frontend's — which fields exist and what they are
+//! called is the registry's business, not this side's — and the only thing this
+//! module adds is that a still named twice is read and encoded once.
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use specta::Type;
+use std::collections::HashMap;
 use std::path::Path;
 
 use super::fal::{GenerationError, GenerationErrorReason, InputImageProblem};
@@ -74,28 +81,44 @@ pub enum ImageParamShape {
 /// candidate* the stage is working from and nothing about the folder, and the
 /// field name and shape are the registry's answer (PRD §5) rather than
 /// something Rust should hold a second copy of.
+///
+/// One of these per *field*, not per image — a loop names the same generation
+/// twice, under `imageParam` and under `endFrameParam` (#30).
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageInput {
     pub generation_id: String,
-    /// The model's own field name, from the registry's `imageParam`.
+    /// The model's own field name, from the registry's `imageParam` or
+    /// `endFrameParam`.
     pub param: String,
     pub shape: ImageParamShape,
 }
 
-/// Puts the input image into a request body, or refuses the run.
+/// Puts the input images into a request body, or refuses the run.
 ///
 /// Called before the key is fetched and before a concurrency slot is taken: a
 /// run that cannot find its source is not worth a keychain prompt, let alone a
 /// queue position.
+///
+/// A list rather than one image since #30: a seamless loop is the *same* still
+/// sent twice, once as the start frame and once as the end frame under whatever
+/// the model calls it (`end_image_url`, or `last_frame_url` on Veo). Which
+/// fields those are is the registry's answer and arrives already decided; all
+/// this side does is resolve each named generation and write it in.
+///
+/// Each generation is read and encoded **once** however many fields point at
+/// it. A hero still is megabytes before base64 and a third again after, so
+/// encoding the loop's two frames separately would double both the work and the
+/// memory — and, worse, would measure the same file twice against the inline
+/// ceiling, refusing a 6 MB still that is well inside it.
 pub fn prepare(
     root: &Path,
     project_id: &str,
     stage: &str,
-    input: Option<&ImageInput>,
+    inputs: &[ImageInput],
     params: &mut Value,
 ) -> Result<(), GenerationError> {
-    let Some(input) = input else {
+    if inputs.is_empty() {
         // Not "assume text-to-image": these stages exist to transform an image,
         // so having none is the failure and not a mode.
         if requires_input(stage) {
@@ -103,10 +126,86 @@ pub fn prepare(
             return Err(unusable(InputImageProblem::NoneNamed));
         }
         return Ok(());
+    }
+
+    // Every refusal before any write, so a body is either fully prepared or
+    // untouched: a request carrying a start frame and no end frame would be a
+    // paid call for a clip that does not loop. That is why the field names are
+    // checked here rather than inside `inject` — a blank second field would
+    // otherwise fail *after* the first one had been written in.
+    check(inputs, params)?;
+    let encoded = encode_once(root, project_id, inputs)?;
+
+    let Some(fields) = params.as_object_mut() else {
+        // Unreachable: `check` refused a non-object above.
+        return Err(not_an_object());
     };
 
-    let uri = data_uri(&read_image(root, project_id, &input.generation_id)?)?;
-    inject(params, input, &uri)
+    for input in inputs {
+        let Some(uri) = encoded.get(input.generation_id.as_str()) else {
+            // Unreachable: `encode_once` has an entry per named generation.
+            return Err(GenerationError::with_detail(
+                GenerationErrorReason::RequestRejected,
+                "an input image was named but never encoded",
+            ));
+        };
+        inject(fields, input, uri);
+    }
+
+    Ok(())
+}
+
+/// Everything that can refuse the run before a single byte is read.
+///
+/// Split out so injection cannot fail halfway. The two answers here are the
+/// only ones `inject` used to give, and both are about the *request* rather
+/// than the images: a body that is not an object has nowhere to put a field,
+/// and a field with no name is a registry row that never should have shipped.
+fn check(inputs: &[ImageInput], params: &Value) -> Result<(), GenerationError> {
+    if !params.is_object() {
+        return Err(not_an_object());
+    }
+
+    for input in inputs {
+        if input.param.trim().is_empty() {
+            log::error!("The model named no field to put the image in");
+            return Err(unusable(InputImageProblem::NoField));
+        }
+    }
+
+    Ok(())
+}
+
+fn not_an_object() -> GenerationError {
+    GenerationError::with_detail(
+        GenerationErrorReason::RequestRejected,
+        "model parameters were not an object",
+    )
+}
+
+/// Each named generation as a data URI, one entry per *generation* rather than
+/// per field.
+///
+/// The deduplication is the point rather than an optimisation. A loop names one
+/// still under two fields (#30); reading it twice would hold two copies of a
+/// hero-size image and two base64 strings a third larger again, and would put
+/// the same file past the inline ceiling on the second pass of a size check it
+/// had already passed.
+fn encode_once<'a>(
+    root: &Path,
+    project_id: &str,
+    inputs: &'a [ImageInput],
+) -> Result<HashMap<&'a str, String>, GenerationError> {
+    let mut encoded: HashMap<&'a str, String> = HashMap::new();
+
+    for input in inputs {
+        let id = input.generation_id.as_str();
+        if !encoded.contains_key(id) {
+            encoded.insert(id, data_uri(&read_image(root, project_id, id)?)?);
+        }
+    }
+
+    Ok(encoded)
 }
 
 /// The image one generation produced, as bytes.
@@ -173,19 +272,11 @@ fn data_uri(bytes: &[u8]) -> Result<String, GenerationError> {
 }
 
 /// Writes the URI into the body under the model's own field name and shape.
-fn inject(params: &mut Value, input: &ImageInput, uri: &str) -> Result<(), GenerationError> {
-    if input.param.trim().is_empty() {
-        log::error!("The model named no field to put the image in");
-        return Err(unusable(InputImageProblem::NoField));
-    }
-
-    let Value::Object(fields) = params else {
-        return Err(GenerationError::with_detail(
-            GenerationErrorReason::RequestRejected,
-            "model parameters were not an object",
-        ));
-    };
-
+///
+/// Infallible, which is the whole of the atomicity claim: everything that could
+/// refuse has already refused in `check`, so once the first field is written
+/// the rest are certain to follow.
+fn inject(fields: &mut Map<String, Value>, input: &ImageInput, uri: &str) {
     let value = match input.shape {
         ImageParamShape::Url => json!(uri),
         ImageParamShape::UrlArray => json!([uri]),
@@ -194,8 +285,6 @@ fn inject(params: &mut Value, input: &ImageInput, uri: &str) -> Result<(), Gener
     // Overwrites rather than merges: whatever a persisted draft claimed about
     // this field, the image being sent is the one the stage is working from.
     fields.insert(input.param.clone(), value);
-
-    Ok(())
 }
 
 /// The refusal, as a code the frontend can put into the user's own language.
@@ -290,7 +379,7 @@ mod tests {
             root.path(),
             "atlas",
             "style",
-            Some(&input("image_url", ImageParamShape::Url)),
+            &[input("image_url", ImageParamShape::Url)],
             &mut params,
         )
         .unwrap();
@@ -315,7 +404,7 @@ mod tests {
             root.path(),
             "atlas",
             "style",
-            Some(&input("image_urls", ImageParamShape::UrlArray)),
+            &[input("image_urls", ImageParamShape::UrlArray)],
             &mut params,
         )
         .unwrap();
@@ -334,7 +423,7 @@ mod tests {
             root.path(),
             "atlas",
             "style",
-            Some(&input("image_url", ImageParamShape::Url)),
+            &[input("image_url", ImageParamShape::Url)],
             &mut params,
         )
         .unwrap();
@@ -349,7 +438,7 @@ mod tests {
         // would silently degrade to text-to-image and charge for it.
         let mut params = json!({});
 
-        let error = prepare(Path::new("/nowhere"), "atlas", "style", None, &mut params)
+        let error = prepare(Path::new("/nowhere"), "atlas", "style", &[], &mut params)
             .expect_err("a style run needs an input image");
 
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
@@ -364,7 +453,7 @@ mod tests {
         // at up to $0.47 a second.
         let mut params = json!({ "duration": "5" });
 
-        let error = prepare(Path::new("/nowhere"), "atlas", "animate", None, &mut params)
+        let error = prepare(Path::new("/nowhere"), "atlas", "animate", &[], &mut params)
             .expect_err("an animate run needs a still to animate");
 
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
@@ -385,7 +474,7 @@ mod tests {
                 root.path(),
                 "atlas",
                 "animate",
-                Some(&input(param, ImageParamShape::Url)),
+                &[input(param, ImageParamShape::Url)],
                 &mut params,
             )
             .unwrap();
@@ -400,11 +489,136 @@ mod tests {
         }
     }
 
+    /// #30 — the seamless loop, as it reaches the wire.
+    ///
+    /// The whole mechanism is "send the still twice", so these are the
+    /// assertions that say it happened: both fields present, both holding the
+    /// same picture, under the names the *chosen* model uses rather than a
+    /// single spelling.
+    #[test]
+    fn a_loop_sends_the_same_still_as_both_the_first_and_the_last_frame() {
+        // `end_image_url` on Kling, Seedance, Luma, LTX and FLUX 3;
+        // `last_frame_url` on Veo. One start-frame spelling per row too.
+        for (start, end) in [
+            ("start_image_url", "end_image_url"),
+            ("first_frame_url", "last_frame_url"),
+        ] {
+            let root = project_with_source(&png(), "png");
+            let mut params = json!({ "duration": "5" });
+
+            prepare(
+                root.path(),
+                "atlas",
+                "animate",
+                &[
+                    input(start, ImageParamShape::Url),
+                    input(end, ImageParamShape::Url),
+                ],
+                &mut params,
+            )
+            .unwrap();
+
+            let first = params[start].as_str().expect("a start frame");
+            let last = params[end].as_str().expect("an end frame");
+
+            assert!(first.starts_with("data:image/png;base64,"), "{start}");
+            // Byte for byte the same frame: a loop that ends on a *different*
+            // encoding of the still is the seam this feature exists to remove.
+            assert_eq!(first, last, "{start} and {end}");
+            assert_eq!(params["duration"], json!("5"));
+        }
+    }
+
+    #[test]
+    fn a_still_at_the_ceiling_still_loops() {
+        // The cap is on the file, not on the request: a 10 MB still sent as
+        // both frames is one 10 MB read, and refusing it would refuse a loop
+        // that is exactly inside the documented limit.
+        let root = project_with_source(&png(), "png");
+        let dir = root.path().join("atlas").join("assets");
+        let mut at_the_limit = png();
+        at_the_limit.resize(MAX_INLINE_BYTES as usize, 0);
+        std::fs::write(dir.join("gen-src-1.png"), &at_the_limit).unwrap();
+
+        let mut params = json!({});
+        prepare(
+            root.path(),
+            "atlas",
+            "animate",
+            &[
+                input("image_url", ImageParamShape::Url),
+                input("end_image_url", ImageParamShape::Url),
+            ],
+            &mut params,
+        )
+        .expect("exactly at the ceiling is inside it");
+
+        assert!(params["image_url"].is_string());
+        assert!(params["end_image_url"].is_string());
+    }
+
+    #[test]
+    fn each_field_takes_the_shape_its_own_schema_declares() {
+        // The shape travels per field rather than per request, so a run naming
+        // one single-URL field and one array-shaped one gets each as declared.
+        // Generic names on purpose: this is a unit test of the injection, and
+        // no registry row pairs an end frame with an array shape.
+        let root = project_with_source(&png(), "png");
+        let mut params = json!({});
+
+        prepare(
+            root.path(),
+            "atlas",
+            "style",
+            &[
+                input("image_url", ImageParamShape::Url),
+                input("reference_image_urls", ImageParamShape::UrlArray),
+            ],
+            &mut params,
+        )
+        .unwrap();
+
+        assert!(params["image_url"].is_string());
+        let referenced = params["reference_image_urls"].as_array().expect("an array");
+        assert_eq!(referenced.len(), 1);
+        assert_eq!(
+            referenced[0].as_str().unwrap(),
+            params["image_url"].as_str().unwrap()
+        );
+    }
+
+    #[test]
+    fn nothing_is_injected_when_one_of_several_inputs_cannot_be_read() {
+        // Every read happens before any write: half a loop is a paid call for a
+        // clip that does not loop.
+        let root = project_with_source(&png(), "png");
+        let mut params = json!({ "duration": "5" });
+
+        let error = prepare(
+            root.path(),
+            "atlas",
+            "animate",
+            &[
+                input("image_url", ImageParamShape::Url),
+                ImageInput {
+                    generation_id: "gen-missing".to_string(),
+                    param: "end_image_url".to_string(),
+                    shape: ImageParamShape::Url,
+                },
+            ],
+            &mut params,
+        )
+        .expect_err("the end frame is not on disk");
+
+        assert_eq!(error.input_image, Some(InputImageProblem::NotOnDisk));
+        assert_eq!(params, json!({ "duration": "5" }));
+    }
+
     #[test]
     fn a_source_run_has_no_input_and_that_is_not_a_failure() {
         let mut params = json!({ "image_size": { "width": 1280, "height": 720 } });
 
-        prepare(Path::new("/nowhere"), "atlas", "source", None, &mut params).unwrap();
+        prepare(Path::new("/nowhere"), "atlas", "source", &[], &mut params).unwrap();
 
         assert_eq!(params.as_object().unwrap().len(), 1);
     }
@@ -420,7 +634,7 @@ mod tests {
             root.path(),
             "atlas",
             "style",
-            Some(&input("image_url", ImageParamShape::Url)),
+            &[input("image_url", ImageParamShape::Url)],
             &mut params,
         )
         .expect_err("there is no file to send");
@@ -443,7 +657,7 @@ mod tests {
             root.path(),
             "atlas",
             "style",
-            Some(&input("image_url", ImageParamShape::Url)),
+            &[input("image_url", ImageParamShape::Url)],
             &mut params,
         )
         .expect_err("too large to inline");
@@ -470,12 +684,38 @@ mod tests {
             root.path(),
             "atlas",
             "style",
-            Some(&input("  ", ImageParamShape::Url)),
+            &[input("  ", ImageParamShape::Url)],
             &mut params,
         )
         .unwrap_err();
 
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
         assert_eq!(error.input_image, Some(InputImageProblem::NoField));
+        assert_eq!(params, json!({}));
+    }
+
+    #[test]
+    fn a_blank_field_behind_a_good_one_still_leaves_the_body_untouched() {
+        // The atomicity claim where it is easiest to break: the first field is
+        // perfectly injectable, so a refusal discovered on the second must not
+        // leave a start frame written in on its own — that body would be a paid
+        // call for a clip that does not loop.
+        let root = project_with_source(&png(), "png");
+        let mut params = json!({ "duration": "5" });
+
+        let error = prepare(
+            root.path(),
+            "atlas",
+            "animate",
+            &[
+                input("image_url", ImageParamShape::Url),
+                input("", ImageParamShape::Url),
+            ],
+            &mut params,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.input_image, Some(InputImageProblem::NoField));
+        assert_eq!(params, json!({ "duration": "5" }));
     }
 }

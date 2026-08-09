@@ -12,7 +12,12 @@
 
 import { isMotionPreset, type MotionPreset } from './motion'
 import { composePreset, type StylePreset } from './presets'
-import { modelById, reconcileParams, type ModelCapabilities } from './registry'
+import {
+  loopsOnEndFrame,
+  modelById,
+  reconcileParams,
+  type ModelCapabilities,
+} from './registry'
 import { clampBatchSize, upstreamOf } from './selectors'
 import { isUploadRecipe, uploadRecipe } from './upload'
 import { STAGE_ORDER } from './types'
@@ -598,7 +603,7 @@ function runStage(
   const draft = project.drafts[action.stage]
   const model = modelById(registry, draft.modelId)
 
-  const frozen = freezeRecipe(project, action.stage)
+  const frozen = freezeRecipe(registry, project, action.stage)
   if (frozen === null) return project
 
   // A pinned seed makes every candidate in a batch identical, so a pin
@@ -787,8 +792,17 @@ function strandedRun(
  * *request* carries are resolved afterwards, and `sentRecipe` is what puts them
  * back on the copy that gets persisted (AC10). A fixture stage has no request,
  * so the frozen draft is all there is to record.
+ *
+ * The registry, because `options.loop` is an intent and the run is a fact
+ * (#30): a first/last-frame endpoint loops with the switch off and a model with
+ * no end-frame field does not loop with it on, so the frozen copy records
+ * `loopsOnEndFrame` rather than what the draft happened to store. The *draft*
+ * keeps the user's own answer untouched — that is what lets it survive a model
+ * change — but a snapshot of a run that says `loop: false` beside a clip that
+ * loops is not a recipe anybody could read.
  */
 export function freezeRecipe(
+  registry: readonly ModelCapabilities[],
   project: Project,
   stage: StageKind
 ): StageRecipe | null {
@@ -800,7 +814,14 @@ export function freezeRecipe(
   // is exactly why re-running style leaves the source alone (PRD §4.1).
   if (upstream !== null && inputGenerationId === null) return null
 
-  return { ...project.drafts[stage], inputGenerationId }
+  const draft = project.drafts[stage]
+  const model = modelById(registry, draft.modelId)
+
+  return {
+    ...draft,
+    options: { ...draft.options, loop: loopsOnEndFrame(model, draft.options) },
+    inputGenerationId,
+  }
 }
 
 /**

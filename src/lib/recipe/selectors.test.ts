@@ -13,7 +13,6 @@
 
 import { describe, expect, it } from 'vitest'
 import { ATLAS, LEDGER } from './fixtures'
-import { MODEL_REGISTRY } from './models'
 import {
   blockedReasonKey,
   generationsForStage,
@@ -34,32 +33,33 @@ function on(project: Project, stage: StageKind, modelId: string): Project {
 
 describe('blockedReasonKey', () => {
   it('lets a stage run when its input is there and its model can serve it', () => {
-    expect(blockedReasonKey(MODEL_REGISTRY, ATLAS, 'source')).toBeNull()
-    expect(blockedReasonKey(MODEL_REGISTRY, ATLAS, 'style')).toBeNull()
-    expect(blockedReasonKey(MODEL_REGISTRY, ATLAS, 'animate')).toBeNull()
+    expect(blockedReasonKey(ATLAS, 'source')).toBeNull()
+    expect(blockedReasonKey(ATLAS, 'style')).toBeNull()
+    expect(blockedReasonKey(ATLAS, 'animate')).toBeNull()
   })
 
   it('blocks a stage with nothing selected upstream', () => {
     // Ledger has a source and nothing else, so style can run and animate cannot.
-    expect(blockedReasonKey(MODEL_REGISTRY, LEDGER, 'style')).toBeNull()
-    expect(blockedReasonKey(MODEL_REGISTRY, LEDGER, 'animate')).toBe(
+    expect(blockedReasonKey(LEDGER, 'style')).toBeNull()
+    expect(blockedReasonKey(LEDGER, 'animate')).toBe(
       'editor.reason.needs.style'
     )
   })
 
-  it('blocks animate on a model that will not run without an end frame', () => {
-    // #29 — FLUX 3's first/last-frame endpoint requires both, and this slice has
-    // only a start frame. Said here, it costs a disabled button; said at submit,
-    // it costs the video call.
-    const project = on(
-      ATLAS,
-      'animate',
-      'blackforestlabs/flux-3/first-last-frame-to-video'
-    )
-
-    expect(blockedReasonKey(MODEL_REGISTRY, project, 'animate')).toBe(
-      'editor.reason.needsEndFrame'
-    )
+  it('lets animate run on a model that will not run without an end frame', () => {
+    // #29 blocked the whole run here, because there was no second frame to
+    // send. #30 supplies one — the start still, again — so FLUX 3's and Veo's
+    // first/last-frame endpoints are ordinary animate models that happen
+    // always to loop, and the locked-on switch says so where the user can see
+    // it rather than a disabled run button saying "pick another model".
+    for (const modelId of [
+      'blackforestlabs/flux-3/first-last-frame-to-video',
+      'fal-ai/veo3.1/first-last-frame-to-video',
+    ]) {
+      expect(
+        blockedReasonKey(on(ATLAS, 'animate', modelId), 'animate')
+      ).toBeNull()
+    }
   })
 
   it('says nothing about an end frame on a model that does not demand one', () => {
@@ -71,7 +71,7 @@ describe('blockedReasonKey', () => {
       'bytedance/seedance-2.5/image-to-video'
     )
 
-    expect(blockedReasonKey(MODEL_REGISTRY, project, 'animate')).toBeNull()
+    expect(blockedReasonKey(project, 'animate')).toBeNull()
   })
 
   it('does not blame the model when the ratio is the problem', () => {
@@ -85,7 +85,7 @@ describe('blockedReasonKey', () => {
       'blackforestlabs/flux-3/first-last-frame-to-video'
     )
 
-    expect(blockedReasonKey(MODEL_REGISTRY, project, 'animate')).toBe(
+    expect(blockedReasonKey(project, 'animate')).toBe(
       'editor.reason.aspectNotAnimatable'
     )
   })
@@ -118,7 +118,7 @@ describe('a project that stops at the still', () => {
   it('offers animation rather than demanding it', () => {
     // Not blocked — the input is there and the model can serve it — which is
     // the point: the stage is available and skipped, not unavailable.
-    expect(blockedReasonKey(MODEL_REGISTRY, stillOnly, 'animate')).toBeNull()
-    expect(blockedReasonKey(MODEL_REGISTRY, stillOnly, 'style')).toBeNull()
+    expect(blockedReasonKey(stillOnly, 'animate')).toBeNull()
+    expect(blockedReasonKey(stillOnly, 'style')).toBeNull()
   })
 })

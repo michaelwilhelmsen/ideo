@@ -11,7 +11,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen, within } from '@/test/test-utils'
 import userEvent from '@testing-library/user-event'
-import { ATLAS, LEDGER, MODEL_REGISTRY, modelById } from '@/lib/recipe'
+import {
+  ATLAS,
+  LEDGER,
+  MODEL_REGISTRY,
+  modelById,
+  type StageParams,
+} from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
 import { StageParameters } from './StageParameters'
 
@@ -71,8 +77,8 @@ describe('StageParameters — model selection', () => {
     const picker = screen.getByLabelText<HTMLSelectElement>('Model')
     const before = picker.value
 
-    // Duration rather than a switch: loop and rewind are disabled until #30,
-    // so a click on either would prove nothing. The claim is the same one —
+    // Duration rather than a switch: rewind is still disabled (#45) and the
+    // loop switch is covered on its own below. The claim is the same one —
     // touching a parameter never moves the user onto a different endpoint.
     fireEvent.change(screen.getByLabelText('Duration'), {
       target: { value: '9s' },
@@ -83,24 +89,64 @@ describe('StageParameters — model selection', () => {
 })
 
 /**
- * The two switches that promise something nothing sends yet (#30).
+ * The loop switch's three states, and the rewind switch's one (#30).
  *
- * `buildRequest` reads neither `options.loop` nor `options.rewind`, so an
- * enabled toggle here is the worst kind of wrong: the user pays video prices
- * for a clip they were told would loop, and nothing in the result says the
- * setting was ignored. PRD §10.1 — on screen, switched off, reason attached.
+ * Looping is live: `buildRequest`'s companion sends the still again as the end
+ * frame, so the switch is a real choice wherever the model has a field for one.
+ * The interesting state is the third — on the first/last-frame endpoints the
+ * end frame is *required*, so the switch shows itself checked and unclickable
+ * rather than offering a choice the endpoint would refuse.
+ *
+ * Rewind is still an ffmpeg pass nobody has written (#45), and stays on screen,
+ * switched off, with the reason attached (PRD §10.1).
  */
-describe('StageParameters — looping is not live yet (#30)', () => {
-  it('shows the loop switch disabled, with the reason under it', () => {
-    // Luma has an `end_image_url`, so the registry's older refusal ("this model
-    // has no end frame") does not apply — the honest answer is that we do not
-    // build one yet.
+describe('StageParameters — the loop switch (#30)', () => {
+  it('offers looping on a model with somewhere to put an end frame', () => {
+    // Ledger's animate draft is Luma Ray 2, which has an `end_image_url`.
     render(<StageParameters project={LEDGER} stage="animate" />)
 
     expect(
       screen.getByRole('switch', { name: /return to the first frame/i })
-    ).toBeDisabled()
-    expect(screen.getByText(/looping is not built yet/i)).toBeVisible()
+    ).toBeEnabled()
+  })
+
+  it('locks the switch on where the model cannot run without an end frame', () => {
+    // FLUX 3's first/last-frame endpoint refuses a start frame alone, so every
+    // run of it loops. Checked and disabled with the reason beside it — an
+    // unchecked switch would describe a run that is not going to happen.
+    const project = animatingWith(
+      'blackforestlabs/flux-3/first-last-frame-to-video'
+    )
+
+    render(<StageParameters project={project} stage="animate" />)
+
+    const loop = screen.getByRole('switch', {
+      name: /return to the first frame/i,
+    })
+    expect(loop).toBeChecked()
+    expect(loop).toBeDisabled()
+    expect(screen.getByText(/always loops/i)).toBeVisible()
+  })
+
+  it('shows itself off on a model that cannot loop, whatever the draft stores', () => {
+    // Veo's plain image-to-video has no end-frame field, so a `loop: true`
+    // carried over from an earlier model is an intent nothing acts on. The
+    // switch has to say what the *run* would do — a checked switch above a
+    // clip that will not loop is the one thing it must never show.
+    const project = animatingWith('fal-ai/veo3.1/image-to-video', {
+      loop: true,
+    })
+
+    render(<StageParameters project={project} stage="animate" />)
+
+    const loop = screen.getByRole('switch', {
+      name: /return to the first frame/i,
+    })
+    expect(loop).not.toBeChecked()
+    expect(loop).toBeDisabled()
+    expect(
+      screen.getByText(/needs a model with end-frame support/i)
+    ).toBeVisible()
   })
 
   it('shows the rewind switch disabled, with its own reason', () => {
@@ -109,7 +155,7 @@ describe('StageParameters — looping is not live yet (#30)', () => {
     expect(
       screen.getByRole('switch', { name: /forward, then reverse/i })
     ).toBeDisabled()
-    expect(screen.getByText(/rewind arrives with looping/i)).toBeVisible()
+    expect(screen.getByText(/rewind is not built yet/i)).toBeVisible()
   })
 
   it('leaves the rest of the animate panel usable', () => {
@@ -331,25 +377,33 @@ describe('StageParameters — duration as a cost lever', () => {
     expect(long).toMatch(/14\.19/)
   })
 
-  it('refuses to run a model that needs an end frame, and says why', () => {
-    // #29 — FLUX 3's first/last-frame endpoint will not run on a start frame
-    // alone, and looping is #30. Disabled with the reason attached rather than
-    // hidden (PRD §10.1): it is the model a seamless loop will want.
-    const project = {
-      ...LEDGER,
-      selection: { ...LEDGER.selection, style: 'gen-led-1' },
-      drafts: {
-        ...LEDGER.drafts,
-        animate: {
-          ...LEDGER.drafts.animate,
-          modelId: 'blackforestlabs/flux-3/first-last-frame-to-video',
-        },
-      },
-    }
+  it('runs a model that needs an end frame, now that there is one to send', () => {
+    // #29 refused this run outright, because there was no second frame. #30
+    // sends the still again, so the endpoint is an ordinary animate model whose
+    // clips happen always to loop — and the loop switch, not the run button, is
+    // where that is said.
+    const project = animatingWith(
+      'blackforestlabs/flux-3/first-last-frame-to-video'
+    )
 
     render(<StageParameters project={project} stage="animate" />)
 
-    expect(screen.getByRole('button', { name: /generate/i })).toBeDisabled()
-    expect(screen.getByText(/will not run without an end frame/i)).toBeVisible()
+    expect(screen.getByRole('button', { name: /generate/i })).toBeEnabled()
   })
 })
+
+/** Ledger with a still to animate, a chosen animate model, and our options. */
+function animatingWith(modelId: string, options: StageParams = {}) {
+  return {
+    ...LEDGER,
+    selection: { ...LEDGER.selection, style: 'gen-led-1' },
+    drafts: {
+      ...LEDGER.drafts,
+      animate: {
+        ...LEDGER.drafts.animate,
+        modelId,
+        options: { ...LEDGER.drafts.animate.options, ...options },
+      },
+    },
+  }
+}
