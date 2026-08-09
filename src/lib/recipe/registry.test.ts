@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   aspectRequestFields,
+  declaresParam,
   estimateCost,
   legalSizeFor,
   modelAvailability,
@@ -31,6 +32,7 @@ function model(overrides: Partial<ModelCapabilities> = {}): ModelCapabilities {
     promptStyle: 'prose',
     aspects: { kind: 'inheritsFromSource' },
     supportsSeed: true,
+    imageParam: null,
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
@@ -434,6 +436,42 @@ describe('validateRegistry', () => {
         model({ price: { amount: 0.04, unit: 'image', verifiedOn: 'august' } }),
       ])
     ).toThrow(/undated price/)
+  })
+
+  /**
+   * #28 — the source image has to reach fal under the model's own field name,
+   * and the three rules below are the ones a careless row breaks: a style model
+   * with nowhere to put the image, a source model claiming an input it cannot
+   * take, and a name that is only whitespace.
+   */
+  it('refuses a style model with no image parameter', () => {
+    expect(() =>
+      validateRegistry([model({ stage: 'style', imageParam: null })])
+    ).toThrow(/no image parameter/)
+  })
+
+  it('refuses a source model claiming an input image', () => {
+    expect(() =>
+      validateRegistry([model({ stage: 'source', imageParam: 'image_url' })])
+    ).toThrow(/no input image/)
+  })
+
+  it('refuses an unnamed image parameter', () => {
+    expect(() =>
+      validateRegistry([model({ stage: 'style', imageParam: ' ' })])
+    ).toThrow(/unnamed image parameter/)
+  })
+
+  it('counts the image field as one the model declares', () => {
+    // The request builder filters a persisted draft against this set, so a
+    // field the registry knows about must not be dropped on the way to fal.
+    expect(
+      declaresParam(
+        model({ stage: 'style', imageParam: 'image_url' }),
+        'image_url'
+      )
+    ).toBe(true)
+    expect(declaresParam(model(), 'image_url')).toBe(false)
   })
 
   it('refuses an aspect enum that serves nothing', () => {

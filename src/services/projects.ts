@@ -295,6 +295,7 @@ export function newProject(name: string, aspect: AspectId): Project {
     modelId,
     prompt: '',
     presetId: null,
+    presetModified: false,
     seed: { mode: 'roll' },
     params: {},
     options: {},

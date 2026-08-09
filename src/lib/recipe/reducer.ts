@@ -248,16 +248,23 @@ export function createEditorReducer(
       case 'toggleShowRejected':
         return { ...state, showRejected: !state.showRejected }
 
+      // Editing a seeded field is the whole point of seeding — the prompt box is
+      // where people find out what the prompt language does (#28) — so this is
+      // recorded rather than prevented. `presetModified` is what keeps the
+      // recipe honest afterwards about how much of it came from the preset.
       case 'setPrompt':
         return editDraft(state, action.stage, draft => ({
           ...draft,
           prompt: action.prompt,
+          presetModified: draft.presetId !== null,
         }))
 
+      // A fresh selection is a fresh seed, so nothing has been changed yet.
       case 'choosePreset':
         return editDraft(state, action.stage, draft => ({
           ...draft,
           presetId: action.presetId,
+          presetModified: false,
         }))
 
       case 'chooseModel':
@@ -276,10 +283,13 @@ export function createEditorReducer(
           }
         })
 
+      // Strength and the negative prompt are seeded too, so moving one counts —
+      // "which preset produced this" is a different claim at 0.8 than at 0.7.
       case 'setParam':
         return editDraft(state, action.stage, draft => ({
           ...draft,
           params: { ...draft.params, [action.key]: action.value },
+          presetModified: draft.presetId !== null,
         }))
 
       case 'setOption':

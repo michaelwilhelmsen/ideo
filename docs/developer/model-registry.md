@@ -73,13 +73,27 @@ A shared whitelist was the previous shape and it made both checks blind for ever
 on it: a `guidance_scale` default on a model with no such field passed validation and
 shipped in the body.
 
+## The input image
+
+`imageParam` is the field the source image goes in, and the style stage does not work
+without it (#28). It is a read, never a guess, because the endpoints disagree: the FLUX
+family takes a single `image_url` string, while Qwen and Nano Banana take an `image_urls`
+**array**. The registry records the name; the caller has to honour the shape.
+
+| Stage     | `imageParam`                                                             |
+| --------- | ------------------------------------------------------------------------ |
+| `source`  | always `null` — text-to-image has no input image, and validation says so |
+| `style`   | required — `image_url` or `image_urls`                                   |
+| `animate` | `null` today; the start-frame name lands with the slice that sends it    |
+
 ## validateRegistry
 
 Runs at module load, so a bad row is a startup crash rather than a 422 later. It covers
 the agreements the type system cannot express: unique non-empty ids, `durations` and
 `durationFormat` present together, durations that parse, a resolution default that is
 actually offered, non-empty ratio tokens, dimension bounds that admit at least one
-curated ratio, a dated positive price, and no default for an undeclared parameter.
+curated ratio, a dated positive price, no default for an undeclared parameter, and an
+`imageParam` that matches the stage (present on style, absent on source).
 
 ## Adding a model
 
@@ -87,10 +101,13 @@ curated ratio, a dated positive price, and no default for an undeclared paramete
 2. Add a row to the right stage array in `models.ts`. Fill every column; use `null` and
    `[]` honestly rather than guessing.
 3. Put non-column fields in `extraParams`, and only those the schema names.
-4. Set `promptStyle` — it is shown to the user as a hint beside the prompt box.
-5. Set `price` with `verifiedOn`, or `null` if the endpoint is token-priced. An invented
+4. Set `promptStyle` — it is shown to the user as a hint beside the prompt box, and it
+   also picks which preset variant seeds the form (`src/lib/recipe/presets.ts`).
+5. Set `imageParam` from the schema's own field name on any stage that takes an input
+   image, noting whether the schema wants a string or an array.
+6. Set `price` with `verifiedOn`, or `null` if the endpoint is token-priced. An invented
    number is worse than none, because the dated estimate is what tells the user how much
    to trust it.
-6. Run the tests. `validateRegistry` will name the row if it is malformed.
+7. Run the tests. `validateRegistry` will name the row if it is malformed.
 
 See also [external-apis.md](./external-apis.md) for how the request reaches fal.

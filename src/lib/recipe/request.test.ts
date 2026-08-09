@@ -21,6 +21,7 @@ function recipe(
     modelId: 'unused',
     prompt: 'a lighthouse at dusk',
     presetId: null,
+    presetModified: false,
     seed: overrides.seed ?? { mode: 'roll' },
     params: overrides.params ?? {},
     options: {},

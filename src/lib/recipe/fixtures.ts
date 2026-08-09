@@ -4,13 +4,16 @@
  * Shrinking each time a slice lands. #23 made projects come off disk, so the
  * two projects below are test data rather than what the app boots into; #25
  * replaced the fixture capability registry with the verified one in `models.ts`,
- * so the model ids here name real endpoints and resolve against it. What remains
- * temporary:
- *  - the presets, until #28,
+ * so the model ids here name real endpoints and resolve against it; #28 moved the
+ * style presets into committed JSON (`presets.ts`), leaving the two lists below
+ * standing in for the motion library and for the source stage's borrowed one.
+ * What remains temporary:
+ *  - the motion presets, and source's use of the style list, until #34,
  *  - `previewArt`, the stand-in for pixels a stage cannot generate yet. The
  *    source stage produces real files; style and animate arrive in #28/#29.
  */
 
+import { BUILT_IN_STYLE_PRESETS, stylePresetById } from './presets'
 import { DEFAULT_BATCH_SIZES } from './selectors'
 import type {
   EditorState,
@@ -25,11 +28,30 @@ import type {
 const T0 = Date.UTC(2026, 7, 8, 9, 0, 0)
 const MINUTE = 60_000
 
-/** PRD §6 — two independent libraries, mixed freely. */
+/**
+ * PRD §6 — two independent libraries, mixed freely.
+ *
+ * Still the shape of the *motion* library, and of the placeholder list the
+ * source stage is borrowing. The style library outgrew it in #28: a single
+ * `fragment` cannot hold a per-idiom variant, a compose template, a negative and
+ * a strength, which is why `StylePreset` exists in `presets.ts` instead. #34
+ * finishes the job by giving source and motion libraries of their own.
+ */
 export interface Preset {
   readonly id: string
   readonly name: string
   readonly fragment: string
+}
+
+/**
+ * What the preset picker needs, and all the two libraries still agree on.
+ *
+ * The alternative was a union the picker has to narrow, for a control that only
+ * ever renders an id and a name.
+ */
+export interface PresetChoice {
+  readonly id: string
+  readonly name: string
 }
 
 export const STYLE_PRESETS: readonly Preset[] = [
@@ -73,13 +95,33 @@ export const MOTION_PRESETS: readonly Preset[] = [
   },
 ]
 
-export function presetsForStage(stage: StageKind): readonly Preset[] {
-  return stage === 'animate' ? MOTION_PRESETS : STYLE_PRESETS
+/**
+ * The presets on offer for a stage.
+ *
+ * The style stage is real now (#28) — committed JSON, loaded and validated.
+ * Animate still has the fixture motion list, and **so does source**, which is
+ * the conflation #34 exists to break: a source preset is a whole scene and a
+ * style preset is a transform applied to somebody else's composition. Left
+ * exactly as it was rather than half-fixed here.
+ */
+export function presetsForStage(stage: StageKind): readonly PresetChoice[] {
+  switch (stage) {
+    case 'style':
+      return BUILT_IN_STYLE_PRESETS
+    case 'animate':
+      return MOTION_PRESETS
+    case 'source':
+      return STYLE_PRESETS
+  }
 }
 
-export function presetById(id: string | null): Preset | null {
+export function presetById(id: string | null): PresetChoice | null {
   if (id === null) return null
-  return [...STYLE_PRESETS, ...MOTION_PRESETS].find(p => p.id === id) ?? null
+  return (
+    stylePresetById(id) ??
+    [...STYLE_PRESETS, ...MOTION_PRESETS].find(p => p.id === id) ??
+    null
+  )
 }
 
 // ── The seeded projects ─────────────────────────────────────────────────────
@@ -90,6 +132,7 @@ function recipe(
   return {
     prompt: '',
     presetId: null,
+    presetModified: false,
     seed: { mode: 'roll' },
     params: {},
     options: {},

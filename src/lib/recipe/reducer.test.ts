@@ -219,6 +219,52 @@ describe('the recipe is the artefact (PRD §1)', () => {
   })
 })
 
+/**
+ * #28 — a preset seeds an editable form, so "which preset produced this" needs a
+ * companion: whether what was sent is still what the preset said.
+ */
+describe('preset provenance', () => {
+  it('starts a freshly chosen preset unmodified', () => {
+    const state = apply(fixtureEditorState(), {
+      type: 'choosePreset',
+      stage: 'style',
+      presetId: 'glass-caustics',
+    })
+
+    expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
+  })
+
+  it('records an edit to a seeded field', () => {
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'choosePreset', stage: 'style', presetId: 'glass-caustics' },
+      { type: 'setPrompt', stage: 'style', prompt: 'my own words' }
+    )
+
+    expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
+  })
+
+  it('records a parameter move as an edit too', () => {
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'choosePreset', stage: 'style', presetId: 'glass-caustics' },
+      { type: 'setParam', stage: 'style', key: 'strength', value: 0.8 }
+    )
+
+    expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
+  })
+
+  it('claims no modification when there was no preset to modify', () => {
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'choosePreset', stage: 'style', presetId: null },
+      { type: 'setPrompt', stage: 'style', prompt: 'from scratch' }
+    )
+
+    expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
+  })
+})
+
 describe('changing model (PRD §5, §6.3)', () => {
   it('replaces parameters the new model does not understand with our defaults', () => {
     const state = apply(fixtureEditorState(), {
@@ -391,6 +437,7 @@ describe('collecting a job that outlived its click (#24)', () => {
             modelId: 'fal-ai/flux-pro/v1.1',
             prompt: 'the prompt as it was when this was submitted',
             presetId: null,
+            presetModified: false,
             seed: { mode: 'roll' },
             params: {},
             options: {},

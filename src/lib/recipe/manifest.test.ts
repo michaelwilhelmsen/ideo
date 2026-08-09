@@ -174,6 +174,72 @@ describe('runs and batch sizes (#26)', () => {
   })
 })
 
+/**
+ * #28 widens the recipe rather than the manifest, so the version stays put — but
+ * only if both directions hold, exactly as #26 had to show above.
+ */
+describe('preset provenance (#28)', () => {
+  const edited: Generation = {
+    ...(ATLAS.generations[3] as Generation),
+    id: 'gen-edited',
+    recipe: {
+      ...(ATLAS.generations[3] as Generation).recipe,
+      presetId: 'glass-caustics',
+      presetModified: true,
+    },
+  }
+
+  it('carries the flag that says the seeded fields were changed', () => {
+    const project = readManifest(
+      writeManifest({ ...ATLAS, generations: [edited] }, 1)
+    )
+
+    expect(project.generations[0]?.recipe.presetId).toBe('glass-caustics')
+    expect(project.generations[0]?.recipe.presetModified).toBe(true)
+  })
+
+  it('reads a recipe written before the flag existed as unmodified', () => {
+    // Every project on disk today was written without it. Claiming an edit
+    // nobody made would be worse than claiming none.
+    const manifest = writeManifest(ATLAS, 1)
+    const older = {
+      ...manifest,
+      drafts: Object.fromEntries(
+        Object.entries(ATLAS.drafts).map(([stage, recipe]) => {
+          const { presetModified: _dropped, ...rest } = recipe
+          return [stage, rest]
+        })
+      ),
+      generations: manifest.generations.map(generation => {
+        const { presetModified: _dropped, ...recipe } =
+          generation.recipe as Record<string, unknown>
+        return { ...generation, recipe }
+      }),
+    }
+
+    const project = readManifest(older)
+
+    expect(project.generations).toHaveLength(ATLAS.generations.length)
+    expect(
+      project.generations.every(g => g.recipe.presetModified === false)
+    ).toBe(true)
+    expect(project.drafts.style.presetModified).toBe(false)
+  })
+
+  it('reads a hand-edited flag that is not a boolean as unmodified', () => {
+    const manifest = writeManifest(ATLAS, 1)
+    const project = readManifest({
+      ...manifest,
+      generations: manifest.generations.map(generation => ({
+        ...generation,
+        recipe: { ...(generation.recipe as object), presetModified: 'yes' },
+      })),
+    })
+
+    expect(project.generations[0]?.recipe.presetModified).toBe(false)
+  })
+})
+
 describe('an upload survives the manifest (#27)', () => {
   const upload: Generation = {
     id: 'upload-1',

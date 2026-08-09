@@ -82,6 +82,28 @@ dimensions. On the image stages it is close to a non-issue.
 | `xai/grok-imagine-image/edit`         | `aspect_ratio` **enum only**: `auto`, `2:1`, `20:9`, `19.5:9`, `16:9`, `4:3`, `3:2`, `1:1`, `2:3`, `3:4`, `9:16`, `9:19.5`, `9:20`, `1:2` | **absent** | **absent**                  | **absent**        | Your request will cost **$0.022** per image (**$0.02** for image output + **$0.002** for image input).                                                                                                                                                                                                                                                                                                                                                           |
 | `xai/grok-imagine-image/quality/edit` | `aspect_ratio` **enum only**: `auto`, `2:1`, `20:9`, `19.5:9`, `16:9`, `4:3`, `3:2`, `1:1`, `2:3`, `3:4`, `9:16`, `9:19.5`, `9:20`, `1:2` | **absent** | **absent**                  | **absent**        | Your request with cost **$0.05 per output image** for 1K and **$0.07 per output image** for 2K in addition to **$0.01 per input image**.                                                                                                                                                                                                                                                                                                                         |
 
+### The input-image field (read 2026-08-09, for #28)
+
+Same method as above — the `components.schemas.*Input` block of each endpoint's OpenAPI
+document. The column was missing from the table above, and it is not one name:
+
+| Endpoint id                      | Input-image field        | Required |
+| -------------------------------- | ------------------------ | -------- |
+| `fal-ai/flux-pro/kontext`        | `image_url` (string)     | yes      |
+| `fal-ai/flux-pro/kontext/max`    | `image_url` (string)     | yes      |
+| `fal-ai/flux/dev/image-to-image` | `image_url` (string)     | yes      |
+| `fal-ai/flux-kontext/dev`        | `image_url` (string)     | yes      |
+| `fal-ai/qwen-image-2/edit`       | `image_urls` (**array**) | yes      |
+| `fal-ai/qwen-image-2/pro/edit`   | `image_urls` (**array**) | yes      |
+| `fal-ai/nano-banana-pro/edit`    | `image_urls` (**array**) | yes      |
+| `fal-ai/nano-banana-2/edit`      | `image_urls` (**array**) | no       |
+
+Two things matter here beyond the name. The FLUX family wants a **single string** and the
+other four want an **array**, so a request builder that only remembers the field name will
+still 422. And `nano-banana-2/edit` does not require its images at all — it will happily
+run as text-to-image, which means an edit that silently lost its source comes back as a
+plausible unrelated picture rather than an error.
+
 ## Animate stage (image-to-video)
 
 This is the one stage where the aspect enum genuinely constrains — no video model accepts `{width, height}`.

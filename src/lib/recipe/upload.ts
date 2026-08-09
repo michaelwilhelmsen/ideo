@@ -43,6 +43,7 @@ export function uploadRecipe(fileName: string): StageRecipe {
     modelId: UPLOAD_MODEL_ID,
     prompt: '',
     presetId: null,
+    presetModified: false,
     seed: { mode: 'roll' },
     params: {},
     options: { fileName },

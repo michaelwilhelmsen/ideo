@@ -55,6 +55,19 @@ export interface StageRecipe {
   /** Subject prose (source), style fragment (style), motion fragment (animate). */
   readonly prompt: string
   readonly presetId: string | null
+  /**
+   * Whether any field the preset seeded was changed before this ran (#28).
+   *
+   * Provenance, not a diff. A preset seeds an editable form — the prompt box is
+   * pre-filled and everything stays tweakable — so "which preset produced this"
+   * is only half an answer: at 0.78 strength with two clauses rewritten, the
+   * preset is where the recipe started and not what it is. One flag is enough to
+   * say that out loud, and cheaper than storing what the preset said at the time
+   * of seeding, which is a second copy of a library that can be edited.
+   *
+   * Meaningless while `presetId` is null, and `false` there by convention.
+   */
+  readonly presetModified: boolean
   readonly seed: SeedSetting
   /**
    * Exactly what goes in the request body, keyed by the model's own field

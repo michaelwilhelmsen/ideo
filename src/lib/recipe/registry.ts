@@ -109,6 +109,21 @@ export interface ModelCapabilities {
   readonly promptStyle: PromptStyle
   /** PRD §4.4/§10 — how the locked project ratio reaches this model. */
   readonly aspects: AspectSupport
+  /**
+   * The field the input image goes in, or null on a model that takes none.
+   *
+   * Read from the live schemas (`docs/research/model-schemas.md`) like every
+   * other name here, and read rather than guessed for a reason: the style stage
+   * splits three ways on it. The FLUX family takes a single `image_url`; Qwen
+   * and Nano Banana take an `image_urls` *array*. Sending the wrong one is a 422
+   * at the paid step, and there is no visual signal that it was the parameter
+   * name and not the prompt.
+   *
+   * Null on the source stage, where there is no input image at all. Null is also
+   * what an animate row says today — those models take a start frame under a
+   * name of their own, and recording it belongs to the slice that sends it.
+   */
+  readonly imageParam: string | null
   /** PRD §4.3 — gates seed recording *and* pinning. */
   readonly supportsSeed: boolean
   /** The API field name, or null. Named differently on every model (§5). */
@@ -489,6 +504,19 @@ export function validateRegistry(
 
     validateAspects(model, fail)
 
+    // The image field decides whether the stage can run at all: a style model
+    // with nowhere to put the source cannot restyle it, and a source model given
+    // one would be sent a field its schema has never heard of (#28).
+    if (model.imageParam !== null && model.imageParam.trim() === '') {
+      fail('has an unnamed image parameter')
+    }
+    if (model.stage === 'style' && model.imageParam === null) {
+      fail('is a style model with no image parameter to send the source in')
+    }
+    if (model.stage === 'source' && model.imageParam !== null) {
+      fail('is a source model, which has no input image')
+    }
+
     if ((model.durationParam === null) !== (model.durationFormat === null)) {
       fail('must declare durationParam and durationFormat together')
     }
@@ -570,6 +598,7 @@ function declaredParams(model: ModelCapabilities): ReadonlySet<string> {
   const names = [
     model.strengthParam,
     model.negativePromptParam,
+    model.imageParam,
     model.endFrameParam,
     model.durationParam,
     model.resolutionParam,

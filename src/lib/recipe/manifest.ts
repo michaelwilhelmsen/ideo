@@ -227,6 +227,10 @@ export function readRecipe(document: unknown): StageRecipe | null {
     modelId: document.modelId,
     prompt: typeof document.prompt === 'string' ? document.prompt : '',
     presetId: typeof document.presetId === 'string' ? document.presetId : null,
+    // #28. Absent in every manifest written before the slice, and `false` is the
+    // truthful reading of that: nothing recorded an edit, so none is claimed.
+    // Only `true` counts, so a hand-edited `"yes"` does not become one.
+    presetModified: document.presetModified === true,
     seed,
     params: readParams(document.params),
     options: readParams(document.options),

@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "preserve": {
+    "tags": "same composition, same placement and scale of every element, same camera angle, same framing, restyle only",
+    "prose": null
+  },
+  "presets": [
+    {
+      "id": "glass-caustics",
+      "name": "Glass caustics",
+      "family": "glass",
+      "variants": {
+        "tags": {
+          "transform": "transparent glass surface, caustic light patterns, refracted light rays, soft highlights, dappled light through glass, clean minimal background",
+          "compose": "{preserve}, {transform}",
+          "negative": "opaque surface, flat lighting, matte finish",
+          "strength": null
+        },
+        "prose": null
+      }
+    },
+    {
+      "id": "holographic-oil-slick",
+      "name": "Holographic oil slick",
+      "family": "iridescent",
+      "variants": {
+        "tags": {
+          "transform": "iridescent oil slick texture, holographic sheen, shifting rainbow reflections, liquid metal surface, high gloss, moiré-like colour bands",
+          "compose": "{preserve}, {transform}",
+          "negative": "matte finish, flat single colour, dull surface",
+          "strength": null
+        },
+        "prose": null
+      }
+    },
+    {
+      "id": "mesh-gradient",
+      "name": "Mesh gradient",
+      "family": "gradient",
+      "variants": {
+        "tags": {
+          "transform": "soft mesh gradient wash, multiple diffused colour blobs blending smoothly, pastel-to-vivid transition, atmospheric depth, continuous blending",
+          "compose": "{preserve}, {transform}",
+          "negative": "hard edges, sharp geometric shapes, high detail texture, noise",
+          "strength": 0.72
+        },
+        "prose": null
+      }
+    },
+    {
+      "id": "aurora-wash",
+      "name": "Aurora wash",
+      "family": "gradient",
+      "variants": {
+        "tags": {
+          "transform": "aurora borealis light wash over a dark ground, flowing volumetric colour bands, deep navy and emerald glow, soft diffusion, celestial atmosphere",
+          "compose": "{preserve}, {transform}",
+          "negative": "stars, landscape, literal night sky photograph, horizon line",
+          "strength": null
+        },
+        "prose": null
+      }
+    },
+    {
+      "id": "topographic-contour",
+      "name": "Topographic contour",
+      "family": "linework",
+      "variants": {
+        "tags": {
+          "transform": "abstract topographic contour lines, concentric irregular shapes, fine line art, high contrast, elevation map aesthetic, monochrome",
+          "compose": "{preserve}, {transform}",
+          "negative": "photorealistic terrain, colour, texture noise, 3D shading",
+          "strength": 0.78
+        },
+        "prose": null
+      }
+    },
+    {
+      "id": "long-exposure-trails",
+      "name": "Long-exposure trails",
+      "family": "photographic",
+      "variants": {
+        "tags": {
+          "transform": "long exposure photography, streaking light trails, motion blur, dark ground, vibrant coloured light streaks, night photography aesthetic",
+          "compose": "{preserve}, {transform}",
+          "negative": "static sharp lights, frozen motion, daylight",
+          "strength": null
+        },
+        "prose": null
+      }
+    },
+    {
+      "id": "brutalist-monochrome",
+      "name": "Brutalist monochrome",
+      "family": "architectural",
+      "variants": {
+        "tags": {
+          "transform": "brutalist high-contrast monochrome rendering, raw concrete surfaces, stark black and white, bold geometric masses, harsh directional shadows, shafts of light cutting through",
+          "compose": "{preserve}, {transform}",
+          "negative": "soft gradient, pastel colour, warm lighting, ornate detail",
+          "strength": 0.78
+        },
+        "prose": null
+      }
+    },
+    {
+      "id": "soft-clay-render",
+      "name": "Soft clay render",
+      "family": "dimensional",
+      "variants": {
+        "tags": {
+          "transform": "3D clay render, soft matte clay material, smooth rounded forms, careful balance of light and shadow, subtle ambient occlusion, vivid but muted colours",
+          "compose": "{preserve}, {transform}",
+          "negative": "photorealistic texture, sharp glossy reflections, harsh lighting, skin pores",
+          "strength": null
+        },
+        "prose": null
+      }
+    }
+  ]
+}

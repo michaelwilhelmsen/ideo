@@ -75,6 +75,16 @@ describe('MODEL_REGISTRY', () => {
     }
   })
 
+  it('gives every style model somewhere to put the source image', () => {
+    // #28 — nothing restyles until the image reaches the provider, and it does
+    // that under the model's own field name. Two names are in play and the split
+    // is not a matter of taste: FLUX takes `image_url`, Qwen and Nano Banana take
+    // an `image_urls` array.
+    for (const model of modelsForStage(MODEL_REGISTRY, 'style')) {
+      expect(model.imageParam, model.id).toMatch(/^image_urls?$/)
+    }
+  })
+
   it('switches Seedance’s audio off, because it is billed and unwanted', () => {
     const seedance = modelById(
       MODEL_REGISTRY,

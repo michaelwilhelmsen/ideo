@@ -137,6 +137,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'image_size',
       constraints: CAPPED_DIMENSIONS,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -166,6 +167,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: KONTEXT_RATIOS,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -192,6 +194,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: KONTEXT_RATIOS,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -217,6 +220,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'image_size',
       constraints: CAPPED_DIMENSIONS,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -243,6 +247,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'image_size',
       constraints: FLUX_2_PRO_DIMENSIONS,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -269,6 +274,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: NANO_BANANA_RATIOS,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -295,6 +301,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: NANO_BANANA_RATIOS,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -321,6 +328,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'image_size',
       constraints: QWEN_DIMENSIONS,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
@@ -347,6 +355,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'image_size',
       constraints: QWEN_DIMENSIONS,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
@@ -374,6 +383,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     },
     // No seed field at all, so PRD §4.3's recipe premise does not hold: the
     // control is shown disabled with a reason rather than hidden (§10.1).
+    imageParam: null,
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
@@ -402,6 +412,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: GROK_RATIOS,
     },
+    imageParam: null,
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
@@ -421,6 +432,16 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
 
 // ── Style (image-to-image and instruction edits) ────────────────────────────
 
+/**
+ * Every `imageParam` below was read from the live input schema on 2026-08-09,
+ * the same way and on the same day as everything else in this file, and the
+ * eight rows do **not** agree: the FLUX family (`flux-pro/kontext`,
+ * `kontext/max`, `flux/dev/image-to-image`, `flux-kontext/dev`) declares a
+ * single required `image_url` string, while Qwen and Nano Banana declare an
+ * `image_urls` **array**. The registry records the name; whoever builds the body
+ * has to honour the shape, because a string where an array is required is a 422
+ * at the one step that costs money (#28).
+ */
 const STYLE_MODELS: readonly ModelCapabilities[] = [
   {
     // The stage default: a real negative prompt, free dimensions, a seed, and
@@ -436,6 +457,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
       param: 'image_size',
       constraints: QWEN_DIMENSIONS,
     },
+    imageParam: 'image_urls',
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
@@ -462,6 +484,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
       param: 'image_size',
       constraints: QWEN_DIMENSIONS,
     },
+    imageParam: 'image_urls',
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
@@ -487,6 +510,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: NANO_BANANA_RATIOS,
     },
+    imageParam: 'image_urls',
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -513,6 +537,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: NANO_BANANA_RATIOS,
     },
+    imageParam: 'image_urls',
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -538,6 +563,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: KONTEXT_RATIOS,
     },
+    imageParam: 'image_url',
     supportsSeed: true,
     // PRD §9's correction: no Kontext variant has a strength parameter. Earlier
     // drafts of the registry claimed one at default 0.1.
@@ -566,6 +592,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: KONTEXT_RATIOS,
     },
+    imageParam: 'image_url',
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -587,6 +614,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     stage: 'style',
     promptStyle: 'prose',
     aspects: { kind: 'inheritsFromSource' },
+    imageParam: 'image_url',
     supportsSeed: true,
     strengthParam: 'strength',
     negativePromptParam: null,
@@ -611,6 +639,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     stage: 'style',
     promptStyle: 'prose',
     aspects: { kind: 'inheritsFromSource' },
+    imageParam: 'image_url',
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: null,
@@ -643,6 +672,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     aspects: { kind: 'inheritsFromSource' },
     // No seed. PRD §4.3's premise does not hold on this model, so the control
     // is disabled with a reason rather than hidden (§10.1).
+    imageParam: null,
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
@@ -675,6 +705,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     stage: 'animate',
     promptStyle: 'prose',
     aspects: { kind: 'inheritsFromSource' },
+    imageParam: null,
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
@@ -697,6 +728,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     stage: 'animate',
     promptStyle: 'prose',
     aspects: { kind: 'inheritsFromSource' },
+    imageParam: null,
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
@@ -737,6 +769,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: { '16:9': '16:9', '21:9': '21:9' },
     },
+    imageParam: null,
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
@@ -765,6 +798,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: { '16:9': '16:9', '21:9': '21:9', '2:1': '2:1', '1:1': '1:1' },
     },
+    imageParam: null,
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
@@ -810,6 +844,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     },
     // The only end-frame model surveyed with a seed, which makes it the only
     // one on which the animate stage is reproducible at all (PRD §9.1).
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
@@ -838,6 +873,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: SIXTEEN_NINE_ONLY,
     },
+    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
@@ -866,6 +902,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: SIXTEEN_NINE_ONLY,
     },
+    imageParam: null,
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
