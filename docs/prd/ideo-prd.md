@@ -404,8 +404,11 @@ discards the input almost entirely (§6.3).
 
 `Qwen-Image 2.0` remains the `tags` exemplar that justifies the two-variant preset schema —
 it has a real `negative_prompt`, and it is now also the cheapest edit endpoint surveyed with
-free dimensions. All 44 recipes in the v4 preset library carry a `negative`, so on any model
-without the field that instruction has to fold into the prompt body.
+free dimensions. All 44 recipes in the v4 preset library carry a `negative`. **On models
+without the field the negative is dropped and its UI hidden — never folded into the prompt
+body.** (Corrected 2026-08-09 in #28's grilling, adopting #34's argument: concatenating
+"no gradients" into a positive prompt reads as a request for gradients. An earlier draft of
+this paragraph said the opposite.)
 
 ### 9.1 Ultrawide video: risk refuted, two options confirmed
 
