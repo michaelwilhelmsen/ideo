@@ -22,7 +22,7 @@ import {
   type PresetVariant,
   type StylePreset,
 } from './presets'
-import { modelById, type ModelCapabilities } from './registry'
+import { modelById, modelsForStage, type ModelCapabilities } from './registry'
 
 /** A well-formed document, so each test states only what it is about. */
 function document(overrides: Record<string, unknown> = {}): unknown {
@@ -99,34 +99,58 @@ describe('the built-in library', () => {
       /grain|halftone|dither|duotone|tritone|riso|scanline|vhs|crt|aberration/i
 
     for (const style of BUILT_IN_STYLE_PRESETS) {
-      const tags = style.variants.tags
-      expect(tags, style.id).not.toBeNull()
-      expect(`${style.id} ${style.name} ${tags?.transform ?? ''}`).not.toMatch(
-        banned
-      )
+      for (const idiom of ['tags', 'prose'] as const) {
+        const carried = style.variants[idiom]
+        expect(carried, `${style.id}/${idiom}`).not.toBeNull()
+        expect(
+          `${style.id} ${style.name} ${carried?.transform ?? ''}`,
+          `${style.id}/${idiom}`
+        ).not.toMatch(banned)
+      }
     }
   })
 
-  it('states every idiom explicitly, so unsupported is not the same as absent', () => {
+  it('speaks both idioms, so no style model is left with nothing to seed', () => {
+    // The registry's `promptStyle` splits the style stage: the two Qwen edits
+    // read a keyword list, the six instruction-driven edits read prose. A
+    // preset with only one variant would cover only one half of the stage.
     for (const style of BUILT_IN_STYLE_PRESETS) {
-      // `prose` is null rather than missing: the drafts are tag lists (PRD
-      // §6.2), and #34's prose library is what fills it in.
       expect(Object.keys(style.variants).sort(), style.id).toEqual([
         'prose',
         'tags',
       ])
-      expect(style.variants.prose, style.id).toBeNull()
+      expect(style.variants.tags, style.id).not.toBeNull()
+      expect(style.variants.prose, style.id).not.toBeNull()
+    }
+  })
+
+  it('says the same thing in both idioms, negatives included', () => {
+    // Two variants are two phrasings of one look, not two looks. The negative
+    // is the same subtraction either way — only the positive body changes.
+    for (const style of BUILT_IN_STYLE_PRESETS) {
+      expect(style.variants.prose?.negative, style.id).toBe(
+        style.variants.tags?.negative
+      )
+      expect(style.variants.prose?.strength, style.id).toBe(
+        style.variants.tags?.strength
+      )
+      // Prose is prose: sentences, not the tag list with the commas kept.
+      expect(style.variants.prose?.transform, style.id).toMatch(/\.$/)
     }
   })
 
   it('keeps every strength override inside the verified window', () => {
     for (const style of BUILT_IN_STYLE_PRESETS) {
-      const strength = style.variants.tags?.strength ?? null
-      if (strength === null) continue
-      expect(strength, style.id).toBeGreaterThanOrEqual(
-        PRESET_STRENGTH_WINDOW.min
-      )
-      expect(strength, style.id).toBeLessThanOrEqual(PRESET_STRENGTH_WINDOW.max)
+      for (const idiom of ['tags', 'prose'] as const) {
+        const strength = style.variants[idiom]?.strength ?? null
+        if (strength === null) continue
+        expect(strength, `${style.id}/${idiom}`).toBeGreaterThanOrEqual(
+          PRESET_STRENGTH_WINDOW.min
+        )
+        expect(strength, `${style.id}/${idiom}`).toBeLessThanOrEqual(
+          PRESET_STRENGTH_WINDOW.max
+        )
+      }
     }
   })
 
@@ -340,6 +364,48 @@ describe('composePreset', () => {
     expect(composePreset(tagsPreset({ strength: 0.75 }), model)?.strength).toBe(
       0.75
     )
+  })
+
+  /**
+   * #28's acceptance criterion: the same preset produces a styled result on
+   * every style-stage model, via its own compose templates. Both halves of the
+   * stage are exercised here — eight presets against every row the registry
+   * lists, whichever idiom that row reads.
+   */
+  it('seeds every built-in on every style model the registry lists', () => {
+    const models = modelsForStage(MODEL_REGISTRY, 'style')
+    expect(models.length).toBeGreaterThanOrEqual(8)
+
+    for (const model of models) {
+      for (const style of BUILT_IN_STYLE_PRESETS) {
+        const where = `${style.id} on ${model.id}`
+        const composed = composePreset(style, model)
+
+        if (composed === null) throw new Error(`${where} seeded nothing`)
+
+        // A prompt with the look in it, led by the clause that keeps the
+        // composition — the one thing separating a restyle from a reroll.
+        expect(composed.prompt.length, where).toBeGreaterThan(60)
+        expect(composed.prompt, where).not.toContain('{')
+
+        const preserve = STYLE_PRESET_LIBRARY.preserve[model.promptStyle] ?? ''
+        expect(composed.prompt.startsWith(preserve), where).toBe(true)
+        expect(composed.prompt, where).toContain(
+          style.variants[model.promptStyle]?.transform ?? ''
+        )
+
+        // Never in the body — routed or dropped, per the registry (PRD §9).
+        const negative = style.variants[model.promptStyle]?.negative ?? null
+        expect(composed.negative, where).toBe(
+          model.negativePromptParam === null ? null : negative
+        )
+
+        // And a strength only where there is a field to put one in.
+        expect(composed.strength === null, where).toBe(
+          model.strengthParam === null
+        )
+      }
+    }
   })
 
   it('composes a real preset on the real stage default', () => {

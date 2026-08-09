@@ -2,7 +2,7 @@
   "version": 1,
   "preserve": {
     "tags": "same composition, same placement and scale of every element, same camera angle, same framing, restyle only",
-    "prose": null
+    "prose": "Restyle the supplied image. Keep the composition exactly as it is: the placement and scale of every element, the camera angle, the perspective and the framing. Do not add, remove or move anything, and do not crop or extend the frame. Change only how it is rendered, as follows."
   },
   "presets": [
     {
@@ -16,7 +16,12 @@
           "negative": "opaque surface, flat lighting, matte finish",
           "strength": null
         },
-        "prose": null
+        "prose": {
+          "transform": "Make every surface read as transparent glass, lit from behind: caustic patterns of light thrown across the forms, rays visibly bending as they refract, soft specular highlights on each edge, and dappled light falling through the glass onto a clean, plain ground.",
+          "compose": "{preserve} {transform}",
+          "negative": "opaque surface, flat lighting, matte finish",
+          "strength": null
+        }
       }
     },
     {
@@ -30,7 +35,12 @@
           "negative": "matte finish, flat single colour, dull surface",
           "strength": null
         },
-        "prose": null
+        "prose": {
+          "transform": "Make every surface read as an iridescent oil slick on liquid metal: a holographic sheen with rainbow reflections that shift from one angle of the form to the next, a wet high-gloss finish, and faint moiré-like bands of colour where the film thins.",
+          "compose": "{preserve} {transform}",
+          "negative": "matte finish, flat single colour, dull surface",
+          "strength": null
+        }
       }
     },
     {
@@ -44,7 +54,12 @@
           "negative": "hard edges, sharp geometric shapes, high detail texture, noise",
           "strength": 0.72
         },
-        "prose": null
+        "prose": {
+          "transform": "Render the whole frame as a soft mesh gradient: several diffused blooms of colour blending continuously into one another, running from pastel through to vivid, with atmospheric depth and every transition smooth and unbroken.",
+          "compose": "{preserve} {transform}",
+          "negative": "hard edges, sharp geometric shapes, high detail texture, noise",
+          "strength": 0.72
+        }
       }
     },
     {
@@ -58,7 +73,12 @@
           "negative": "stars, landscape, literal night sky photograph, horizon line",
           "strength": null
         },
-        "prose": null
+        "prose": {
+          "transform": "Light the frame with an aurora over a dark ground: flowing volumetric bands of colour drifting across it, a deep navy and emerald glow, soft diffusion everywhere, and a still, celestial atmosphere. Keep it abstract light rather than a photograph of a sky.",
+          "compose": "{preserve} {transform}",
+          "negative": "stars, landscape, literal night sky photograph, horizon line",
+          "strength": null
+        }
       }
     },
     {
@@ -72,7 +92,12 @@
           "negative": "photorealistic terrain, colour, texture noise, 3D shading",
           "strength": 0.78
         },
-        "prose": null
+        "prose": {
+          "transform": "Redraw everything as an abstract topographic map: each form described by concentric, irregular contour lines in fine monochrome linework at high contrast, so the image reads as an elevation drawing of the same scene rather than as shaded volume.",
+          "compose": "{preserve} {transform}",
+          "negative": "photorealistic terrain, colour, texture noise, 3D shading",
+          "strength": 0.78
+        }
       }
     },
     {
@@ -86,7 +111,12 @@
           "negative": "static sharp lights, frozen motion, daylight",
           "strength": null
         },
-        "prose": null
+        "prose": {
+          "transform": "Render it as a long-exposure night photograph: every bright point drawn out into a vivid coloured streak along the direction it travels, motion blur trailing from each moving edge, and the rest of the frame falling away into a dark ground.",
+          "compose": "{preserve} {transform}",
+          "negative": "static sharp lights, frozen motion, daylight",
+          "strength": null
+        }
       }
     },
     {
@@ -100,7 +130,12 @@
           "negative": "soft gradient, pastel colour, warm lighting, ornate detail",
           "strength": 0.78
         },
-        "prose": null
+        "prose": {
+          "transform": "Render it in stark brutalist monochrome: every surface as raw board-marked concrete, black and white at hard contrast, forms reading as bold geometric masses, with harsh directional shadows and shafts of hard light cutting across the frame.",
+          "compose": "{preserve} {transform}",
+          "negative": "soft gradient, pastel colour, warm lighting, ornate detail",
+          "strength": 0.78
+        }
       }
     },
     {
@@ -114,7 +149,12 @@
           "negative": "photorealistic texture, sharp glossy reflections, harsh lighting, skin pores",
           "strength": null
         },
-        "prose": null
+        "prose": {
+          "transform": "Render everything as a soft 3D clay model of the same scene: matte modelling clay, edges and corners rounded off, an even balance of light and shadow, subtle ambient occlusion where forms meet, and colours vivid but chalky.",
+          "compose": "{preserve} {transform}",
+          "negative": "photorealistic texture, sharp glossy reflections, harsh lighting, skin pores",
+          "strength": null
+        }
       }
     }
   ]
