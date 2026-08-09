@@ -659,6 +659,15 @@ export type GenerationErrorReason =
  */
 "offline" | 
 /**
+ * The input image could not be put where fal could fetch it (#50).
+ * 
+ * Its own reason rather than an `Offline` or a `RequestRejected`, because
+ * it is the one failure that happens *before* the queue is ever asked and
+ * is therefore free: nothing has been submitted and nothing charged, and a
+ * retry costs the user an upload rather than a generation.
+ */
+"uploadFailed" | 
+/**
  * fal reported the job itself as failed.
  */
 "jobFailed" | 

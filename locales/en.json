@@ -95,6 +95,7 @@
   "generate.error.requestRejectedBecause": "fal.ai could not use this request: {{detail}}",
   "generate.error.rateLimited": "fal.ai is rate limiting this key. Wait a moment and try again.",
   "generate.error.offline": "Could not reach fal.ai. Check your connection and try again.",
+  "generate.error.uploadFailed": "Could not send the input image to fal.ai. Nothing was generated or charged — try again.",
   "generate.error.jobFailed": "fal.ai could not finish this generation.",
   "generate.error.jobFailedBecause": "fal.ai could not finish this generation: {{detail}}",
   "generate.error.gaveUpWaiting": "This is taking longer than expected. The job may still finish on fal.ai.",

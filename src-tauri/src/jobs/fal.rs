@@ -115,6 +115,13 @@ pub enum GenerationErrorReason {
     RateLimited,
     /// The call never reached fal.
     Offline,
+    /// The input image could not be put where fal could fetch it (#50).
+    ///
+    /// Its own reason rather than an `Offline` or a `RequestRejected`, because
+    /// it is the one failure that happens *before* the queue is ever asked and
+    /// is therefore free: nothing has been submitted and nothing charged, and a
+    /// retry costs the user an upload rather than a generation.
+    UploadFailed,
     /// fal reported the job itself as failed.
     JobFailed,
     /// We stopped waiting. The job may still finish on fal's side.
@@ -503,7 +510,7 @@ fn extract_result(payload: &Value) -> Result<QueueResult, GenerationError> {
 /// is what it did until 2026-08-09. Nothing downstream needs the distinction:
 /// a submit is read for its ids and a poll for its `status` field, and both
 /// are there on any answer fal calls successful.
-fn is_accepted(status: u16) -> bool {
+pub(super) fn is_accepted(status: u16) -> bool {
     (200..300).contains(&status)
 }
 

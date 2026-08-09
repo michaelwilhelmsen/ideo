@@ -36,6 +36,11 @@ export function generationErrorMessage(
       return t('generate.error.rateLimited')
     case 'offline':
       return t('generate.error.offline')
+    // Its own sentence rather than the offline one, because it is the failure
+    // that costs nothing: the queue was never asked, so "try again" is honest
+    // advice here in a way it is not once a job has been submitted (#50).
+    case 'uploadFailed':
+      return t('generate.error.uploadFailed')
     case 'jobFailed':
       return error.detail === null
         ? t('generate.error.jobFailed')

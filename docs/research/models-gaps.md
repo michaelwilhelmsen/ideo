@@ -47,15 +47,29 @@ Caveats / what I could NOT verify within budget:
 
 ## 4. File upload via REST (no JS SDK)
 
-Two distinct upload subsystems surfaced, and it's ambiguous which one applies to model **input files** (vs. fal's serverless-app file storage). Neither was fully confirmed with a primary-source page I could directly render.
+> **Resolved 2026-08-09 (#50).** The [UNVERIFIED] note this section used to carry has been replaced by the wire protocol read directly from fal's own client source — `fal-ai/fal-js` (`libs/client/src/storage.ts`, `config.ts`) and `fal-ai/fal` (`projects/fal_client/src/fal_client/client.py`). A reference client is a primary source for a wire protocol in a way a prose doc page is not: it is the thing the server is known to answer. **Ideo implements flow A2 below.**
 
-**A) "Storage" flow used by the official JS/Python clients for model inputs [SANNSYNLIG — from search snippets, not directly rendered]:**
+Three of the old note's details were wrong, and each would have broken a blind implementation:
 
-1. `POST https://rest.alpha.fal.ai/storage/auth/token?storage_type=fal-cdn-v3` — returns a short-lived Bearer token + `base_url`. Auth: `Authorization: Key $FAL_KEY`.
-2. `POST {base_url}/files/upload` with `Authorization: Bearer {token from step 1}`, body = raw file — returns a CDN URL to use as the input field.
+> - the host was given as `rest.alpha.fal.ai`; it is **`rest.fal.ai`**
+> - the upload auth was given as a hardcoded `Bearer`; it is **`{token_type} {token}`**, echoing what the token call returned
+> - the `/storage/upload/initiate` path was dismissed as "alternate/older"; it is **what the current JS client does**
 
-- An alternate/older path referenced: `POST {FAL_REST_URL}/storage/upload/initiate?storage_type=fal-cdn-v3`.
-- This two-step token+upload flow is REST-only (no JS SDK required) and should work fine from Rust/reqwest, **but I did not verify field names, exact response JSON shape, or token TTL** — only saw it described secondhand in search results (e.g. glama.ai mirror of a community fal MCP server's `storage.py`, and GitHub `fal-ai-community/skills`). [UNVERIFIED against a primary fal.ai doc page — the primary doc `docs.fal.ai/reference/client-libraries/javascript/storage` describes the *client library's* behavior, not the raw wire protocol.]
+There are genuinely **two** flows, both current, and fal's own clients disagree about which to use. Either works for model input files.
+
+**A1) Token flow — what the Python client does [CONFIRMED — read at source]:**
+
+1. `POST https://rest.fal.ai/storage/auth/token?storage_type=fal-cdn-v3`, `Authorization: Key $FAL_KEY`, body `{}` → `{token, token_type, base_url, expires_at}`. Expiry is compared against `datetime.now(timezone.utc)`, so `expires_at` is an ISO timestamp meant to be cached against.
+2. `POST {base_url}/files/upload`, `Authorization: {token_type} {token}`, plus `Content-Type` and `X-Fal-File-Name` → `{access_url}`, which is the public URL.
+3. Files over 100 MB go multipart: `{base_url}/files/upload/multipart` → `{access_url, uploadId}`, then `PUT {access_url}/multipart/{uploadId}/{part}`, then `POST …/complete`.
+
+**A2) Initiate flow — what the JS client does [CONFIRMED — read at source]. This is what Ideo uses:**
+
+1. `POST https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3`, `Authorization: Key $FAL_KEY`, body `{"content_type": "...", "file_name": "..."}` → `{file_url, upload_url}`.
+2. `PUT {upload_url}` with `Content-Type` and the raw bytes as the body. **No `Authorization` header** — `upload_url` is already signed and single-purpose, and adding one risks a signature mismatch on whichever bucket is behind it.
+3. `file_url` is the public URL to hand the model, valid once the PUT succeeds.
+
+Chosen over A1 for two reasons: there is no token lifecycle to cache, expire or renew mid-run, and it authenticates with the same `Key {key}` header as every other call in this codebase, so there is one auth scheme in the client rather than two.
 
 **B) Serverless "Files" API (different subsystem, for apps deployed on fal, not necessarily for feeding model inputs) [as rendered from https://fal.ai/docs/documentation/development/file-storage]:**
 
@@ -67,7 +81,9 @@ Two distinct upload subsystems surfaced, and it's ambiguous which one applies to
 
 **Practical fallback confirmed to work regardless:** model input fields accept **base64 data URIs directly in the JSON payload** (documented behavior for file inputs generally, per client-library docs) — no upload step needed at all. **Practical max size for a base64 data URI in a request payload was NOT found as a stated number** [IKKE FUNNET — søkte etter "fal.ai base64 data uri max size payload limit", not run separately due to budget]. As a rule of thumb for typical HTTP/queue APIs, keep inline base64 images well under ~10MB raw (which becomes ~13.3MB base64-encoded) — this is an inference from the Kling o1 model's own 10MB raw-image input cap [CONFIRMED in prior round] and general REST payload practice, **not a directly documented fal-wide limit.**
 
-**Recommendation:** for a Rust/reqwest client, start with inline base64 data URIs (simplest, no extra endpoint to reverse-engineer) for images under a few MB, and only pursue the two-step `storage/auth/token` → `{base_url}/files/upload` flow if you hit payload-size problems — but budget time to capture the real request/response shape from a live call or from fal's official Python/Go client source, since no primary fal.ai doc page rendered the wire-level spec in this round.
+**Recommendation [superseded 2026-08-09]:** the original advice was to start with inline base64 for images under a few MB and only pursue the upload flow "if you hit payload-size problems". That is exactly what happened, and the call was right — inline base64 got #28 through #30 shipped without an unverified endpoint in the way.
+
+What it under-weighted is that the problem arrives sooner than "a few MB" suggests. The image goes in the body _per field_, and a seamless loop (#30) names the same still twice, so the effective payload is double the encoded size. A 5 MB styled PNG became ~13 MB of body and timed out the submit — with the failure surfacing as a bare transport error rather than anything about size. Inline base64 is a good default only where the image is small **and** named once.
 
 ## 5. Rate limits
 

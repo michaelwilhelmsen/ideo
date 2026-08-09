@@ -15,4 +15,5 @@ pub mod downscale;
 pub mod fal;
 pub mod image_input;
 pub mod runner;
+pub mod storage;
 pub mod store;

@@ -1,17 +1,25 @@
 //! Getting the input image to fal (#28).
 //!
-//! Nothing restyles until the source reaches the provider, and `docs/research/
-//! models-gaps.md` settled how: **inline base64 data URI**, because it is the one
-//! transfer confirmed to work against every image field surveyed, and because
-//! the two-step storage upload's wire protocol is still unverified. If hero-size
-//! payloads ever blow the ceiling, that upload lands behind this same seam.
+//! Nothing restyles until the source reaches the provider. That was an inline
+//! base64 data URI until #50 — the one transfer `models-gaps.md` could confirm
+//! at the time — and it put the whole image *inside* the submit body. A
+//! seamless loop names one still under two fields, so a styled PNG travelled
+//! twice and made the body ~13 MB, which timed out before fal answered. The
+//! bytes now go to fal's storage first (`super::storage`) and the body carries
+//! two URLs, which cost the same whether there is one field or two.
 //!
 //! Two things are deliberate about where the bytes travel. They never touch the
 //! webview: the frontend names a *generation*, and Rust — the side that already
-//! owns the project folder and the API key — resolves it to a file and encodes
-//! it. And they are injected after the registry's parameters are built, so the
-//! request body still comes from the one capability table (PRD §5) while the
-//! field's *value* comes from the side holding the disk.
+//! owns the project folder and the API key — resolves it to a file and uploads
+//! it. And the URLs are injected after the registry's parameters are built, so
+//! the request body still comes from the one capability table (PRD §5) while
+//! the field's *value* comes from the side holding the disk.
+//!
+//! The work is in two halves for one reason: **everything that can refuse must
+//! refuse before the key is fetched**. `resolve` reads, shrinks and validates
+//! with no key and no network, so a run that was never going to work costs no
+//! keychain prompt; `attach` needs the key and does the uploading. Holding a
+//! `ResolvedInputs` is the proof that the first half is done.
 //!
 //! The other half of this module is a refusal. On `nano-banana-*/edit` the
 //! `image_urls` field is not required, so a style run with no source would not
@@ -27,9 +35,8 @@
 //! a seamless loop is: the same still as both the first and the last frame (PRD
 //! §4.5). The list is the frontend's — which fields exist and what they are
 //! called is the registry's business, not this side's — and the only thing this
-//! module adds is that a still named twice is read and encoded once.
+//! module adds is that a still named twice is read, shrunk and uploaded once.
 
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use specta::Type;
@@ -38,6 +45,7 @@ use std::path::Path;
 
 use super::downscale;
 use super::fal::{GenerationError, GenerationErrorReason, InputImageProblem};
+use super::storage;
 use crate::projects::import::sniff_format;
 use crate::projects::store::asset_path;
 
@@ -54,13 +62,20 @@ fn requires_input(stage: &str) -> bool {
     INPUT_STAGES.contains(&stage)
 }
 
-/// The ceiling on an inlined image.
+/// The ceiling on an input image, measured on the file as it sits on disk.
 ///
-/// `models-gaps.md` §4 found no documented limit for a base64 payload; 10 MB raw
-/// is the largest input any surveyed model accepts (Kling's own cap), and it
-/// becomes ~13.3 MB once encoded. Above that a submit is worth refusing locally
-/// rather than discovering as a 4xx from a body we chose to send.
-const MAX_INLINE_BYTES: u64 = 10 * 1024 * 1024;
+/// The number has not moved since #28 but its justification has, and #50 is
+/// where that mattered. It used to be a guess about how large a base64 body
+/// could get away with being; there is no body to overload now. What is left is
+/// the real constraint underneath it: **10 MB is the largest input any surveyed
+/// model accepts** — Kling's own documented cap — so a file over it is refused
+/// by the model whatever route it takes to get there. Refusing here costs a
+/// stat call; discovering it after an upload costs the upload.
+///
+/// Checked before `downscale::apply` rather than after, deliberately. A 40 MB
+/// PNG would shrink to well under the cap, but the point of a ceiling is that
+/// the oversized file is never decoded into memory in the first place.
+const MAX_INPUT_BYTES: u64 = 10 * 1024 * 1024;
 
 /// How a model's image field is shaped — the one thing knowing its *name* does
 /// not tell you.
@@ -95,30 +110,30 @@ pub struct ImageInput {
     pub shape: ImageParamShape,
 }
 
-/// Puts the input images into a request body, or refuses the run.
+/// Reads what a run needs off disk, or refuses it.
 ///
-/// Called before the key is fetched and before a concurrency slot is taken: a
-/// run that cannot find its source is not worth a keychain prompt, let alone a
-/// queue position.
+/// Every refusal lives here, and here is before the key is fetched and before a
+/// concurrency slot is taken: a run that cannot find its source is not worth a
+/// keychain prompt, let alone a queue position. Nothing in this function
+/// touches the network.
 ///
 /// A list rather than one image since #30: a seamless loop is the *same* still
 /// sent twice, once as the start frame and once as the end frame under whatever
 /// the model calls it (`end_image_url`, or `last_frame_url` on Veo). Which
 /// fields those are is the registry's answer and arrives already decided; all
-/// this side does is resolve each named generation and write it in.
+/// this side does is resolve each named generation.
 ///
-/// Each generation is read and encoded **once** however many fields point at
-/// it. A hero still is megabytes before base64 and a third again after, so
-/// encoding the loop's two frames separately would double both the work and the
-/// memory — and, worse, would measure the same file twice against the inline
-/// ceiling, refusing a 6 MB still that is well inside it.
-pub fn prepare(
+/// Each generation is read **once** however many fields point at it. That was
+/// worth doing when it saved a second base64 encoding of a hero-size still; it
+/// is worth more now that it saves a second upload, and it is still what stops
+/// the same file being measured twice against the ceiling and refused at 6 MB.
+pub fn resolve(
     root: &Path,
     project_id: &str,
     stage: &str,
     inputs: &[ImageInput],
-    params: &mut Value,
-) -> Result<(), GenerationError> {
+    params: &Value,
+) -> Result<ResolvedInputs, GenerationError> {
     if inputs.is_empty() {
         // Not "assume text-to-image": these stages exist to transform an image,
         // so having none is the failure and not a mode.
@@ -126,34 +141,99 @@ pub fn prepare(
             log::error!("a {stage} run for project {project_id} named no input image");
             return Err(unusable(InputImageProblem::NoneNamed));
         }
+        return Ok(ResolvedInputs::default());
+    }
+
+    // Every refusal before anything is sent, so a body is either fully prepared
+    // or untouched: a request carrying a start frame and no end frame would be
+    // a paid call for a clip that does not loop. That is why the field names
+    // are checked here rather than inside `inject` — a blank second field would
+    // otherwise fail *after* the first one had been written in.
+    check(inputs, params)?;
+
+    Ok(ResolvedInputs {
+        images: read_once(root, project_id, inputs)?,
+    })
+}
+
+/// Everything the run needs off disk, before a key has been fetched.
+///
+/// The point of the type is the ordering it enforces. Holding one of these
+/// means every refusal has already happened — the file exists, it is a format
+/// we know, it is inside the ceiling — so the keychain prompt and the upload
+/// that follow are only reached by a run that was going to work.
+#[derive(Debug, Default)]
+pub struct ResolvedInputs {
+    /// Generation id → the bytes to send for it, read and shrunk exactly once
+    /// however many fields point at it.
+    images: HashMap<String, Vec<u8>>,
+}
+
+/// Uploads each resolved image and writes the URLs into the body (#50).
+///
+/// The images travel here rather than inside the submit. A seamless loop names
+/// one still under two fields, and a data URI would have put the whole encoded
+/// image in the body twice; a URL is the same handful of bytes both times, so
+/// the second field is free.
+pub async fn attach(
+    key: &str,
+    inputs: &[ImageInput],
+    resolved: ResolvedInputs,
+    params: &mut Value,
+) -> Result<(), GenerationError> {
+    if resolved.images.is_empty() {
         return Ok(());
     }
 
-    // Every refusal before any write, so a body is either fully prepared or
-    // untouched: a request carrying a start frame and no end frame would be a
-    // paid call for a clip that does not loop. That is why the field names are
-    // checked here rather than inside `inject` — a blank second field would
-    // otherwise fail *after* the first one had been written in.
-    check(inputs, params)?;
-    let encoded = encode_once(root, project_id, inputs)?;
+    let mut urls: HashMap<String, String> = HashMap::new();
+    for (id, bytes) in resolved.images {
+        let name = upload_name(&id, &bytes);
+        let url = storage::upload(key, bytes, &name).await?;
+        urls.insert(id, url);
+    }
 
+    inject_urls(inputs, &urls, params)
+}
+
+/// Writes one URL per field, with no upload of its own.
+///
+/// Split from `attach` so the thing #30 actually promises — the same still
+/// under both the first and the last frame — is provable without a network.
+fn inject_urls(
+    inputs: &[ImageInput],
+    urls: &HashMap<String, String>,
+    params: &mut Value,
+) -> Result<(), GenerationError> {
     let Some(fields) = params.as_object_mut() else {
-        // Unreachable: `check` refused a non-object above.
+        // Unreachable: `check` refused a non-object in `resolve`.
         return Err(not_an_object());
     };
 
     for input in inputs {
-        let Some(uri) = encoded.get(input.generation_id.as_str()) else {
-            // Unreachable: `encode_once` has an entry per named generation.
+        let Some(url) = urls.get(input.generation_id.as_str()) else {
+            // Unreachable: there is an entry per named generation.
             return Err(GenerationError::with_detail(
                 GenerationErrorReason::RequestRejected,
-                "an input image was named but never encoded",
+                "an input image was named but never uploaded",
             ));
         };
-        inject(fields, input, uri);
+        inject(fields, input, url);
     }
 
     Ok(())
+}
+
+/// What the file is called once it is fal's.
+///
+/// The generation id, so a file in fal's storage can be traced back to the
+/// candidate it came from, and an extension from the *sniffed* bytes — which
+/// after `downscale::apply` is frequently no longer the extension on disk.
+fn upload_name(generation_id: &str, bytes: &[u8]) -> String {
+    let extension = sniff_format(bytes)
+        .map(|format| format.extension())
+        .unwrap_or("bin");
+
+    format!("{generation_id}.{extension}")
 }
 
 /// Everything that can refuse the run before a single byte is read.
@@ -192,22 +272,38 @@ fn not_an_object() -> GenerationError {
 /// hero-size image and two base64 strings a third larger again, and would put
 /// the same file past the inline ceiling on the second pass of a size check it
 /// had already passed.
-fn encode_once<'a>(
+fn read_once(
     root: &Path,
     project_id: &str,
-    inputs: &'a [ImageInput],
-) -> Result<HashMap<&'a str, String>, GenerationError> {
-    let mut encoded: HashMap<&'a str, String> = HashMap::new();
+    inputs: &[ImageInput],
+) -> Result<HashMap<String, Vec<u8>>, GenerationError> {
+    let mut images: HashMap<String, Vec<u8>> = HashMap::new();
 
     for input in inputs {
         let id = input.generation_id.as_str();
-        if !encoded.contains_key(id) {
-            let bytes = downscale::apply(read_image(root, project_id, id)?);
-            encoded.insert(id, data_uri(&bytes)?);
+        if images.contains_key(id) {
+            continue;
         }
+
+        let bytes = downscale::apply(read_image(root, project_id, id)?);
+
+        if bytes.is_empty() {
+            log::error!("The input image file holds no bytes");
+            return Err(unusable(InputImageProblem::Unreadable));
+        }
+
+        // Checked here rather than at upload time, and this is the last point
+        // where it is free: past `resolve` the key has been fetched, so a
+        // format we cannot name would cost a keychain prompt to discover.
+        if sniff_format(&bytes).is_none() {
+            log::error!("The input image is not a PNG, JPEG or WebP");
+            return Err(unusable(InputImageProblem::UnsupportedFormat));
+        }
+
+        images.insert(id.to_string(), bytes);
     }
 
-    Ok(encoded)
+    Ok(images)
 }
 
 /// The image one generation produced, as bytes.
@@ -235,14 +331,14 @@ fn read_image(
         })?
         .len();
 
-    if size > MAX_INLINE_BYTES {
+    if size > MAX_INPUT_BYTES {
         log::error!(
-            "The input image {} is {size} bytes, over the {MAX_INLINE_BYTES} an inlined image may be",
+            "The input image {} is {size} bytes, over the {MAX_INPUT_BYTES} an inlined image may be",
             path.display()
         );
         return Err(unusable(InputImageProblem::TooLarge {
             bytes: size as f64,
-            limit: MAX_INLINE_BYTES as f64,
+            limit: MAX_INPUT_BYTES as f64,
         }));
     }
 
@@ -252,28 +348,7 @@ fn read_image(
     })
 }
 
-/// A `data:<mime>;base64,…` URI, with the media type read from the bytes.
-///
-/// Sniffed rather than taken from the extension, exactly as the import does: a
-/// `.png` holding a JPEG would otherwise be announced to fal as something it is
-/// not, which is a 4xx on a body we chose.
-fn data_uri(bytes: &[u8]) -> Result<String, GenerationError> {
-    if bytes.is_empty() {
-        log::error!("The input image file holds no bytes");
-        return Err(unusable(InputImageProblem::Unreadable));
-    }
-
-    let format = sniff_format(bytes).ok_or_else(|| {
-        log::error!("The input image is not a PNG, JPEG or WebP");
-        unusable(InputImageProblem::UnsupportedFormat)
-    })?;
-
-    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-
-    Ok(format!("data:{};base64,{encoded}", format.mime()))
-}
-
-/// Writes the URI into the body under the model's own field name and shape.
+/// Writes the URL into the body under the model's own field name and shape.
 ///
 /// Infallible, which is the whole of the atomicity claim: everything that could
 /// refuse has already refused in `check`, so once the first field is written
@@ -331,44 +406,95 @@ mod tests {
         root
     }
 
-    #[test]
-    fn a_png_becomes_a_data_uri_naming_its_own_media_type() {
-        let uri = data_uri(&png()).unwrap();
+    /// Where a fabricated upload puts things.
+    const UPLOADED: &str = "https://v3.fal.media/files/test/";
 
-        assert!(uri.starts_with("data:image/png;base64,"), "got: {uri}");
-        // Round-trips: what fal decodes has to be the file, byte for byte.
-        let encoded = uri.split_once("base64,").unwrap().1;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .unwrap();
-        assert_eq!(decoded, png());
+    /// `resolve` plus injection, with the upload itself stubbed out.
+    ///
+    /// The upload is a network call, and none of these tests are about it. What
+    /// they *are* about — which field gets which value, and that nothing is
+    /// written into the body when anything refuses — is decided entirely on
+    /// this side, so one fabricated URL per generation walks the same paths.
+    ///
+    /// One URL per *generation*, not per field, which is what makes the loop
+    /// test below mean anything: two fields naming one still get one URL
+    /// because there was one upload.
+    fn resolve_and_attach(
+        root: &Path,
+        project_id: &str,
+        stage: &str,
+        inputs: &[ImageInput],
+        params: &mut Value,
+    ) -> Result<(), GenerationError> {
+        let resolved = resolve(root, project_id, stage, inputs, params)?;
+        if resolved.images.is_empty() {
+            return Ok(());
+        }
+
+        let urls: HashMap<String, String> = resolved
+            .images
+            .iter()
+            .map(|(id, bytes)| (id.clone(), format!("{UPLOADED}{}", upload_name(id, bytes))))
+            .collect();
+
+        inject_urls(inputs, &urls, params)
     }
 
     #[test]
-    fn the_media_type_comes_from_the_bytes_and_not_the_extension() {
-        // A JPEG saved as `.png` announced as `image/png` is a 4xx on a body we
-        // chose to send.
+    fn the_uploaded_name_comes_from_the_bytes_and_not_the_extension() {
+        // A JPEG saved as `.png` uploaded as `.png` is served back announced as
+        // something it is not. After `downscale::apply` this is the common case
+        // rather than the odd one: a re-encoded PNG is a JPEG on a `.png` path.
         let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 0];
 
-        assert!(data_uri(&jpeg).unwrap().starts_with("data:image/jpeg;"));
+        assert_eq!(upload_name("gen-src-1", &jpeg), "gen-src-1.jpeg");
+        assert_eq!(upload_name("gen-src-1", &png()), "gen-src-1.png");
     }
 
     #[test]
-    fn something_that_is_not_an_image_is_refused_rather_than_encoded() {
+    fn something_that_is_not_an_image_is_refused_before_it_is_uploaded() {
         // A code rather than a sentence, so the frontend can say it in the
         // user's language — and a *different* code per cause, or the message
         // could only ever be the vaguest of the three.
-        let refused = data_uri(b"%PDF-1.4").unwrap_err();
+        let root = project_with_source(b"%PDF-1.4", "png");
+        let mut params = json!({});
+
+        let refused = resolve_and_attach(
+            root.path(),
+            "atlas",
+            "style",
+            &[input("image_url", ImageParamShape::Url)],
+            &mut params,
+        )
+        .expect_err("a PDF is not a source image");
+
         assert_eq!(refused.reason, GenerationErrorReason::InputImageUnusable);
         assert_eq!(
             refused.input_image,
             Some(InputImageProblem::UnsupportedFormat)
         );
         assert_eq!(refused.detail, None, "no English crosses the boundary");
+        assert_eq!(params, json!({}), "nothing is written for a refused image");
+    }
+
+    #[test]
+    fn an_empty_file_is_refused_as_unreadable_rather_than_uploaded_empty() {
+        let root = project_with_source(b"", "png");
+        let mut params = json!({});
+
+        let refused = resolve_and_attach(
+            root.path(),
+            "atlas",
+            "style",
+            &[input("image_url", ImageParamShape::Url)],
+            &mut params,
+        )
+        .expect_err("a file with nothing in it is not an image");
 
         assert_eq!(
-            data_uri(b"").unwrap_err().input_image,
-            Some(InputImageProblem::Unreadable)
+            refused.input_image,
+            Some(InputImageProblem::Unreadable),
+            "an empty file is unreadable, not an unsupported format"
         );
     }
 
@@ -377,7 +503,7 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let mut params = json!({ "strength": 0.7 });
 
-        prepare(
+        resolve_and_attach(
             root.path(),
             "atlas",
             "style",
@@ -387,10 +513,7 @@ mod tests {
         .unwrap();
 
         assert!(params["image_url"].is_string());
-        assert!(params["image_url"]
-            .as_str()
-            .unwrap()
-            .starts_with("data:image/png;base64,"));
+        assert!(params["image_url"].as_str().unwrap().starts_with(UPLOADED));
         // Everything the registry built is left alone.
         assert_eq!(params["strength"], json!(0.7));
     }
@@ -402,7 +525,7 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let mut params = json!({});
 
-        prepare(
+        resolve_and_attach(
             root.path(),
             "atlas",
             "style",
@@ -413,7 +536,7 @@ mod tests {
 
         let urls = params["image_urls"].as_array().expect("an array");
         assert_eq!(urls.len(), 1);
-        assert!(urls[0].as_str().unwrap().starts_with("data:image/png;"));
+        assert!(urls[0].as_str().unwrap().starts_with(UPLOADED));
     }
 
     #[test]
@@ -421,7 +544,7 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let mut params = json!({ "image_url": "https://example.invalid/stale.png" });
 
-        prepare(
+        resolve_and_attach(
             root.path(),
             "atlas",
             "style",
@@ -430,7 +553,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(params["image_url"].as_str().unwrap().starts_with("data:"));
+        assert!(params["image_url"].as_str().unwrap().starts_with(UPLOADED));
     }
 
     #[test]
@@ -440,7 +563,7 @@ mod tests {
         // would silently degrade to text-to-image and charge for it.
         let mut params = json!({});
 
-        let error = prepare(Path::new("/nowhere"), "atlas", "style", &[], &mut params)
+        let error = resolve_and_attach(Path::new("/nowhere"), "atlas", "style", &[], &mut params)
             .expect_err("a style run needs an input image");
 
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
@@ -455,7 +578,7 @@ mod tests {
         // at up to $0.47 a second.
         let mut params = json!({ "duration": "5" });
 
-        let error = prepare(Path::new("/nowhere"), "atlas", "animate", &[], &mut params)
+        let error = resolve_and_attach(Path::new("/nowhere"), "atlas", "animate", &[], &mut params)
             .expect_err("an animate run needs a still to animate");
 
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
@@ -472,7 +595,7 @@ mod tests {
             let root = project_with_source(&png(), "png");
             let mut params = json!({ "duration": "5" });
 
-            prepare(
+            resolve_and_attach(
                 root.path(),
                 "atlas",
                 "animate",
@@ -484,7 +607,7 @@ mod tests {
             assert!(
                 params[param]
                     .as_str()
-                    .is_some_and(|uri| uri.starts_with("data:image/png;base64,")),
+                    .is_some_and(|url| url.starts_with(UPLOADED)),
                 "{param}"
             );
             assert_eq!(params["duration"], json!("5"), "{param}");
@@ -508,7 +631,7 @@ mod tests {
             let root = project_with_source(&png(), "png");
             let mut params = json!({ "duration": "5" });
 
-            prepare(
+            resolve_and_attach(
                 root.path(),
                 "atlas",
                 "animate",
@@ -523,7 +646,7 @@ mod tests {
             let first = params[start].as_str().expect("a start frame");
             let last = params[end].as_str().expect("an end frame");
 
-            assert!(first.starts_with("data:image/png;base64,"), "{start}");
+            assert!(first.starts_with(UPLOADED), "{start}");
             // Byte for byte the same frame: a loop that ends on a *different*
             // encoding of the still is the seam this feature exists to remove.
             assert_eq!(first, last, "{start} and {end}");
@@ -539,11 +662,11 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let dir = root.path().join("atlas").join("assets");
         let mut at_the_limit = png();
-        at_the_limit.resize(MAX_INLINE_BYTES as usize, 0);
+        at_the_limit.resize(MAX_INPUT_BYTES as usize, 0);
         std::fs::write(dir.join("gen-src-1.png"), &at_the_limit).unwrap();
 
         let mut params = json!({});
-        prepare(
+        resolve_and_attach(
             root.path(),
             "atlas",
             "animate",
@@ -568,7 +691,7 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let mut params = json!({});
 
-        prepare(
+        resolve_and_attach(
             root.path(),
             "atlas",
             "style",
@@ -596,7 +719,7 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let mut params = json!({ "duration": "5" });
 
-        let error = prepare(
+        let error = resolve_and_attach(
             root.path(),
             "atlas",
             "animate",
@@ -620,7 +743,7 @@ mod tests {
     fn a_source_run_has_no_input_and_that_is_not_a_failure() {
         let mut params = json!({ "image_size": { "width": 1280, "height": 720 } });
 
-        prepare(Path::new("/nowhere"), "atlas", "source", &[], &mut params).unwrap();
+        resolve_and_attach(Path::new("/nowhere"), "atlas", "source", &[], &mut params).unwrap();
 
         assert_eq!(params.as_object().unwrap().len(), 1);
     }
@@ -632,7 +755,7 @@ mod tests {
         let root = TempDir::new().unwrap();
         let mut params = json!({});
 
-        let error = prepare(
+        let error = resolve_and_attach(
             root.path(),
             "atlas",
             "style",
@@ -651,11 +774,11 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let dir = root.path().join("atlas").join("assets");
         let mut oversized = png();
-        oversized.resize(MAX_INLINE_BYTES as usize + 1, 0);
+        oversized.resize(MAX_INPUT_BYTES as usize + 1, 0);
         std::fs::write(dir.join("gen-src-1.png"), &oversized).unwrap();
 
         let mut params = json!({});
-        let error = prepare(
+        let error = resolve_and_attach(
             root.path(),
             "atlas",
             "style",
@@ -671,8 +794,8 @@ mod tests {
         assert_eq!(
             error.input_image,
             Some(InputImageProblem::TooLarge {
-                bytes: (MAX_INLINE_BYTES + 1) as f64,
-                limit: MAX_INLINE_BYTES as f64,
+                bytes: (MAX_INPUT_BYTES + 1) as f64,
+                limit: MAX_INPUT_BYTES as f64,
             })
         );
     }
@@ -682,7 +805,7 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let mut params = json!({});
 
-        let error = prepare(
+        let error = resolve_and_attach(
             root.path(),
             "atlas",
             "style",
@@ -705,7 +828,7 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let mut params = json!({ "duration": "5" });
 
-        let error = prepare(
+        let error = resolve_and_attach(
             root.path(),
             "atlas",
             "animate",

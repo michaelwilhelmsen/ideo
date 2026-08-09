@@ -87,6 +87,7 @@
   "generate.error.requestRejectedBecause": "fal.ai n'a pas pu traiter cette requête : {{detail}}",
   "generate.error.rateLimited": "fal.ai limite le débit de cette clé. Patientez un instant et réessayez.",
   "generate.error.offline": "Impossible de joindre fal.ai. Vérifiez votre connexion et réessayez.",
+  "generate.error.uploadFailed": "Impossible d’envoyer l’image source à fal.ai. Rien n’a été généré ni facturé — réessayez.",
   "generate.error.jobFailed": "fal.ai n'a pas pu terminer cette génération.",
   "generate.error.jobFailedBecause": "fal.ai n'a pas pu terminer cette génération : {{detail}}",
   "generate.error.gaveUpWaiting": "Cela prend plus de temps que prévu. Le travail peut encore aboutir chez fal.ai.",

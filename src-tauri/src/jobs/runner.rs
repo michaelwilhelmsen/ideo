@@ -200,17 +200,23 @@ pub async fn start(app: AppHandle, request: StartRequest) -> Result<SubmittedJob
     // job. A style run whose source cannot be resolved is refused (#28) — before
     // the key, before a concurrency slot, and before the charge.
     let mut params = request.params.clone();
-    image_input::prepare(
+    let resolved = image_input::resolve(
         &projects_root(&app)?,
         &request.project_id,
         &request.stage,
         &request.image_inputs,
-        &mut params,
+        &params,
     )?;
 
     let key = stored_key()
         .map_err(|e| GenerationError::with_detail(GenerationErrorReason::NoApiKey, e))?
         .ok_or_else(|| GenerationError::new(GenerationErrorReason::NoApiKey))?;
+
+    // Split from `resolve` because the upload needs the key and the refusals
+    // must not (#50). Everything that can say no about the image has already
+    // said it; what is left needs somewhere to put the bytes. Still before the
+    // concurrency slot and the charge — an upload that fails costs nothing.
+    image_input::attach(&key, &request.image_inputs, resolved, &mut params).await?;
 
     // Held from here until the job settles. Taken before the submit because
     // the submit is the charge — queueing behind the cap is the point.

@@ -87,6 +87,7 @@
   "generate.error.requestRejectedBecause": "تعذّر على fal.ai تنفيذ هذا الطلب: {{detail}}",
   "generate.error.rateLimited": "يحدّ fal.ai من معدل استخدام هذا المفتاح. انتظر قليلاً وحاول مجددًا.",
   "generate.error.offline": "تعذّر الوصول إلى fal.ai. تحقق من اتصالك وحاول مجددًا.",
+  "generate.error.uploadFailed": "تعذّر إرسال صورة المصدر إلى fal.ai. لم يتم إنشاء أي شيء ولا فرض أي رسوم — حاول مجددًا.",
   "generate.error.jobFailed": "تعذّر على fal.ai إكمال هذا التوليد.",
   "generate.error.jobFailedBecause": "تعذّر على fal.ai إكمال هذا التوليد: {{detail}}",
   "generate.error.gaveUpWaiting": "يستغرق هذا وقتًا أطول من المتوقع. قد تكتمل المهمة لدى fal.ai.",
