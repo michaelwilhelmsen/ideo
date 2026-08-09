@@ -24,6 +24,7 @@ Technical documentation for building and extending this app. These docs describe
 | [Model Registry](./model-registry.md)         | Model capabilities, aspect idioms, validation       |
 | [Style Presets](./style-presets.md)           | Seeding the form, prompt idioms, the fork flow      |
 | [Motion Presets](./motion-presets.md)         | The second library — movement, kept apart from look |
+| [Export](./export.md)                         | ffmpeg detection, web-ready encodes, ping-pong loop |
 
 ## UI & UX
 

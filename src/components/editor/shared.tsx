@@ -12,6 +12,10 @@ import { convertFileSrc } from '@tauri-apps/api/core'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+// Whether a file is a clip is asked here and again by the export panel, so it
+// is answered once (#31) — in the module that also decides what such a file can
+// be exported as.
+import { isVideoAsset } from '@/lib/export'
 import {
   controlAvailability,
   diffRecipes,
@@ -111,24 +115,6 @@ export function Preview({
       className={cn(shape, 'object-cover')}
     />
   )
-}
-
-/**
- * Whether this asset is a clip, from its extension.
- *
- * The extension rather than the stage, deliberately. The manifest records a file
- * name and the stage is a separate field, so asking the file what it is means an
- * animate candidate saved before this shipped, or a project whose stages someone
- * has been editing by hand, still renders as whatever it actually holds.
- *
- * The list is the two containers `extension_for` can produce on the Rust side.
- */
-const VIDEO_EXTENSIONS: readonly string[] = ['mp4', 'webm']
-
-function isVideoAsset(asset: string | null): boolean {
-  if (asset === null) return false
-  const extension = asset.split('.').at(-1)?.toLowerCase() ?? ''
-  return VIDEO_EXTENSIONS.includes(extension)
 }
 
 /**

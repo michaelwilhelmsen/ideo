@@ -46,6 +46,16 @@ pub struct AppPreferences {
     /// written before this field existed deserialises to.
     #[serde(default)]
     pub onboarding_version: u32,
+    /// Where the last export landed (PRD §11 — genuinely app-wide, like the
+    /// concurrency limit, because an export folder is a place on this machine
+    /// rather than a property of a project).
+    ///
+    /// `None` until somebody exports something. Remembered rather than
+    /// defaulted to Downloads, because the folder that matters is the one the
+    /// user picked last time — usually a repo's `public/` — and re-picking it
+    /// on every export is the friction this field exists to remove.
+    #[serde(default)]
+    pub export_directory: Option<String>,
 }
 
 impl Default for AppPreferences {
@@ -55,6 +65,7 @@ impl Default for AppPreferences {
             quick_pane_shortcut: None, // None means use default
             language: None,            // None means use system locale
             onboarding_version: 0,     // 0 means never onboarded
+            export_directory: None,    // None means nothing exported yet
         }
     }
 }
@@ -158,6 +169,25 @@ mod tests {
                 .expect("legacy preferences should still parse");
 
         assert_eq!(prefs.onboarding_version, 0);
+        // Same argument one field along (#31): a preferences file written
+        // before export existed reads as "nowhere chosen yet", so the panel
+        // asks once rather than failing to find a folder it never had.
+        assert_eq!(prefs.export_directory, None);
+    }
+
+    #[test]
+    fn the_export_folder_survives_a_round_trip() {
+        let prefs = AppPreferences {
+            export_directory: Some("/Users/someone/site/public".to_string()),
+            ..AppPreferences::default()
+        };
+        let json = serde_json::to_string(&prefs).expect("serialises");
+        let back: AppPreferences = serde_json::from_str(&json).expect("deserialises");
+
+        assert_eq!(
+            back.export_directory.as_deref(),
+            Some("/Users/someone/site/public")
+        );
     }
 
     #[test]

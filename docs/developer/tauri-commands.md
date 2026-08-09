@@ -292,6 +292,21 @@ reads the file and inlines it as base64, and refuses a `style` submit whose list
 A looping animate run sends two entries naming the same generation — start frame and end
 frame — and it is encoded once. See [external-apis.md](./external-apis.md).
 
+Export (#31, see [export.md](./export.md)). The encode is a plain command rather than a
+job: ffmpeg is local, free and finishes in seconds, so there is nothing to queue, resume or
+cancel.
+
+| Command            | Parameters               | Returns                              | Description                             |
+| ------------------ | ------------------------ | ------------------------------------ | --------------------------------------- |
+| `ffmpegStatus`     | none                     | `Result<FfmpegStatus, string>`       | The answer taken at startup, cached     |
+| `recheckFfmpeg`    | none                     | `Result<FfmpegStatus, string>`       | Probe again, after a `brew install`     |
+| `exportGeneration` | `request: ExportRequest` | `Result<ExportOutcome, ExportError>` | Encode one candidate into the web files |
+
+`ExportError` is typed rather than a string for the same reason `ImportError` is: the
+refusal is shown to the user and therefore has to be translated. `EncodeFailed` carries
+ffmpeg's own last words, because nothing we can phrase in advance distinguishes a codec this
+build lacks from a disk that filled up.
+
 Two event payloads are registered with `.typ::<T>()` rather than appearing in any
 signature, because they are emitted while a command is still running:
 `GenerationProgress` (`generation-progress`) and `JobSettled` (`generation-settled`).

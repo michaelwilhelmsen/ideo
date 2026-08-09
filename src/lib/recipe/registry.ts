@@ -298,13 +298,17 @@ export function controlAvailability(
         : AVAILABLE
 
     // Rewind is ffmpeg, not the model (PRD §4.5), so no registry column gates
-    // it — and there is no ffmpeg layer yet. Visible, disabled, and honest
-    // about why, exactly as looping was before #30 landed.
+    // it and no model can rule it out — every clip can be played backwards.
+    // Live since #31 built the ping-pong pass.
     //
-    // #45 REMOVES THIS: once the ping-pong pass exists, rewind is
-    // unconditionally AVAILABLE.
+    // Note what this deliberately does *not* consult: whether ffmpeg is
+    // installed. The switch records an intent into the recipe, and an intent
+    // outlives the machine it was recorded on — a project made where ffmpeg is
+    // installed must not read differently when it is opened where it is not.
+    // The missing binary is surfaced where it actually bites, in the export
+    // panel, with the install prompt attached.
     case 'rewind':
-      return { state: 'disabled', reasonKey: 'editor.reason.rewindNotReady' }
+      return AVAILABLE
 
     case 'duration':
       return model.durations.length === 0

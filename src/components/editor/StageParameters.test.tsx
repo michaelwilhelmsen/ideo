@@ -77,9 +77,9 @@ describe('StageParameters — model selection', () => {
     const picker = screen.getByLabelText<HTMLSelectElement>('Model')
     const before = picker.value
 
-    // Duration rather than a switch: rewind is still disabled (#45) and the
-    // loop switch is covered on its own below. The claim is the same one —
-    // touching a parameter never moves the user onto a different endpoint.
+    // Duration rather than a switch: the two switches are covered on their own
+    // below. The claim is the same one — touching a parameter never moves the
+    // user onto a different endpoint.
     fireEvent.change(screen.getByLabelText('Duration'), {
       target: { value: '9s' },
     })
@@ -97,8 +97,8 @@ describe('StageParameters — model selection', () => {
  * end frame is *required*, so the switch shows itself checked and unclickable
  * rather than offering a choice the endpoint would refuse.
  *
- * Rewind is still an ffmpeg pass nobody has written (#45), and stays on screen,
- * switched off, with the reason attached (PRD §10.1).
+ * Rewind is the other mechanism, live since #31 built the ping-pong pass — and
+ * gated by nothing, because it is ffmpeg rather than the model.
  */
 describe('StageParameters — the loop switch (#30)', () => {
   it('offers looping on a model with somewhere to put an end frame', () => {
@@ -149,13 +149,16 @@ describe('StageParameters — the loop switch (#30)', () => {
     ).toBeVisible()
   })
 
-  it('shows the rewind switch disabled, with its own reason', () => {
-    render(<StageParameters project={LEDGER} stage="animate" />)
+  it('offers rewind alongside it, on any video model (#31)', () => {
+    // Rewind is ffmpeg rather than the model, so it is a live choice wherever
+    // there is a clip — including on a model whose loop switch is greyed out.
+    const noEndFrame = animatingWith('fal-ai/veo3.1/image-to-video')
+
+    render(<StageParameters project={noEndFrame} stage="animate" />)
 
     expect(
       screen.getByRole('switch', { name: /forward, then reverse/i })
-    ).toBeDisabled()
-    expect(screen.getByText(/rewind is not built yet/i)).toBeVisible()
+    ).toBeEnabled()
   })
 
   it('leaves the rest of the animate panel usable', () => {

@@ -422,8 +422,7 @@ describe('estimateCost', () => {
 
 /**
  * PRD §10.1's states on the loop switch, now that the end frame is real (#30),
- * and on the rewind switch, which is still an ffmpeg pass nobody has written
- * (#45).
+ * and on the rewind switch, live since #31 built the ping-pong pass.
  *
  * The loop control is the one place three answers are needed rather than two:
  * a model with no end-frame field cannot loop at all, a model with an optional
@@ -460,14 +459,14 @@ describe('controlAvailability — loop and rewind (#30)', () => {
     })
   })
 
-  it('disables rewind everywhere, end frame or not', () => {
-    // Rewind is an ffmpeg pass rather than a registry column (PRD §4.5), so it
-    // is not the model that is missing anything — the pass is #45, and until
-    // it exists the switch is visible, disabled and honest about why.
+  it('offers rewind everywhere, end frame or not (#31)', () => {
+    // Rewind is an ffmpeg pass rather than a registry column (PRD §4.5), so no
+    // model can rule it out: every clip can be played backwards, including one
+    // from an endpoint that has no end-frame field and cannot loop natively at
+    // all — which is exactly the case rewind exists to serve.
     for (const endFrameParam of [null, 'end_image_url']) {
       expect(controlAvailability(model({ endFrameParam }), 'rewind')).toEqual({
-        state: 'disabled',
-        reasonKey: 'editor.reason.rewindNotReady',
+        state: 'available',
       })
     }
   })

@@ -233,7 +233,6 @@
   "editor.rewind.pingPong": "Lire en avant, puis à l'envers",
   "editor.reason.noEndFrame": "La mise en boucle exige un modèle qui prend en charge une image de fin.",
   "editor.reason.alwaysLoops": "Ce modèle boucle toujours. Il ne fonctionne pas sans image de fin : chaque clip revient donc à sa première image.",
-  "editor.reason.rewindNotReady": "La lecture inversée n'est pas encore disponible. La mise en boucle ramène déjà le clip à sa première image.",
   "editor.field.motionPreset": "Préréglage de mouvement",
   "editor.preset.motionHint": "Le mouvement est une bibliothèque distincte du style : n'importe quel rendu accepte n'importe quel mouvement.",
   "editor.preset.saveMotionDescription": "Enregistre l'invite de mouvement telle quelle, comme un préréglage à vous.",

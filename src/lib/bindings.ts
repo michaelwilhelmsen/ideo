@@ -318,6 +318,52 @@ async motionPresetDelete(id: string) : Promise<Result<null, string>> {
 }
 },
 /**
+ * Whether there is an ffmpeg, from the answer taken at startup.
+ * 
+ * Cheap and cached, because the export panel asks on every render and the
+ * answer changes about once per `brew install`.
+ * 
+ * Still on a blocking thread, for the case the cache is cold: a probe spawns a
+ * process per candidate path, and a stalled binary on the `PATH` would
+ * otherwise stall the runtime rather than one thread of it.
+ */
+async ffmpegStatus() : Promise<Result<FfmpegStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ffmpeg_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Looks again — the panel's re-check button, so installing ffmpeg while the
+ * app is open does not need a relaunch.
+ * 
+ * Always spawns processes, so always off the runtime.
+ */
+async recheckFfmpeg() : Promise<Result<FfmpegStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("recheck_ffmpeg") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Encodes one candidate into the files a landing page can use.
+ * 
+ * Runs on a blocking thread: a WebM of a ten-second hero is tens of seconds of
+ * CPU, and tens of seconds on an async runtime thread is the whole UI.
+ */
+async exportGeneration(request: ExportRequest) : Promise<Result<ExportOutcome, ExportError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_generation", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Loads user preferences from disk.
  * Returns default preferences if the file doesn't exist.
  */
@@ -473,12 +519,86 @@ language: string | null;
  * `0` means "never onboarded", which is also what a preferences file
  * written before this field existed deserialises to.
  */
-onboarding_version?: number }
+onboarding_version?: number; 
+/**
+ * Where the last export landed (PRD §11 — genuinely app-wide, like the
+ * concurrency limit, because an export folder is a place on this machine
+ * rather than a property of a project).
+ * 
+ * `None` until somebody exports something. Remembered rather than
+ * defaulted to Downloads, because the folder that matters is the one the
+ * user picked last time — usually a repo's `public/` — and re-picking it
+ * on every export is the friction this field exists to remove.
+ */
+export_directory?: string | null }
 /**
  * The result of a cleanup, so the UI can say what it actually did rather than
  * "done".
  */
 export type CleanupOutcome = { removedCount: number; freedBytes: number }
+/**
+ * Why an export produced nothing.
+ * 
+ * A reason rather than a sentence, so the refusal can be said in the user's
+ * own language (PRD §10.4) — the same shape `ImportError` takes for the same
+ * reason. `EncodeFailed` carries a detail because ffmpeg's own last words are
+ * the only thing that distinguishes a codec this build lacks from a disk that
+ * filled up, and neither is something we can phrase in advance.
+ */
+export type ExportError = 
+/**
+ * No ffmpeg on this machine. The one error with an action attached.
+ */
+{ reason: "ffmpegMissing" } | 
+/**
+ * The candidate has no file — a paid result that never landed, or a
+ * generation the manifest knows about and the assets folder does not.
+ */
+{ reason: "noAsset" } | 
+/**
+ * An MP4 or WebM was asked of a still. A styled still exports its poster.
+ */
+{ reason: "notAClip" } | 
+/**
+ * Every format was switched off.
+ */
+{ reason: "nothingRequested" } | { reason: "destinationUnusable"; message: string } | { reason: "encodeFailed"; deliverable: string; detail: string }
+/**
+ * What it produced.
+ */
+export type ExportOutcome = { 
+/**
+ * File names, not paths — they all landed in the destination that was
+ * asked for, and the frontend already knows where that was.
+ */
+files: string[] }
+/**
+ * What one export was asked for.
+ */
+export type ExportRequest = { projectId: string; generationId: string; 
+/**
+ * Absolute, and chosen by the user through the system picker — remembered
+ * in preferences between runs (PRD §11).
+ */
+destination: string; 
+/**
+ * What the files are called, before the extension. The frontend builds it
+ * from the project and candidate names, because those are its own; this
+ * side filters it into something a file can be called.
+ */
+baseName: string; mp4: boolean; webm: boolean; poster: boolean; 
+/**
+ * PRD §4.5's ping-pong. Ignored on a still, which has no time axis.
+ */
+rewind: boolean }
+/**
+ * What the frontend needs to decide whether export is offerable.
+ * 
+ * A struct rather than `Option<Ffmpeg>` because "not installed" is a state the
+ * panel renders rather than an absence it ignores — it carries an install
+ * prompt and a re-check button (PRD §8).
+ */
+export type FfmpegStatus = { available: boolean; path: string | null; version: string | null }
 /**
  * A failure, as it crosses to the frontend.
  */

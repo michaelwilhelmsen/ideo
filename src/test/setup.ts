@@ -54,7 +54,14 @@ vi.mock('@/lib/tauri-bindings', () => ({
     // about onboarding set it to 0 — a first launch — themselves.
     loadPreferences: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { theme: 'system', onboarding_version: 1_000 },
+      data: {
+        theme: 'system',
+        onboarding_version: 1_000,
+        // A folder already chosen (#31), for the same reason onboarding is
+        // already done: a test about exporting should not have to pick one
+        // first, and a test about picking one says so itself.
+        export_directory: '/tmp/exports',
+      },
     }),
     savePreferences: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     sendNativeNotification: vi
@@ -131,6 +138,28 @@ vi.mock('@/lib/tauri-bindings', () => ({
     motionPresetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     motionPresetSave: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     motionPresetDelete: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // Export (#31). ffmpeg present by default, because its absence is the
+    // interesting case and the tests about it set it up themselves.
+    ffmpegStatus: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        available: true,
+        path: '/opt/homebrew/bin/ffmpeg',
+        version: '8.0.1',
+      },
+    }),
+    recheckFfmpeg: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        available: true,
+        path: '/opt/homebrew/bin/ffmpeg',
+        version: '8.0.1',
+      },
+    }),
+    exportGeneration: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { files: ['hero.mp4', 'hero.webm', 'hero-poster.jpg'] },
+    }),
   },
   unwrapResult: vi.fn((result: { status: string; data?: unknown }) => {
     if (result.status === 'ok') return result.data

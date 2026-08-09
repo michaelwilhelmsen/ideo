@@ -6,6 +6,7 @@
 
 mod bindings;
 mod commands;
+mod export;
 mod jobs;
 mod presets;
 mod projects;
@@ -140,6 +141,13 @@ pub fn run() {
             // will not get. Spawned, never awaited: an unreachable fal must
             // not hold up the window.
             jobs::runner::resume(app.handle());
+
+            // PRD §8 — the system ffmpeg, looked for once at startup so the
+            // export panel can offer an install prompt instead of failing at
+            // the moment somebody asks for a file. Never fatal: an app that
+            // would not launch without ffmpeg is an app you also cannot
+            // generate anything with, and generation is most of it.
+            export::ffmpeg::detect_at_startup();
 
             // NOTE: Application menu is built from JavaScript for i18n support
             // See src/lib/menu.ts for the menu implementation

@@ -25,6 +25,10 @@ export { commands, type Result } from './bindings'
 export type {
   AppPreferences,
   CleanupOutcome,
+  ExportError,
+  ExportOutcome,
+  ExportRequest,
+  FfmpegStatus,
   GenerationError,
   GenerationErrorReason,
   GenerationProgress,

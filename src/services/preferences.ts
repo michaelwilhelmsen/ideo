@@ -20,6 +20,9 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   quick_pane_shortcut: null,
   language: null,
   onboarding_version: 0,
+  // Nowhere chosen yet (#31). The export panel asks once and remembers the
+  // answer here, so the second export goes where the first one did.
+  export_directory: null,
 }
 
 // TanStack Query hooks following the architectural patterns
@@ -46,6 +49,38 @@ export function usePreferences() {
     staleTime: 1000 * 60 * 5, // 5 minutes
     gcTime: 1000 * 60 * 10, // 10 minutes
   })
+}
+
+/**
+ * Records where the last export went (#31, PRD §11).
+ *
+ * Here rather than in `services/export.ts` because `preferences.json` has one
+ * owner: a second module that read, merged and wrote the whole file would be a
+ * second place for the load-failure fallback to drift. Not `useSavePreferences`
+ * either — that one announces itself with a toast, which is right when somebody
+ * pressed Save in a settings pane and wrong on the back of a successful export.
+ *
+ * Re-reads rather than trusting the cache, so this cannot write back a stale
+ * copy of the fields it does not touch. Returns whether it stuck; the caller
+ * decides what a "the files are written but we forgot where" is worth saying.
+ */
+export async function rememberExportDirectory(
+  queryClient: ReturnType<typeof useQueryClient>,
+  directory: string
+): Promise<boolean> {
+  const loaded = await commands.loadPreferences()
+  const current = loaded.status === 'ok' ? loaded.data : DEFAULT_PREFERENCES
+  if (current.export_directory === directory) return true
+
+  const updated = { ...current, export_directory: directory }
+  const saved = await commands.savePreferences(updated)
+  if (saved.status === 'error') {
+    logger.warn('Could not remember the export folder', { error: saved.error })
+    return false
+  }
+
+  queryClient.setQueryData(preferencesQueryKeys.preferences(), updated)
+  return true
 }
 
 export function useSavePreferences() {

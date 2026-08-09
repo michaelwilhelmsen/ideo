@@ -233,7 +233,6 @@
   "editor.rewind.pingPong": "تشغيل للأمام ثم بالعكس",
   "editor.reason.noEndFrame": "تتطلّب الحلقة المتكرّرة نموذجًا يدعم إطار النهاية.",
   "editor.reason.alwaysLoops": "يعمل هذا النموذج بالحلقة المتكرّرة دائمًا. فهو لا يعمل دون إطار نهاية، لذا يعود كل مقطع إلى إطاره الأول.",
-  "editor.reason.rewindNotReady": "التشغيل العكسي غير متاح بعد. أما الحلقة المتكرّرة فتعيد المقطع إلى إطاره الأول بالفعل.",
   "editor.field.motionPreset": "إعداد الحركة",
   "editor.preset.motionHint": "الحركة مكتبة منفصلة عن النمط، لذا يقبل أي مظهر أي حركة.",
   "editor.preset.saveMotionDescription": "يحفظ موجّه الحركة كما هو الآن، كإعداد خاص بك.",
