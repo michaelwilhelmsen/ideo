@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createEditorReducer,
   emptyEditorState,
+  type CompletedRun,
   type EditorAction,
 } from './reducer'
 import { ATLAS, LEDGER, fixtureEditorState, summaryOf } from './fixtures'
@@ -397,6 +398,7 @@ describe('collecting a job that outlived its click (#24)', () => {
           },
           seed: 4242,
           asset: `${id}.jpeg`,
+          runId: null,
         },
       ],
       at: 99,
@@ -567,20 +569,23 @@ describe('a run of several candidates (#26)', () => {
     }
   }
 
+  /** One candidate as the job store hands it back. */
+  function collected(id: string, runId: string | null): CompletedRun {
+    return {
+      id,
+      stage: 'source',
+      recipe: ATLAS.drafts.source,
+      seed: 7,
+      asset: `${id}.jpeg`,
+      runId,
+    }
+  }
+
   /** A candidate arriving off the job store, carrying its run. */
   function arrival(id: string, runId: string | null): EditorAction {
     return {
       type: 'recordGenerations',
-      entries: [
-        {
-          id,
-          stage: 'source',
-          recipe: ATLAS.drafts.source,
-          seed: 7,
-          asset: `${id}.jpeg`,
-          runId,
-        },
-      ],
+      entries: [collected(id, runId)],
       at: 5,
     }
   }
@@ -641,6 +646,18 @@ describe('a run of several candidates (#26)', () => {
     expect(shown?.generations).toHaveLength(3)
   })
 
+  /** A run being started — what a click on Generate dispatches first. */
+  function began(runId: string, ids: readonly string[]): EditorAction {
+    return {
+      type: 'beginRun',
+      runId,
+      projectId: ATLAS.id,
+      stage: 'source',
+      generationIds: ids,
+      at: 4,
+    }
+  }
+
   it('selects the first candidate to arrive, so the next stage has an input', () => {
     const state = apply(fixtureEditorState(), arrival('job-a', 'run-1'))
     expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
@@ -658,12 +675,26 @@ describe('a run of several candidates (#26)', () => {
     expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
   })
 
+  it('does not let them steal it when the run is not known either', () => {
+    // A batch resumed after a quit arrives with no run at all until the sweep
+    // adopts it, and "whichever finished last" is no better an answer then.
+    const state = apply(
+      fixtureEditorState(),
+      arrival('job-a', null),
+      arrival('job-b', null),
+      arrival('job-c', null)
+    )
+
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
+  })
+
   it('never overrides a candidate the user picked during the run', () => {
     // The grid is the moment the choice is made, and it is made while the rest
     // of the batch is still generating. An arrival that moved the selection
     // would undo a click from two seconds ago.
     const state = apply(
       fixtureEditorState(),
+      began('run-1', ['job-a', 'job-b', 'job-c', 'job-d']),
       arrival('job-a', 'run-1'),
       arrival('job-b', 'run-1'),
       { type: 'selectGeneration', generationId: 'job-b' },
@@ -674,13 +705,54 @@ describe('a run of several candidates (#26)', () => {
     expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-b')
   })
 
-  it('claims the selection again for a run started after the last one', () => {
-    // A selection pointing at an older run is not a choice about this one, so
-    // the new run's first arrival takes it — the stage after this one has to
-    // have something to work from.
+  it('never overrides it from a second run queued behind the first', () => {
+    // Two runs in flight, arrivals interleaved: the pick was a statement about
+    // the stage, not about one batch, so nothing from either run moves it.
     const state = apply(
       fixtureEditorState(),
+      began('run-1', ['job-a', 'job-b']),
+      began('run-2', ['job-c', 'job-d']),
       arrival('job-a', 'run-1'),
+      { type: 'selectGeneration', generationId: 'job-a' },
+      {
+        type: 'recordGenerations',
+        entries: [
+          collected('job-c', 'run-2'),
+          collected('job-b', 'run-1'),
+          collected('job-d', 'run-2'),
+        ],
+        at: 6,
+      }
+    )
+
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
+  })
+
+  it('never overrides a candidate the user picked from the strip', () => {
+    // Clicking an older candidate mid-run is a choice about the stage too, and
+    // an arrival is not entitled to overrule it.
+    const state = apply(
+      fixtureEditorState(),
+      began('run-1', ['job-a', 'job-b']),
+      { type: 'selectGeneration', generationId: 'gen-src-1' },
+      arrival('job-a', 'run-1'),
+      arrival('job-b', 'run-1')
+    )
+
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
+      'gen-src-1'
+    )
+  })
+
+  it('claims the selection again for a run started after the choice', () => {
+    // Asking for more candidates is asking to be shown one: the previous
+    // answer stops standing in the way when a new run begins.
+    const state = apply(
+      fixtureEditorState(),
+      began('run-1', ['job-a']),
+      arrival('job-a', 'run-1'),
+      { type: 'selectGeneration', generationId: 'job-a' },
+      began('run-2', ['job-b']),
       arrival('job-b', 'run-2')
     )
 
@@ -693,6 +765,26 @@ describe('a run of several candidates (#26)', () => {
     const state = apply(fixtureEditorState(), arrival('job-resumed', null))
     expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
       'job-resumed'
+    )
+  })
+
+  it('an upload is selected even after the user has chosen something', () => {
+    // Bringing an image in is asking for it to be used (#27) — unlike a job
+    // arriving, it happened because someone did it just now.
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'selectGeneration', generationId: 'gen-src-1' },
+      {
+        type: 'recordUpload',
+        generationId: 'upload-9',
+        asset: 'upload-9.png',
+        fileName: 'plate.png',
+        at: 8,
+      }
+    )
+
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
+      'upload-9'
     )
   })
 })
@@ -718,10 +810,10 @@ describe('batch size (#26)', () => {
     })
 
     const project = openProjectOf(state)
-    expect(project.imageBatchSize).toBe(2)
+    expect(project.batchSizes.source).toBe(2)
     expect(batchSizeFor(project, 'source')).toBe(2)
-    // The image stages share one setting; video keeps its own.
-    expect(configuredBatchSize(project, 'style')).toBe(2)
+    // Per stage, so setting one leaves the others exactly as they were.
+    expect(configuredBatchSize(project, 'style')).toBe(4)
     expect(batchSizeFor(project, 'animate')).toBe(1)
   })
 
@@ -734,8 +826,8 @@ describe('batch size (#26)', () => {
       })
     )
 
-    expect(project.videoBatchSize).toBe(3)
-    expect(project.imageBatchSize).toBe(4)
+    expect(project.batchSizes.animate).toBe(3)
+    expect(project.batchSizes.source).toBe(4)
   })
 
   it('refuses a size we would not actually submit', () => {
@@ -754,8 +846,8 @@ describe('batch size (#26)', () => {
       })
     )
 
-    expect(huge.imageBatchSize).toBe(4)
-    expect(none.imageBatchSize).toBe(1)
+    expect(huge.batchSizes.source).toBe(4)
+    expect(none.batchSizes.source).toBe(1)
   })
 
   it('collapses to one candidate while the seed is pinned', () => {

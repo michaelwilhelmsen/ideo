@@ -9,6 +9,7 @@ import type {
   EditorState,
   Generation,
   Project,
+  RunRecord,
   StageKind,
   StageRecipe,
 } from './types'
@@ -120,8 +121,11 @@ export function blockedReasonKey(
  * one video, because a four-up of a clip that costs real money per second
  * would genuinely hurt. Copied into a project at creation (PRD §11).
  */
-export const DEFAULT_IMAGE_BATCH = 4
-export const DEFAULT_VIDEO_BATCH = 1
+export const DEFAULT_BATCH_SIZES: Readonly<Record<StageKind, number>> = {
+  source: 4,
+  style: 4,
+  animate: 1,
+}
 
 /**
  * The range the stepper offers, and the range anything read off disk is held
@@ -145,9 +149,7 @@ export function configuredBatchSize(
   project: Project,
   stage: StageKind
 ): number {
-  return clampBatchSize(
-    stage === 'animate' ? project.videoBatchSize : project.imageBatchSize
-  )
+  return clampBatchSize(project.batchSizes[stage])
 }
 
 /**
@@ -216,6 +218,81 @@ export function runGroups(
   }
 
   return groups
+}
+
+/**
+ * The run a stage is currently offering a choice from, or `null`.
+ *
+ * The newest one the user has not answered — answering is a click on a
+ * candidate, which is the whole point of the grid. Deliberately not "the run
+ * with jobs still running": `active_jobs` reports only what is running, so a
+ * run would vanish the moment its last job completed and the user would never
+ * see the finished four-up they were waiting for.
+ */
+export function activeRunFor(
+  state: EditorState,
+  projectId: string,
+  stage: StageKind
+): RunRecord | null {
+  const runs = state.runs.filter(
+    run =>
+      run.projectId === projectId &&
+      run.stage === stage &&
+      !run.picked &&
+      expectedOf(run).length > 0
+  )
+
+  return runs.at(-1) ?? null
+}
+
+/** The run that produced a generation, as far as this session knows. */
+export function runIdForGeneration(
+  state: EditorState,
+  generationId: string
+): string | null {
+  const run = state.runs.find(record =>
+    record.generationIds.includes(generationId)
+  )
+  return run?.id ?? null
+}
+
+/** The candidates a run is still expecting — everything it has not given up on. */
+export function expectedOf(run: RunRecord): readonly string[] {
+  return run.generationIds.filter(id => !run.abandonedIds.includes(id))
+}
+
+/** What a run has produced so far, and how much of it is still coming. */
+export interface RunProgress {
+  readonly arrived: readonly Generation[]
+  /** How many candidates are still expected but not here yet. */
+  readonly waiting: number
+  readonly total: number
+}
+
+export function runProgress(project: Project, run: RunRecord): RunProgress {
+  const expected = expectedOf(run)
+  const arrived = project.generations.filter(generation =>
+    expected.includes(generation.id)
+  )
+
+  return {
+    arrived,
+    waiting: expected.length - arrived.length,
+    total: expected.length,
+  }
+}
+
+/**
+ * The stages whose selection an arrival may take when nothing is watching.
+ *
+ * Used for a project that is not open (#24): there is no grid to choose from
+ * and no session state to consult, so an arrival fills an empty selection —
+ * the next stage needs an input — and otherwise leaves the last one alone.
+ */
+export function stagesWithoutSelection(
+  project: Project
+): ReadonlySet<StageKind> {
+  return new Set(STAGE_ORDER.filter(stage => project.selection[stage] === null))
 }
 
 /**

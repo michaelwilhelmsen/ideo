@@ -243,11 +243,7 @@ export function StageParameters({
           }
         />
         <p className="text-xs text-muted-foreground">
-          {t(
-            stage === 'animate'
-              ? 'editor.batch.hint.video'
-              : 'editor.batch.hint.image'
-          )}
+          {t('editor.batch.hint')}
         </p>
       </Field>
 

@@ -11,7 +11,7 @@
  *    source stage produces real files; style and animate arrive in #28/#29.
  */
 
-import { DEFAULT_IMAGE_BATCH, DEFAULT_VIDEO_BATCH } from './selectors'
+import { DEFAULT_BATCH_SIZES } from './selectors'
 import type {
   EditorState,
   Generation,
@@ -145,8 +145,7 @@ export const ATLAS: Project = {
   name: 'Atlas — hero',
   aspect: '21:9',
   createdAt: T0,
-  imageBatchSize: DEFAULT_IMAGE_BATCH,
-  videoBatchSize: DEFAULT_VIDEO_BATCH,
+  batchSizes: DEFAULT_BATCH_SIZES,
   generations: [
     // One click, three candidates (#26) — the strip groups them under the run
     // that produced them, and the style candidates below deliberately do not
@@ -287,8 +286,7 @@ export const LEDGER: Project = {
   name: 'Ledger — hero',
   aspect: '16:9',
   createdAt: T0 + 40 * MINUTE,
-  imageBatchSize: DEFAULT_IMAGE_BATCH,
-  videoBatchSize: DEFAULT_VIDEO_BATCH,
+  batchSizes: DEFAULT_BATCH_SIZES,
   generations: [
     generation('gen-led-1', 'source', 1, 55_120_777, 41, ledgerSource),
   ],
@@ -327,6 +325,10 @@ export function fixtureEditorState(): EditorState {
     directory: `/tmp/ideo-fixture/${ATLAS.id}`,
     activeStage: 'style',
     showRejected: false,
+    // Nothing in flight, and nothing decided since — a project as it looks
+    // when it has just been opened.
+    runs: [],
+    selectedBy: { source: null, style: null, animate: null },
   }
 }
 

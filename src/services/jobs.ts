@@ -28,6 +28,9 @@ import { logger } from '@/lib/logger'
 import {
   isStageKind,
   readRecipe,
+  runIdForGeneration,
+  STAGE_ORDER,
+  stagesWithoutSelection,
   withCollectedGenerations,
   type CompletedRun,
   type StageKind,
@@ -43,8 +46,8 @@ import {
   type SubmittedJob,
 } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
+import { mintRunId } from '@/components/editor/run-request'
 import { openProjectById, saveProject } from './projects'
-import { runIdOf } from './run-ids'
 
 /** Both match `src-tauri/src/jobs/runner.rs`. */
 const PROGRESS_EVENT = 'generation-progress'
@@ -236,8 +239,53 @@ export function useJobResults(): void {
   const { data: jobs } = useActiveJobs(projectId)
 
   useResumedAnnouncement(jobs)
+  useAdoptedRuns(projectId, jobs)
   useSweepOnOpen(projectId)
   useSettledJobs()
+}
+
+/**
+ * Takes work a previous launch left running into a run of its own (#26).
+ *
+ * Without this a resumed batch has no run: the store does not carry one, so
+ * the candidates would arrive ungrouped and the stage would have nothing to
+ * show while they did. Adopting them mints one id for the lot, which is
+ * exactly what the click would have done — the user is waiting on a batch
+ * either way, and which launch submitted it is not their problem.
+ *
+ * Grouped per stage, because a run belongs to a stage. Jobs already inside a
+ * run are left alone, so this runs on every poll and adopts only once.
+ */
+function useAdoptedRuns(
+  projectId: string | null,
+  jobs: readonly Job[] | undefined
+): void {
+  useEffect(() => {
+    if (projectId === null || jobs === undefined || jobs.length === 0) return
+
+    const { state, dispatch } = useEditorStore.getState()
+
+    const orphaned = jobs.filter(
+      job => runIdForGeneration(state, job.generationId) === null
+    )
+    if (orphaned.length === 0) return
+
+    for (const stage of STAGE_ORDER) {
+      const forStage = orphaned.filter(job => job.stage === stage)
+      if (forStage.length === 0) continue
+
+      dispatch({
+        type: 'beginRun',
+        runId: mintRunId(),
+        generationIds: forStage.map(job => job.generationId),
+        projectId,
+        stage,
+        // The click happened in another session; the earliest submit is the
+        // closest thing to when this run started.
+        at: Math.min(...forStage.map(job => job.submittedAt)),
+      })
+    }
+  }, [projectId, jobs])
 }
 
 /**
@@ -299,11 +347,23 @@ function useSettledJobs(): void {
           // A stale list is corrected by the next sweep.
         })
 
+      // A job that failed or was cancelled produces nothing, ever. Saying so
+      // is what stops the run it belonged to from holding a place open for a
+      // candidate that is not coming (#26).
+      if (settled.outcome === 'failed' || settled.outcome === 'cancelled') {
+        useEditorStore.getState().dispatch({
+          type: 'abandonGenerations',
+          generationIds: [settled.generationId],
+        })
+      }
+
       if (settled.outcome === 'failed' && settled.error !== null) {
         toast.error(generationErrorMessage(i18n.t, settled.error))
         return
       }
 
+      // Abandoned is not failed: the job is still on the books and the next
+      // launch resumes it, so the run keeps waiting for it.
       if (settled.outcome === 'abandoned') {
         toast.warning(i18n.t('generate.job.abandoned'))
         return
@@ -413,7 +473,15 @@ async function record(
   // something else. The result is paid for either way, so it goes into its own
   // manifest off disk rather than waiting for the user to happen to look.
   const { project } = await openProjectById(projectId)
-  const updated = withCollectedGenerations(project, entries, Date.now())
+  const updated = withCollectedGenerations(
+    project,
+    entries,
+    Date.now(),
+    // Nobody is looking at this project, so there is no grid to choose from:
+    // an arrival fills a stage that has no input yet and otherwise leaves the
+    // last choice alone.
+    stagesWithoutSelection(project)
+  )
 
   // If the editor opened it while we were reading, the copy in memory does not
   // know about these — writing ours would be overwritten by their next edit.
@@ -450,9 +518,12 @@ function asCompletedRun(job: Job): CompletedRun | null {
     recipe,
     seed: job.seed,
     asset: job.asset,
-    // `null` for a job submitted by a previous launch: the store knows nothing
-    // about runs (#26), so a resumed candidate arrives ungrouped rather than
-    // not at all.
-    runId: runIdOf(job.generationId),
+    // The run this session has it under (#26) — including one adopted from a
+    // previous launch. `null` only when it settled before we ever saw it,
+    // which reads as an ungrouped candidate rather than a lost one.
+    runId: runIdForGeneration(
+      useEditorStore.getState().state,
+      job.generationId
+    ),
   }
 }

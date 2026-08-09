@@ -101,8 +101,7 @@ describe('runs and batch sizes reach the disk (#26)', () => {
   it('gives a new project the defaults, copied rather than referenced', () => {
     const project = newProject('Something new', '16:9')
 
-    expect(project.imageBatchSize).toBe(4)
-    expect(project.videoBatchSize).toBe(1)
+    expect(project.batchSizes).toEqual({ source: 4, style: 4, animate: 1 })
   })
 
   it('writes back a changed batch size', async () => {
@@ -114,7 +113,7 @@ describe('runs and batch sizes reach the disk (#26)', () => {
         .dispatch({ type: 'setBatchSize', stage: 'source', size: 2 })
     })
 
-    await waitFor(() => expect(lastSavedProject().imageBatchSize).toBe(2), {
+    await waitFor(() => expect(lastSavedProject().batchSizes.source).toBe(2), {
       timeout: 3000,
     })
   })

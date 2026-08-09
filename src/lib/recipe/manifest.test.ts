@@ -125,11 +125,13 @@ describe('runs and batch sizes (#26)', () => {
 
   it('carries the batch sizes the project was set to', () => {
     const project = readManifest(
-      writeManifest({ ...ATLAS, imageBatchSize: 2, videoBatchSize: 1 }, 1)
+      writeManifest(
+        { ...ATLAS, batchSizes: { source: 2, style: 3, animate: 1 } },
+        1
+      )
     )
 
-    expect(project.imageBatchSize).toBe(2)
-    expect(project.videoBatchSize).toBe(1)
+    expect(project.batchSizes).toEqual({ source: 2, style: 3, animate: 1 })
   })
 
   it('reads a manifest written before the slice, with neither field', () => {
@@ -146,29 +148,29 @@ describe('runs and batch sizes (#26)', () => {
         }
       ),
     }
-    delete older.imageBatchSize
-    delete older.videoBatchSize
+    delete older.batchSizes
 
     const project = readManifest(older)
 
     // Ungrouped, not unreadable: the candidates are all still there.
     expect(project.generations).toHaveLength(ATLAS.generations.length)
-    expect(project.generations.every(g => g.runId === null)).toBe(true)
+    expect(
+      project.generations.every(generation => generation.runId === null)
+    ).toBe(true)
     // And the project produces what a project created today would.
-    expect(project.imageBatchSize).toBe(4)
-    expect(project.videoBatchSize).toBe(1)
+    expect(project.batchSizes).toEqual({ source: 4, style: 4, animate: 1 })
   })
 
   it('holds a hand-edited batch size to what we would actually submit', () => {
-    // Forty paid calls one click away is the failure this prevents.
+    // Forty paid calls one click away is the failure this prevents. Clamped
+    // rather than refused: forty plainly means "as many as you can", and four
+    // is as many as we do.
     const project = readManifest({
       ...writeManifest(ATLAS, 1),
-      imageBatchSize: 40,
-      videoBatchSize: 0,
+      batchSizes: { source: 40, style: 0, animate: 'lots' },
     })
 
-    expect(project.imageBatchSize).toBe(4)
-    expect(project.videoBatchSize).toBe(1)
+    expect(project.batchSizes).toEqual({ source: 4, style: 1, animate: 1 })
   })
 })
 

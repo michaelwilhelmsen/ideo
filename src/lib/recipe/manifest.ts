@@ -19,11 +19,7 @@
  */
 
 import { isAspectId } from './aspects'
-import {
-  clampBatchSize,
-  DEFAULT_IMAGE_BATCH,
-  DEFAULT_VIDEO_BATCH,
-} from './selectors'
+import { clampBatchSize, DEFAULT_BATCH_SIZES } from './selectors'
 import type {
   Generation,
   ParamValue,
@@ -72,12 +68,11 @@ export interface ProjectManifest {
   readonly selection: unknown
   readonly generations: readonly ManifestGeneration[]
   /**
-   * #26. Absent in older manifests, which read as the defaults — the same
-   * numbers a project created today would have been given, so nothing about
-   * an existing project changes by being opened.
+   * #26, keyed by stage. Absent in older manifests, which read as the
+   * defaults — the same numbers a project created today would be given, so
+   * nothing about an existing project changes by being opened.
    */
-  readonly imageBatchSize: number
-  readonly videoBatchSize: number
+  readonly batchSizes: Readonly<Record<string, number>>
 }
 
 /** The project, as the bytes that go to disk. */
@@ -89,8 +84,7 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
     aspect: project.aspect,
     createdAt: project.createdAt,
     updatedAt: now,
-    imageBatchSize: project.imageBatchSize,
-    videoBatchSize: project.videoBatchSize,
+    batchSizes: project.batchSizes,
     drafts: project.drafts,
     selection: project.selection,
     generations: project.generations.map(generation => ({
@@ -139,12 +133,7 @@ export function readManifest(document: unknown): Project {
     name: asString(manifest.name, 'name'),
     aspect,
     createdAt: asNumber(manifest.createdAt, 'createdAt'),
-    // Missing is the normal case for a manifest written before #26, and a
-    // number outside the range is a hand-edit — both take the default rather
-    // than the project, because a batch size is a preference and the recipe
-    // is the thing worth refusing over.
-    imageBatchSize: readBatchSize(manifest.imageBatchSize, DEFAULT_IMAGE_BATCH),
-    videoBatchSize: readBatchSize(manifest.videoBatchSize, DEFAULT_VIDEO_BATCH),
+    batchSizes: readBatchSizes(manifest.batchSizes),
     drafts: readDrafts(manifest.drafts),
     generations,
     selection: readSelection(manifest.selection, known),
@@ -186,10 +175,28 @@ function readGeneration(document: unknown): Generation | null {
   }
 }
 
-/** A batch size we would be willing to submit, or the default. */
-function readBatchSize(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
-  return clampBatchSize(value)
+/**
+ * How many candidates each stage produces, held to what we would submit.
+ *
+ * Missing is the normal case for a manifest written before #26 and takes the
+ * default. A number that is there but outside the range is a hand-edit, and is
+ * *clamped* rather than replaced: `40` plainly means "as many as you can", and
+ * four is as many as we do — refusing the project over a preference would be
+ * the wrong trade when the recipe is what is expensive (PRD §1).
+ */
+function readBatchSizes(value: unknown): Project['batchSizes'] {
+  const record = isRecord(value) ? value : {}
+  const sizes: Partial<Record<StageKind, number>> = {}
+
+  for (const stage of STAGE_ORDER) {
+    const size = record[stage]
+    sizes[stage] =
+      typeof size === 'number' && Number.isFinite(size)
+        ? clampBatchSize(size)
+        : DEFAULT_BATCH_SIZES[stage]
+  }
+
+  return sizes as Project['batchSizes']
 }
 
 /**

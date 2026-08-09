@@ -10,6 +10,7 @@
  * store on the next launch.
  */
 
+import { useState } from 'react'
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -26,23 +27,56 @@ import {
   type StageKind,
 } from '@/lib/recipe'
 import { useSubmitGeneration } from '@/services/jobs'
-import { rememberRun } from '@/services/run-ids'
+import type { GenerationError } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { generationErrorMessage } from './errors'
 
+/**
+ * The ids one click needs: one for the run, one per candidate (#26).
+ *
+ * Minted in one place because both paths need exactly this and they must not
+ * drift — a fixture stage that grouped its candidates differently from a paid
+ * one would make the strip's grouping mean two things.
+ */
+export interface PlannedBatch {
+  readonly runId: string
+  readonly generationIds: readonly string[]
+}
+
+/** A candidate fal.ai never took, and why. */
+interface RefusedSubmit {
+  readonly generationId: string
+  readonly error: GenerationError
+}
+
+/**
+ * One run's id. The only place one is ever made — including for a batch a
+ * previous launch left running, which the sweep adopts into a run of its own.
+ */
+export function mintRunId(): string {
+  return crypto.randomUUID()
+}
+
+export function planBatch(count: number): PlannedBatch {
+  return {
+    runId: mintRunId(),
+    // Minted before the submit because the file is named after it — the
+    // manifest entry and the file on disk agree by construction.
+    generationIds: Array.from({ length: count }, () => crypto.randomUUID()),
+  }
+}
+
 export function runStageAction(stage: StageKind, count: number): EditorAction {
-  // One id for the whole click (#26), so the candidates it produces can be
-  // shown as the single choice they are rather than as four unrelated images.
-  const runId = crypto.randomUUID()
+  const batch = planBatch(count)
 
   return {
     type: 'runStage',
     stage,
-    runs: Array.from({ length: count }, () => ({
-      id: crypto.randomUUID(),
+    runs: batch.generationIds.map(id => ({
+      id,
       seed: rollSeed(),
       asset: null,
-      runId,
+      runId: batch.runId,
     })),
     at: Date.now(),
   }
@@ -95,6 +129,10 @@ export function useRunStage(
   const submit = useSubmitGeneration()
   const queryClient = useQueryClient()
 
+  // Tracked here rather than read off the mutation, because a batch is several
+  // mutations on one observer and the observer only remembers the last.
+  const [submitting, setSubmitting] = useState(false)
+
   if (stage !== 'source') {
     return {
       run: () => dispatch(runStageAction(stage, batch)),
@@ -108,7 +146,7 @@ export function useRunStage(
     // (PRD §3.3), so refusing a second click would be this app enforcing a
     // limit fal.ai and the semaphore already handle — and would stop someone
     // from queueing the next idea while the current one renders.
-    isRunning: submit.isPending,
+    isRunning: submitting,
     run: () => void submitWhenKeyed(),
   }
 
@@ -137,42 +175,77 @@ export function useRunStage(
     // One job per candidate (#26, PRD §4.2). Rust still takes one call at a
     // time and the semaphore paces them, so this is a queue of `batch` jobs
     // rather than a batch request — three run, the rest wait (PRD §3.3).
-    const runId = crypto.randomUUID()
+    const planned = planBatch(batch)
 
-    // The same failure four times is one failure. Four identical toasts for
-    // one click would read as four separate things having gone wrong.
-    let reported = false
+    // Written down before the submits, because a job can settle before the
+    // last `mutateAsync` has even resolved.
+    dispatch({
+      type: 'beginRun',
+      runId: planned.runId,
+      projectId: project.id,
+      stage,
+      generationIds: planned.generationIds,
+      at: Date.now(),
+    })
 
-    for (let index = 0; index < batch; index++) {
-      // Minted here because the file is named after it — the manifest entry
-      // and the file on disk agree by construction.
-      const generationId = crypto.randomUUID()
+    setSubmitting(true)
 
-      // Written down before the submit, because the result may arrive before
-      // `mutate` has returned.
-      rememberRun(generationId, runId)
-
-      submit.mutate(
-        {
-          projectId: project.id,
-          generationId,
-          stage,
-          recipe,
-          prompt: recipe.prompt,
-          modelId: built.modelId,
-          params: built.params,
-        },
-        {
-          // A submit that failed bought nothing and mints nothing: an empty
-          // candidate would look like an orphan to the cleanup pass and like
-          // a result to everyone else.
-          onError: error => {
-            if (reported) return
-            reported = true
-            toast.error(generationErrorMessage(t, error))
-          },
+    // `mutateAsync` per candidate rather than `mutate` with callbacks: one
+    // mutation observer keeps only the most recent call's handlers, so three
+    // refusals behind one success would have gone out silently.
+    const settled = await Promise.allSettled(
+      planned.generationIds.map(async generationId => {
+        try {
+          return await submit.mutateAsync({
+            projectId: project.id,
+            generationId,
+            stage,
+            recipe,
+            prompt: recipe.prompt,
+            modelId: built.modelId,
+            params: built.params,
+          })
+        } catch (error: unknown) {
+          // `useSubmitGeneration` rejects with the reason Rust named, so the
+          // refusal can be said in the user's own language (PRD §10.4).
+          const refusal: RefusedSubmit = {
+            generationId,
+            error: error as GenerationError,
+          }
+          throw refusal
         }
-      )
-    }
+      })
+    )
+
+    setSubmitting(false)
+
+    const refused = settled.flatMap(result =>
+      result.status === 'rejected' ? [result.reason as RefusedSubmit] : []
+    )
+
+    const first = refused.at(0)
+    if (first === undefined) return
+
+    // A submit that failed bought nothing and mints nothing, so the run stops
+    // waiting for it: a candidate that will never arrive would otherwise hold
+    // a place in the grid for the rest of the session.
+    dispatch({
+      type: 'abandonGenerations',
+      generationIds: refused.map(failure => failure.generationId),
+    })
+
+    // One click, one refusal — but it has to say how much of the batch went
+    // down, because "three of four could not be submitted" and "none of them
+    // could" are different things to have just been charged for.
+    const reason = generationErrorMessage(t, first.error)
+    toast.error(
+      refused.length === planned.generationIds.length
+        ? reason
+        : t('generate.error.someCandidates', {
+            failed: refused.length,
+            total: planned.generationIds.length,
+            reason,
+          })
+    )
   }
 }

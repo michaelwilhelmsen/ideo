@@ -146,16 +146,18 @@ export interface Project {
   readonly aspect: AspectId
   readonly createdAt: number
   /**
-   * How many candidates one run produces, per PRD §4.2 — four images, one
-   * video.
+   * How many candidates one run of each stage produces, per PRD §4.2 — four
+   * images, one video.
+   *
+   * Keyed by stage like `drafts` and `selection` rather than named per medium,
+   * so nothing downstream has to keep asking which stages are images.
    *
    * Per project rather than per app, and *copied* from the defaults at
    * creation (PRD §11): changing a default later must not quietly make an old
    * project spend four times as much on its next click. Unlike the aspect
    * ratio these stay editable, because nothing already made depends on them.
    */
-  readonly imageBatchSize: number
-  readonly videoBatchSize: number
+  readonly batchSizes: Readonly<Record<StageKind, number>>
   /** The editable form per stage — what a re-run would submit right now. */
   readonly drafts: Readonly<Record<StageKind, StageRecipe>>
   /** Flat and append-only. Stage membership is a field, not a bucket. */
@@ -200,4 +202,48 @@ export interface EditorState {
   readonly activeStage: StageKind
   /** PRD §10.3 — rejected candidates stay reachable behind one toggle. */
   readonly showRejected: boolean
+  /**
+   * The runs this session is watching (#26).
+   *
+   * Session state, deliberately: a run is a thing being waited on, and the
+   * manifest already records the durable half of it on each candidate. Held
+   * here rather than in a module of its own so the grid subscribes to it like
+   * everything else — see `docs/developer/state-management.md`.
+   */
+  readonly runs: readonly RunRecord[]
+  /**
+   * How each stage's selection got where it is, since that stage's last run
+   * began. `null` means nothing has decided it yet, which is the only state in
+   * which an arriving candidate may take it.
+   */
+  readonly selectedBy: Readonly<Record<StageKind, SelectionSource>>
+}
+
+/** Who last set a stage's selection — see {@link EditorState.selectedBy}. */
+export type SelectionSource = 'user' | 'arrival' | null
+
+/**
+ * One click's worth of generations, and what became of them (#26, PRD §4.2).
+ *
+ * Membership is a list of generation ids rather than a job filter, because the
+ * job store is not a reliable census of a run: `active_jobs` reports only what
+ * is *running*, so a completed job leaves the list before its candidate is in
+ * the manifest, and a stalled one leaves without producing anything. A run
+ * that asked the job store how big it was would shrink as it succeeded.
+ */
+export interface RunRecord {
+  readonly id: string
+  readonly projectId: string
+  readonly stage: StageKind
+  readonly startedAt: number
+  /** Every candidate the run asked for, in submission order. */
+  readonly generationIds: readonly string[]
+  /**
+   * The ones that will never arrive — a submit fal refused, a job that failed
+   * or was cancelled. Kept rather than removed so the grid can stop waiting
+   * without pretending the run was smaller than it was.
+   */
+  readonly abandonedIds: readonly string[]
+  /** The user has answered this run: the grid steps aside. */
+  readonly picked: boolean
 }

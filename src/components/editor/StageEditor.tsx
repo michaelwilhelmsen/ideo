@@ -15,16 +15,14 @@
  * which is why `activeProject` is nullable.
  */
 
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import {
   activeProject,
+  activeRunFor,
   generationsForStage,
   selectedGeneration,
   STAGE_ORDER,
-  type Project,
-  type StageKind,
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
 import {
@@ -37,13 +35,14 @@ import {
   SeedComparison,
 } from './shared'
 import { useGenerationName } from './naming'
-import { useActiveRun } from './active-run'
 import { RunGrid } from './RunGrid'
 import { SourceUpload } from './SourceUpload'
 
 export function StageEditor() {
   const { t } = useTranslation()
   const state = useEditorStore(store => store.state)
+  const dispatch = useEditorStore(store => store.dispatch)
+  const nameOf = useGenerationName()
 
   const project = activeProject(state)
 
@@ -58,36 +57,12 @@ export function StageEditor() {
     )
   }
 
-  return <OpenStageEditor project={project} stage={state.activeStage} />
-}
-
-/**
- * The editor with something in it — split out so the run in flight can be
- * asked about with hooks, which the nothing-open case above has no project to
- * ask for.
- */
-function OpenStageEditor({
-  project,
-  stage,
-}: {
-  project: Project
-  stage: StageKind
-}) {
-  const { t } = useTranslation()
-  const dispatch = useEditorStore(store => store.dispatch)
-  const nameOf = useGenerationName()
-
+  const stage = state.activeStage
   const selected = selectedGeneration(project, stage)
-  const run = useActiveRun(project, stage)
 
-  /**
-   * The run whose grid has been answered. Clicking a candidate is the choice
-   * the grid exists for, so it hands the stage back rather than holding it
-   * until the last job settles — the remaining candidates are still arriving,
-   * and they land in the strip like anything else.
-   */
-  const [picked, setPicked] = useState<string | null>(null)
-  const showRun = run.pending.length > 0 && (run.runId ?? '') !== picked
+  // The run this stage is still offering a choice from, if any — see
+  // `activeRunFor`, which deliberately does not ask the job queue.
+  const run = activeRunFor(state, project.id, stage)
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -131,13 +106,8 @@ function OpenStageEditor({
             the same size, rather than a hero showing whichever landed first
             (#26). The strip stays below — history does not go away because
             something is generating. */}
-        {showRun ? (
-          <RunGrid
-            project={project}
-            stage={stage}
-            run={run}
-            onPick={() => setPicked(run.runId ?? '')}
-          />
+        {run !== null ? (
+          <RunGrid project={project} run={run} />
         ) : selected === null ? (
           <EmptyPreview
             aspect={project.aspect}

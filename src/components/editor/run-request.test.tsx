@@ -19,7 +19,7 @@ import { render, screen, waitFor } from '@/test/test-utils'
 import { LEDGER } from '@/lib/recipe'
 import { commands, type Job } from '@/lib/tauri-bindings'
 import { useUIStore } from '@/store/ui-store'
-import { runIdOf } from '@/services/run-ids'
+import { useEditorStore } from '@/store/editor-store'
 import { useRunStage } from './run-request'
 
 vi.mock('sonner', () => ({
@@ -100,8 +100,17 @@ function BatchProbe({ batch }: { batch: number }) {
   )
 }
 
+/** The run this session recorded for a submitted candidate, if any. */
+function runIdOf(generationId: string): string | null {
+  const run = useEditorStore
+    .getState()
+    .state.runs.find(record => record.generationIds.includes(generationId))
+  return run?.id ?? null
+}
+
 describe('one click, several candidates', () => {
   beforeEach(() => {
+    useEditorStore.getState().reset()
     mockCommands.hasFalApiKey.mockResolvedValue({ status: 'ok', data: true })
     // Restated per test: `clearAllMocks` forgets the calls, not what a mock
     // was last told to return.
@@ -205,6 +214,61 @@ describe('one click, several candidates', () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled())
     expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1)
+    // The reason Rust named, said in the user's language — not a count, since
+    // none of the batch went out at all.
+    expect(String(vi.mocked(toast.error).mock.calls[0]?.[0])).toMatch(
+      /could not reach fal\.ai/i
+    )
+  })
+
+  it('says so when only part of the batch was refused', async () => {
+    // One mutation observer keeps only the last call's handlers, so three
+    // refusals behind one success used to go out in complete silence.
+    mockCommands.generateImage
+      .mockResolvedValueOnce({
+        status: 'error',
+        error: { reason: 'rateLimited', detail: null, status: null },
+      })
+      .mockResolvedValueOnce({
+        status: 'error',
+        error: { reason: 'rateLimited', detail: null, status: null },
+      })
+      .mockResolvedValue({
+        status: 'ok',
+        data: { requestId: 'req-ok', generationId: 'gen-ok' },
+      })
+
+    render(<BatchProbe batch={4} />)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'run' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1)
+    // How much of what was clicked actually went out — "2 of 4" and "none of
+    // them" are different things to have just been charged for.
+    expect(String(vi.mocked(toast.error).mock.calls[0]?.[0])).toMatch(/2.*4/)
+  })
+
+  it('stops waiting for a candidate fal.ai refused', async () => {
+    // A refused submit bought nothing and will never arrive, so the run must
+    // not hold a place open for it in the grid.
+    mockCommands.generateImage
+      .mockResolvedValueOnce({
+        status: 'error',
+        error: { reason: 'rateLimited', detail: null, status: null },
+      })
+      .mockResolvedValue({
+        status: 'ok',
+        data: { requestId: 'req-ok', generationId: 'gen-ok' },
+      })
+
+    render(<BatchProbe batch={4} />)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'run' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+
+    const run = useEditorStore.getState().state.runs.at(-1)
+    expect(run?.generationIds).toHaveLength(4)
+    expect(run?.abandonedIds).toHaveLength(1)
   })
 })
 

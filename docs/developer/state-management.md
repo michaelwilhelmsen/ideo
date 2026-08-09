@@ -161,6 +161,16 @@ This app uses React Compiler which automatically handles memoization. You do **n
 - Feature flags and configuration
 - Temporary workflow state
 
+### Session Facts Go in the Store, Not in a Module
+
+State that outlives a component but not the session — which runs are in flight, what
+answered a question — belongs in the store beside everything else, even when nothing
+about it is persisted. A module-level `Map` is tempting and wrong: components reading it
+during render are reading state React cannot see, so nothing re-renders when it changes
+and nothing invalidates. `EditorState.runs` and `EditorState.selectedBy` (see
+`docs/developer/ui-patterns.md`, "Runs of Candidates") are the worked example — never
+written to disk, and still ordinary reducer state.
+
 ## Pure Reducer Behind a Store
 
 When the transitions themselves are the interesting part — several actions, ordering

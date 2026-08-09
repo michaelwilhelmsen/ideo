@@ -188,7 +188,7 @@ describe('StageParameters — batch (#26)', () => {
     // The button and the estimate above it have to agree with the stepper, or
     // the number beside "Generate" is not what the click costs (PRD §10.2).
     expect(screen.getByRole('button', { name: 'Generate 2' })).toBeEnabled()
-    expect(useEditorStore.getState().state.project?.imageBatchSize).toBe(2)
+    expect(useEditorStore.getState().state.project?.batchSizes.source).toBe(2)
   })
 
   it('prices the batch, not one call', () => {

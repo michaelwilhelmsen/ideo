@@ -8,6 +8,7 @@
  */
 
 import { render, screen, waitFor } from '@/test/test-utils'
+import { act } from 'react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
@@ -21,7 +22,6 @@ import {
 import { commands, type Job, type JsonValue } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { collectFinished } from './jobs'
-import { forgetRuns, rememberRun } from './run-ids'
 
 /** A job the store was holding when the app started. */
 function finishedJob(overrides: Partial<Job> = {}): Job {
@@ -220,14 +220,14 @@ describe('collecting work that survived a quit', () => {
  * The run a collected candidate belongs to (#26).
  *
  * The job store knows nothing about runs, so this is the one place the
- * grouping can be lost: it is remembered in this session and attached as the
- * result is folded in. A job that outlived the session has to arrive anyway.
+ * grouping can be lost: the session records which click submitted what, and
+ * the sweep adopts anything a previous launch left running so a resumed batch
+ * is watched exactly like a fresh one.
  */
 describe('a collected candidate remembers its run', () => {
   beforeEach(() => {
     useEditorStore.getState().reset()
     vi.mocked(commands.saveProject).mockClear()
-    forgetRuns()
     vi.mocked(commands.activeJobs).mockResolvedValue({ status: 'ok', data: [] })
     vi.mocked(commands.finishedJobs).mockResolvedValue({
       status: 'ok',
@@ -235,26 +235,68 @@ describe('a collected candidate remembers its run', () => {
     })
   })
 
+  /** The candidate the fixture job produces, as it was written to disk. */
+  function savedCandidate() {
+    return lastSavedProject().generations.find(
+      generation => generation.id === 'gen-from-last-time'
+    )
+  }
+
   it('carries the run it was submitted with into the manifest', async () => {
-    rememberRun('gen-from-last-time', 'run-this-session')
+    await openAtlas()
+
+    // As `useRunStage` records it before the submits go out.
+    act(() => {
+      useEditorStore.getState().dispatch({
+        type: 'beginRun',
+        runId: 'run-this-session',
+        projectId: ATLAS.id,
+        stage: 'source',
+        generationIds: ['gen-from-last-time'],
+        at: 1,
+      })
+    })
+
     vi.mocked(commands.finishedJobs).mockResolvedValue({
       status: 'ok',
       data: [finishedJob()],
     })
 
+    await act(async () => {
+      await collectFinished(ATLAS.id)
+    })
+
+    expect(savedCandidate()?.runId).toBe('run-this-session')
+  })
+
+  it('adopts a batch a previous launch left running, so it is grouped too', async () => {
+    // Nothing in this session submitted these, and the user is still waiting
+    // on them: they are a run whichever launch clicked Generate.
+    vi.mocked(commands.activeJobs).mockResolvedValue({
+      status: 'ok',
+      data: [
+        finishedJob({ requestId: 'req-1', generationId: 'gen-1' }),
+        finishedJob({ requestId: 'req-2', generationId: 'gen-2' }),
+      ],
+    })
+
     await openAtlas()
 
     await waitFor(() => {
-      const saved = lastSavedProject().generations.find(
-        generation => generation.id === 'gen-from-last-time'
-      )
-      expect(saved?.runId).toBe('run-this-session')
+      const runs = useEditorStore.getState().state.runs
+      expect(runs).toHaveLength(1)
+      expect(runs[0]?.generationIds).toEqual(['gen-1', 'gen-2'])
+      expect(runs[0]?.stage).toBe('source')
+    })
+
+    // Adopted once, however many times the list is polled.
+    await waitFor(() => {
+      expect(useEditorStore.getState().state.runs).toHaveLength(1)
     })
   })
 
-  it('arrives ungrouped rather than not at all when the run is forgotten', async () => {
-    // A job submitted before the last quit: nothing in this session ever knew
-    // which click it came from, and the candidate was still paid for.
+  it('arrives ungrouped rather than not at all when the run is unknown', async () => {
+    // Settled before anything saw it: the candidate was still paid for.
     vi.mocked(commands.finishedJobs).mockResolvedValue({
       status: 'ok',
       data: [finishedJob()],
@@ -263,11 +305,8 @@ describe('a collected candidate remembers its run', () => {
     await openAtlas()
 
     await waitFor(() => {
-      const saved = lastSavedProject().generations.find(
-        generation => generation.id === 'gen-from-last-time'
-      )
-      expect(saved).toBeDefined()
-      expect(saved?.runId).toBeNull()
+      expect(savedCandidate()).toBeDefined()
+      expect(savedCandidate()?.runId).toBeNull()
     })
   })
 })

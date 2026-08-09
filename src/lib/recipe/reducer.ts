@@ -61,13 +61,11 @@ export interface CompletedRun {
   readonly seed: number | null
   readonly asset: string | null
   /**
-   * The run it was submitted with, when this session still remembers it.
-   *
-   * Optional because a job can outlive the app: a result collected on the next
-   * launch has no run to belong to, and the candidate is worth more than the
-   * grouping.
+   * The run it was submitted with, or `null` when this session has no record
+   * of one — a job can outlive the app, and the candidate is worth more than
+   * the grouping.
    */
-  readonly runId?: string | null
+  readonly runId: string | null
 }
 
 /** The editor with nothing open — where the app now starts. */
@@ -78,8 +76,27 @@ export function emptyEditorState(): EditorState {
     directory: null,
     activeStage: 'source',
     showRejected: false,
+    runs: [],
+    selectedBy: { source: null, style: null, animate: null },
   }
 }
+
+/** Nothing has decided any stage's selection yet. */
+const UNDECIDED: EditorState['selectedBy'] = {
+  source: null,
+  style: null,
+  animate: null,
+}
+
+/**
+ * How many runs a session keeps.
+ *
+ * They are a handful of ids each and only the newest un-answered one is ever
+ * shown, but a session that queues runs all day should not grow without
+ * bound. Old enough to have scrolled far out of the strip is old enough to
+ * stop remembering which click produced it.
+ */
+const RUN_HISTORY = 24
 
 export type EditorAction =
   /** The project list arrived from the index. */
@@ -139,6 +156,28 @@ export type EditorAction =
       readonly stage: StageKind
       readonly size: number
     }
+  /**
+   * A run started, and these are the candidates it is waiting for (#26).
+   *
+   * Dispatched by whoever submits — including the sweep that finds jobs a
+   * previous launch left running, which adopts them into a run of their own so
+   * a resumed batch is watched exactly like a fresh one.
+   */
+  | {
+      readonly type: 'beginRun'
+      readonly runId: string
+      readonly projectId: string
+      readonly stage: StageKind
+      readonly generationIds: readonly string[]
+      readonly at: number
+    }
+  /** Candidates that will never arrive: a refused submit, a failed job. */
+  | {
+      readonly type: 'abandonGenerations'
+      readonly generationIds: readonly string[]
+    }
+  /** Put the grid away without choosing — the run stays in the strip. */
+  | { readonly type: 'dismissRun'; readonly runId: string }
   | {
       readonly type: 'runStage'
       readonly stage: StageKind
@@ -202,10 +241,18 @@ export function createEditorReducer(
           // Land on the stage the project has actually got to, so opening an
           // untouched project does not start on a stage it cannot run.
           activeStage: furthestStage(action.project),
+          // Nothing has decided anything about what was just opened. The runs
+          // stay: a job goes on running whichever project is in front of you.
+          selectedBy: UNDECIDED,
         }
 
       case 'closeProject':
-        return { ...state, project: null, directory: null }
+        return {
+          ...state,
+          project: null,
+          directory: null,
+          selectedBy: UNDECIDED,
+        }
 
       case 'selectStage':
         return { ...state, activeStage: action.stage }
@@ -267,56 +314,112 @@ export function createEditorReducer(
         }))
 
       case 'setBatchSize':
-        return editProject(state, project => {
-          const size = clampBatchSize(action.size)
-          return action.stage === 'animate'
-            ? { ...project, videoBatchSize: size }
-            : { ...project, imageBatchSize: size }
-        })
+        return editProject(state, project => ({
+          ...project,
+          batchSizes: {
+            ...project.batchSizes,
+            [action.stage]: clampBatchSize(action.size),
+          },
+        }))
+
+      case 'beginRun':
+        return {
+          ...state,
+          runs: [
+            ...state.runs.slice(-(RUN_HISTORY - 1)),
+            {
+              id: action.runId,
+              projectId: action.projectId,
+              stage: action.stage,
+              startedAt: action.at,
+              generationIds: action.generationIds,
+              abandonedIds: [],
+              picked: false,
+            },
+          ],
+          // A new run is a new question, so whatever answered the last one
+          // stops standing in the way of this one's first candidate.
+          selectedBy: { ...state.selectedBy, [action.stage]: null },
+        }
+
+      case 'abandonGenerations':
+        return {
+          ...state,
+          runs: state.runs.map(run =>
+            run.generationIds.some(id => action.generationIds.includes(id))
+              ? {
+                  ...run,
+                  abandonedIds: [
+                    ...new Set([...run.abandonedIds, ...action.generationIds]),
+                  ].filter(id => run.generationIds.includes(id)),
+                }
+              : run
+          ),
+        }
+
+      case 'dismissRun':
+        return {
+          ...state,
+          runs: state.runs.map(run =>
+            run.id === action.runId ? { ...run, picked: true } : run
+          ),
+        }
 
       case 'runStage':
-        return editProject(state, project =>
-          runStage(registry, project, action)
-        )
+        return {
+          ...editProject(state, project => runStage(registry, project, action)),
+          // The fixture path mints its candidates and selects the first in one
+          // go, so the stage has been decided by an arrival before anything
+          // else can happen.
+          selectedBy: { ...state.selectedBy, [action.stage]: 'arrival' },
+        }
 
       case 'recordGenerations':
-        return editProject(state, project =>
-          withCollectedGenerations(project, action.entries, action.at)
-        )
+        return withArrivals(state, action.entries, action.at)
 
       case 'recordUpload':
-        return editProject(state, project =>
-          withCollectedGenerations(
-            project,
-            [
-              {
-                id: action.generationId,
-                stage: 'source',
-                recipe: uploadRecipe(action.fileName),
-                // No model, so no seed — the same honest `null` a seedless
-                // model gets, rather than a number implying a re-run.
-                seed: null,
-                asset: action.asset,
-              },
-            ],
-            action.at
-          )
-        )
+        return {
+          ...editProject(state, project =>
+            withCollectedGenerations(
+              project,
+              [
+                {
+                  id: action.generationId,
+                  stage: 'source',
+                  recipe: uploadRecipe(action.fileName),
+                  // No model, so no seed — the same honest `null` a seedless
+                  // model gets, rather than a number implying a re-run.
+                  seed: null,
+                  asset: action.asset,
+                  runId: null,
+                },
+              ],
+              action.at,
+              // Bringing an image in is choosing it. Unlike a job arriving,
+              // this happened because someone asked for it just now.
+              new Set<StageKind>(['source'])
+            )
+          ),
+          selectedBy: { ...state.selectedBy, source: 'user' },
+        }
 
       case 'selectGeneration':
-        return editProject(state, project => {
-          const generation = project.generations.find(
-            g => g.id === action.generationId
-          )
-          if (generation === undefined) return project
-          return {
-            ...project,
-            selection: {
-              ...project.selection,
-              [generation.stage]: generation.id,
-            },
-          }
-        })
+        return {
+          ...editProject(state, project => {
+            const generation = project.generations.find(
+              candidate => candidate.id === action.generationId
+            )
+            if (generation === undefined) return project
+            return {
+              ...project,
+              selection: {
+                ...project.selection,
+                [generation.stage]: generation.id,
+              },
+            }
+          }),
+          ...decidedByUser(state, action.generationId),
+        }
 
       case 'setVerdict':
         return editProject(state, project => ({
@@ -395,6 +498,72 @@ function runStage(
 }
 
 /**
+ * A user's own choice of candidate, and what it settles.
+ *
+ * Two things, because they are the same statement: the stage's selection was
+ * decided by a person, so no arrival may move it again until the next run;
+ * and every run of that stage has been answered, so the grid steps aside —
+ * including for a click on a candidate in the strip, which is a choice about
+ * this stage just as much as a click in the grid is.
+ */
+function decidedByUser(
+  state: EditorState,
+  generationId: string
+): Pick<EditorState, 'selectedBy' | 'runs'> {
+  const stage = state.project?.generations.find(
+    generation => generation.id === generationId
+  )?.stage
+
+  if (stage === undefined) {
+    return { selectedBy: state.selectedBy, runs: state.runs }
+  }
+
+  return {
+    selectedBy: { ...state.selectedBy, [stage]: 'user' },
+    runs: state.runs.map(run =>
+      run.stage === stage && run.projectId === state.project?.id
+        ? { ...run, picked: true }
+        : run
+    ),
+  }
+}
+
+/**
+ * Candidates arriving off the job store, and the one question they raise:
+ * may this one take the stage's selection?
+ *
+ * Only when nothing has decided it since the run began — see
+ * {@link EditorState.selectedBy}. That single rule covers every case the
+ * grid can produce: the first arrival claims an undecided stage so the next
+ * stage always has an input; the second, third and fourth do not, because the
+ * first already decided it; and nothing does once the user has clicked, until
+ * they ask for another run.
+ */
+function withArrivals(
+  state: EditorState,
+  entries: readonly CompletedRun[],
+  at: number
+): EditorState {
+  const before = state.project
+  if (before === null) return state
+
+  const claimable = new Set(
+    STAGE_ORDER.filter(stage => state.selectedBy[stage] === null)
+  )
+  const after = withCollectedGenerations(before, entries, at, claimable)
+  if (after === before) return state
+
+  const selectedBy = { ...state.selectedBy }
+  for (const stage of STAGE_ORDER) {
+    if (after.selection[stage] !== before.selection[stage]) {
+      selectedBy[stage] = 'arrival'
+    }
+  }
+
+  return { ...state, project: after, selectedBy }
+}
+
+/**
  * The draft as it would be submitted right now: a copy, with the upstream
  * pointer resolved. `null` when the stage has nothing to work from.
  *
@@ -434,7 +603,8 @@ export function freezeRecipe(
 export function withCollectedGenerations(
   project: Project,
   entries: readonly CompletedRun[],
-  at: number
+  at: number,
+  claimable: ReadonlySet<StageKind>
 ): Project {
   const known = new Set(project.generations.map(generation => generation.id))
   const arriving = entries.filter(entry => !known.has(entry.id))
@@ -456,35 +626,27 @@ export function withCollectedGenerations(
       createdAt: at,
       ordinal,
       asset: entry.asset,
-      runId: entry.runId ?? null,
+      runId: entry.runId,
     }
   })
 
-  // The first arrival in each stage is selected, the same way a fresh run
-  // selects its first candidate: this is the image the user has been waiting
-  // for, possibly across a restart, and the stage after it needs an input
-  // whether or not anyone is watching.
+  // An arrival takes the stage's selection only where the caller says it may —
+  // this is the image the user has been waiting for, possibly across a
+  // restart, and the stage after it needs an input whether or not anyone is
+  // watching. Who is allowed to claim is not decided here, because it depends
+  // on what has happened in the session (see `withArrivals`) and this function
+  // also folds results into projects nobody has open.
   //
-  // What it must never do is take the choice back. Once the selection points
-  // at something from *this* run — the first arrival claiming it, or the user
-  // clicking a tile in the grid while the rest are still coming — later
-  // arrivals leave it alone, or a four-up would end on whichever finished last
-  // and a click made two seconds ago would be undone by a job settling.
-  const held = new Map(project.generations.map(g => [g.id, g]))
+  // Once per stage per batch, whatever the caller allows: the four candidates
+  // of one run must not take it in turns, or the four-up would end on whichever
+  // job happened to finish last.
   const selection = { ...project.selection }
   const claimed = new Set<StageKind>()
 
   for (const generation of created) {
+    if (!claimable.has(generation.stage)) continue
     if (claimed.has(generation.stage)) continue
     claimed.add(generation.stage)
-
-    const current = held.get(selection[generation.stage] ?? '')
-    const withinThisRun =
-      current !== undefined &&
-      current.runId !== null &&
-      current.runId === generation.runId
-
-    if (withinThisRun) continue
     selection[generation.stage] = generation.id
   }
 

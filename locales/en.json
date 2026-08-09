@@ -269,14 +269,14 @@
   "preferences.general.replayOnboardingAction": "Replay walkthrough",
   "generate.addKey": "Add a key",
   "editor.field.batchSize": "Candidates per run",
-  "editor.batch.hint.image": "Picking from several beats re-rolling one at a time. Each candidate is a separate paid call.",
-  "editor.batch.hint.video": "Video is priced per second, so each extra candidate is another whole clip.",
   "editor.action.pinSeed": "Pin this seed",
   "editor.seed.pinThisHint": "Reuse this candidate's seed on the next run, so only what you change changes.",
   "editor.run.title": "This run",
   "editor.run.progress": "{{done}} of {{total}} arrived",
   "editor.run.pending": "Still generating",
-  "editor.run.pick.image": "Pick the one to keep. The rest stay in the strip below — nothing is deleted.",
-  "editor.run.pick.video": "Pick the one to keep. The rest stay in the strip below — nothing is deleted.",
-  "editor.run.number": "Run {{number}}"
+  "editor.run.number": "Run {{number}}",
+  "editor.batch.hint": "Each candidate is a separate paid call, so this is what one click costs.",
+  "editor.run.pick": "Pick the one to keep. The rest stay in the strip below — nothing is deleted.",
+  "editor.run.dismiss": "Not now",
+  "generate.error.someCandidates": "{{failed}} of {{total}} candidates could not be submitted. {{reason}}"
 }

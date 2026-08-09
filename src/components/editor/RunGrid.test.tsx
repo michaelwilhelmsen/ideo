@@ -2,51 +2,37 @@
  * The moment a run is chosen from (#26, PRD §4.2).
  *
  * Four candidates only beat serial re-rolling if they are on screen together
- * and one of them can be kept. What is checked here is that trio: the ones
- * still generating hold their place, the ones that have landed are pickable,
- * and picking one hands the stage back rather than waiting for the queue.
+ * and one of them can be kept. The awkward part is *when* that is true: the
+ * job store reports what is running, so every one of these drives the grid
+ * from the run itself and checks it survives the queue emptying — the moment
+ * the four-up is finally complete is the moment a job-driven grid would
+ * vanish.
  */
 
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor } from '@/test/test-utils'
+import { render, screen } from '@/test/test-utils'
 import { LEDGER, type Generation, type Project } from '@/lib/recipe'
-import { commands, type Job } from '@/lib/tauri-bindings'
-import { rememberRun, forgetRuns } from '@/services/run-ids'
+import { commands } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { StageEditor } from './StageEditor'
 
-const mockCommands = vi.mocked(commands)
-
 const RUN = 'run-under-test'
+const CANDIDATES = ['gen-a', 'gen-b', 'gen-c', 'gen-d']
 
 beforeEach(() => {
   vi.clearAllMocks()
-  forgetRuns()
-  mockCommands.activeJobs.mockResolvedValue({ status: 'ok', data: [] })
-  mockCommands.finishedJobs.mockResolvedValue({ status: 'ok', data: [] })
+  useEditorStore.getState().reset()
+  vi.mocked(commands.activeJobs).mockResolvedValue({ status: 'ok', data: [] })
+  vi.mocked(commands.finishedJobs).mockResolvedValue({ status: 'ok', data: [] })
 })
 
-/** A job the store is holding, submitted by this session as part of `RUN`. */
-function pending(generationId: string): Job {
-  rememberRun(generationId, RUN)
-
-  return {
-    requestId: `req-${generationId}`,
-    projectId: LEDGER.id,
-    generationId,
-    stage: 'source',
-    recipe: LEDGER.drafts.source as unknown as Job['recipe'],
-    status: 'running',
-    modelId: LEDGER.drafts.source.modelId,
-    seed: null,
-    asset: null,
-    submittedAt: Date.now(),
-  } as Job
-}
-
-/** A candidate of that same run, already recorded in the manifest. */
-function arrived(id: string, ordinal: number): Generation {
+/** A candidate of the run, as it looks once it is in the manifest. */
+function arrived(
+  id: string,
+  ordinal: number,
+  runId: string | null
+): Generation {
   return {
     id,
     stage: 'source',
@@ -56,102 +42,133 @@ function arrived(id: string, ordinal: number): Generation {
     createdAt: 1,
     ordinal,
     asset: null,
-    runId: RUN,
+    runId,
   }
 }
 
-/** Opens a project in the editor, with whatever the run has produced so far. */
+/** Opens the project with whatever the run has produced so far. */
 function open(generations: readonly Generation[]): Project {
   const project: Project = {
     ...LEDGER,
     generations: [...LEDGER.generations, ...generations],
   }
 
-  useEditorStore.getState().dispatch({
-    type: 'openProject',
-    project,
-    directory: `/tmp/${project.id}`,
-  })
-  useEditorStore.getState().dispatch({ type: 'selectStage', stage: 'source' })
+  const { dispatch } = useEditorStore.getState()
+  dispatch({ type: 'openProject', project, directory: `/tmp/${project.id}` })
+  dispatch({ type: 'selectStage', stage: 'source' })
 
   return project
 }
 
-describe('the grid a run is watched in', () => {
-  it('holds a place for every candidate still generating', async () => {
-    mockCommands.activeJobs.mockResolvedValue({
-      status: 'ok',
-      data: [pending('gen-a'), pending('gen-b'), pending('gen-c')],
-    })
+/** The click that starts the run, as `useRunStage` dispatches it. */
+function begin(ids: readonly string[] = CANDIDATES, runId = RUN): void {
+  useEditorStore.getState().dispatch({
+    type: 'beginRun',
+    runId,
+    projectId: LEDGER.id,
+    stage: 'source',
+    generationIds: ids,
+    at: 1,
+  })
+}
+
+function grid(): HTMLElement | null {
+  return screen.queryByRole('region', { name: /this run/i })
+}
+
+function skeletons(): HTMLElement[] {
+  return screen.queryAllByRole('status', { name: /generating/i })
+}
+
+describe('the grid a run is chosen from', () => {
+  it('holds a place for every candidate the run is waiting for', () => {
     open([])
+    begin()
 
     render(<StageEditor />)
 
-    await waitFor(() =>
-      expect(
-        screen.getAllByRole('status', { name: /generating/i })
-      ).toHaveLength(3)
-    )
+    expect(grid()).toBeInTheDocument()
+    expect(skeletons()).toHaveLength(4)
   })
 
-  it('fills them in as jobs settle, without moving the rest', async () => {
-    // Two landed, one still running: the run is one thing being watched, not
-    // a hero plus a queue.
-    mockCommands.activeJobs.mockResolvedValue({
-      status: 'ok',
-      data: [pending('gen-c')],
-    })
-    open([arrived('gen-a', 2), arrived('gen-b', 3)])
+  it('fills them in as candidates land, without moving the rest', () => {
+    open([arrived('gen-a', 2, RUN), arrived('gen-b', 3, RUN)])
+    begin()
 
     render(<StageEditor />)
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /Source 2/ })
-      ).toBeInTheDocument()
-    )
+    expect(screen.getByRole('button', { name: /Source 2/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Source 3/ })).toBeInTheDocument()
-    expect(screen.getAllByRole('status', { name: /generating/i })).toHaveLength(
-      1
-    )
+    expect(skeletons()).toHaveLength(2)
   })
 
-  it('shows only what this run produced, not the whole stage', async () => {
-    mockCommands.activeJobs.mockResolvedValue({
-      status: 'ok',
-      data: [pending('gen-c')],
-    })
-    // The fixture's own candidate belongs to no run and must not be offered as
-    // one of this batch.
-    open([arrived('gen-a', 2)])
+  it('is still there once the last job has settled', () => {
+    // The regression this exists for: `active_jobs` reports only what is
+    // *running*, so a grid that lived off the job list would disappear at the
+    // moment it finally had all four images on it.
+    open(CANDIDATES.map((id, index) => arrived(id, index + 2, RUN)))
+    begin()
 
     render(<StageEditor />)
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('status', { name: /generating/i })
-      ).toBeInTheDocument()
-    )
-
-    const grid = screen.getByRole('region', { name: /this run/i })
-    expect(grid.textContent).toContain('Source 2')
-    expect(grid.textContent).not.toContain('Source 1')
+    expect(grid()).toBeInTheDocument()
+    expect(skeletons()).toHaveLength(0)
+    expect(screen.getAllByRole('button', { name: /Source \d/ })).toHaveLength(4)
   })
 
+  it('shows only what this run produced, not the whole stage', () => {
+    open([arrived('gen-a', 2, RUN), arrived('other', 3, 'another-run')])
+    begin()
+
+    render(<StageEditor />)
+
+    const region = grid()
+    expect(region?.textContent).toContain('Source 2')
+    expect(region?.textContent).not.toContain('Source 3')
+    // Three still expected, and the stranger is not one of them.
+    expect(skeletons()).toHaveLength(3)
+  })
+
+  it('shows the newest run when two are queued', () => {
+    open([arrived('gen-a', 2, RUN), arrived('gen-e', 3, 'run-second')])
+    begin()
+    begin(['gen-e', 'gen-f'], 'run-second')
+
+    render(<StageEditor />)
+
+    expect(grid()?.textContent).toContain('Source 3')
+    expect(grid()?.textContent).not.toContain('Source 2')
+    expect(skeletons()).toHaveLength(1)
+  })
+
+  it('stops waiting for a candidate that will never arrive', () => {
+    open([arrived('gen-a', 2, RUN)])
+    begin()
+    useEditorStore.getState().dispatch({
+      type: 'abandonGenerations',
+      generationIds: ['gen-b', 'gen-c', 'gen-d'],
+    })
+
+    render(<StageEditor />)
+
+    expect(skeletons()).toHaveLength(0)
+    expect(grid()?.textContent).toMatch(/1 of 1/)
+  })
+
+  it('is not shown at all when no run is waiting for an answer', () => {
+    open([arrived('gen-a', 2, RUN)])
+    render(<StageEditor />)
+
+    expect(grid()).not.toBeInTheDocument()
+  })
+})
+
+describe('answering the run', () => {
   it('keeps the candidate that is picked, and hands the stage back', async () => {
-    mockCommands.activeJobs.mockResolvedValue({
-      status: 'ok',
-      data: [pending('gen-c')],
-    })
-    open([arrived('gen-a', 2), arrived('gen-b', 3)])
+    open([arrived('gen-a', 2, RUN), arrived('gen-b', 3, RUN)])
+    begin()
 
     render(<StageEditor />)
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /Source 3/ })
-      ).toBeInTheDocument()
-    )
     await userEvent
       .setup()
       .click(screen.getByRole('button', { name: /Source 3/ }))
@@ -160,19 +177,40 @@ describe('the grid a run is watched in', () => {
     expect(useEditorStore.getState().state.project?.selection.source).toBe(
       'gen-b'
     )
-    // And the run is no longer what the stage is: hero and strip are back,
-    // even though a job is still in flight.
-    expect(
-      screen.queryByRole('region', { name: /this run/i })
-    ).not.toBeInTheDocument()
+    // And the run is no longer what the stage is, even though two candidates
+    // of it are still generating.
+    expect(grid()).not.toBeInTheDocument()
   })
 
-  it('is not shown at all when nothing is in flight', () => {
-    open([arrived('gen-a', 2)])
-    render(<StageEditor />)
+  it('lets the run be put away without choosing from it', async () => {
+    // A run whose jobs all failed would otherwise hold the stage for the rest
+    // of the session.
+    open([arrived('gen-a', 2, RUN)])
+    begin()
 
-    expect(
-      screen.queryByRole('region', { name: /this run/i })
-    ).not.toBeInTheDocument()
+    render(<StageEditor />)
+    const before = useEditorStore.getState().state.project?.selection.source
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: /not now/i }))
+
+    expect(grid()).not.toBeInTheDocument()
+    expect(useEditorStore.getState().state.project?.selection.source).toBe(
+      before
+    )
+  })
+
+  it('does not come back for the same run', async () => {
+    open([arrived('gen-a', 2, RUN)])
+    begin()
+
+    const { rerender } = render(<StageEditor />)
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: /not now/i }))
+    rerender(<StageEditor />)
+
+    expect(grid()).not.toBeInTheDocument()
   })
 })
