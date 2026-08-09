@@ -20,6 +20,7 @@ import type {
   ParamValue,
   Project,
   ProjectSummary,
+  RunRecord,
   StageKind,
   StageRecipe,
 } from './types'
@@ -77,24 +78,16 @@ export function emptyEditorState(): EditorState {
     activeStage: 'source',
     showRejected: false,
     runs: [],
-    selectedBy: { source: null, style: null, animate: null },
   }
 }
 
-/** Nothing has decided any stage's selection yet. */
-const UNDECIDED: EditorState['selectedBy'] = {
-  source: null,
-  style: null,
-  animate: null,
-}
-
 /**
- * How many runs a session keeps.
+ * How many answered runs a session keeps.
  *
- * They are a handful of ids each and only the newest un-answered one is ever
- * shown, but a session that queues runs all day should not grow without
- * bound. Old enough to have scrolled far out of the strip is old enough to
- * stop remembering which click produced it.
+ * They are a handful of ids each and only the newest unanswered one is ever
+ * shown, but a session that runs all day should not grow without bound. Old
+ * enough to have scrolled far out of the strip is old enough to stop
+ * remembering which click produced it.
  */
 const RUN_HISTORY = 24
 
@@ -241,18 +234,13 @@ export function createEditorReducer(
           // Land on the stage the project has actually got to, so opening an
           // untouched project does not start on a stage it cannot run.
           activeStage: furthestStage(action.project),
-          // Nothing has decided anything about what was just opened. The runs
-          // stay: a job goes on running whichever project is in front of you.
-          selectedBy: UNDECIDED,
+          // The runs stay, and so does what has been decided about them: a job
+          // goes on running whichever project is in front of you, and a choice
+          // made before switching away is still that project's choice.
         }
 
       case 'closeProject':
-        return {
-          ...state,
-          project: null,
-          directory: null,
-          selectedBy: UNDECIDED,
-        }
+        return { ...state, project: null, directory: null }
 
       case 'selectStage':
         return { ...state, activeStage: action.stage }
@@ -322,11 +310,13 @@ export function createEditorReducer(
           },
         }))
 
+      // A new run is a new question, so it starts unanswered and unclaimed
+      // however the last one ended.
       case 'beginRun':
         return {
           ...state,
           runs: [
-            ...state.runs.slice(-(RUN_HISTORY - 1)),
+            ...forgetOldRuns(state.runs),
             {
               id: action.runId,
               projectId: action.projectId,
@@ -334,12 +324,10 @@ export function createEditorReducer(
               startedAt: action.at,
               generationIds: action.generationIds,
               abandonedIds: [],
-              picked: false,
+              answered: false,
+              claimed: false,
             },
           ],
-          // A new run is a new question, so whatever answered the last one
-          // stops standing in the way of this one's first candidate.
-          selectedBy: { ...state.selectedBy, [action.stage]: null },
         }
 
       case 'abandonGenerations':
@@ -361,17 +349,22 @@ export function createEditorReducer(
         return {
           ...state,
           runs: state.runs.map(run =>
-            run.id === action.runId ? { ...run, picked: true } : run
+            run.id === action.runId ? { ...run, answered: true } : run
           ),
         }
 
       case 'runStage':
         return {
           ...editProject(state, project => runStage(registry, project, action)),
-          // The fixture path mints its candidates and selects the first in one
-          // go, so the stage has been decided by an arrival before anything
-          // else can happen.
-          selectedBy: { ...state.selectedBy, [action.stage]: 'arrival' },
+          // A fixture stage mints its candidates and selects the first in one
+          // go, so its run has been claimed by an arrival before anything else
+          // can happen — but not *answered*: the grid still has to be shown,
+          // and the user still has to pick from it.
+          runs: state.runs.map(run =>
+            run.id === action.runs.at(0)?.runId
+              ? { ...run, claimed: true }
+              : run
+          ),
         }
 
       case 'recordGenerations':
@@ -395,12 +388,15 @@ export function createEditorReducer(
                 },
               ],
               action.at,
-              // Bringing an image in is choosing it. Unlike a job arriving,
-              // this happened because someone asked for it just now.
+              // Unlike a job arriving, this happened because someone asked for
+              // it just now, so it takes the selection whatever else has.
               new Set<StageKind>(['source'])
             )
           ),
-          selectedBy: { ...state.selectedBy, source: 'user' },
+          // Bringing an image in is choosing it (#27) — so it answers whatever
+          // run is open on the source stage, the same way clicking a candidate
+          // does, rather than leaving the grid sitting on top of it.
+          ...decidedByUser(state, 'source'),
         }
 
       case 'selectGeneration':
@@ -418,7 +414,7 @@ export function createEditorReducer(
               },
             }
           }),
-          ...decidedByUser(state, action.generationId),
+          ...decidedByUser(state, stageOf(state, action.generationId)),
         }
 
       case 'setVerdict':
@@ -497,47 +493,56 @@ function runStage(
   }
 }
 
+/** Which stage a generation belongs to, or `null` if it is not there. */
+function stageOf(state: EditorState, generationId: string): StageKind | null {
+  return (
+    state.project?.generations.find(
+      generation => generation.id === generationId
+    )?.stage ?? null
+  )
+}
+
 /**
- * A user's own choice of candidate, and what it settles.
+ * A choice the user made themselves, and what it settles.
  *
- * Two things, because they are the same statement: the stage's selection was
- * decided by a person, so no arrival may move it again until the next run;
- * and every run of that stage has been answered, so the grid steps aside —
- * including for a click on a candidate in the strip, which is a choice about
- * this stage just as much as a click in the grid is.
+ * Every run open on that stage is answered — including runs begun before the
+ * click but not yet arrived, and including a click on an old candidate in the
+ * strip, which is a statement about what the stage is working from just as
+ * much as a click in the grid is. Answered runs put their grid away and stop
+ * claiming, so nothing that lands later can undo the click.
+ *
+ * A run begun *after* this is untouched: asking for new candidates is asking
+ * to be shown one.
  */
 function decidedByUser(
   state: EditorState,
-  generationId: string
-): Pick<EditorState, 'selectedBy' | 'runs'> {
-  const stage = state.project?.generations.find(
-    generation => generation.id === generationId
-  )?.stage
-
-  if (stage === undefined) {
-    return { selectedBy: state.selectedBy, runs: state.runs }
-  }
+  stage: StageKind | null
+): Pick<EditorState, 'runs'> {
+  if (stage === null) return { runs: state.runs }
 
   return {
-    selectedBy: { ...state.selectedBy, [stage]: 'user' },
     runs: state.runs.map(run =>
       run.stage === stage && run.projectId === state.project?.id
-        ? { ...run, picked: true }
+        ? { ...run, answered: true }
         : run
     ),
   }
 }
 
 /**
- * Candidates arriving off the job store, and the one question they raise:
- * may this one take the stage's selection?
+ * Candidates arriving off the job store, and the one question they raise: may
+ * this one take the stage's selection?
  *
- * Only when nothing has decided it since the run began — see
- * {@link EditorState.selectedBy}. That single rule covers every case the
- * grid can produce: the first arrival claims an undecided stage so the next
- * stage always has an input; the second, third and fourth do not, because the
- * first already decided it; and nothing does once the user has clicked, until
- * they ask for another run.
+ * Only when its own run has neither been answered nor already claimed — see
+ * {@link RunRecord}. That single rule covers every case: the first arrival
+ * claims an undecided stage so the next stage always has an input; the second,
+ * third and fourth do not, because the first already decided it; and none of
+ * them do once the user has clicked, until a new run asks the question again.
+ *
+ * A candidate belonging to no known run — one that settled before the sweep
+ * could adopt it — is recorded as a run of its own, born answered. It claims
+ * the selection, because it is the image someone has been waiting for, and its
+ * siblings then join it rather than taking it in turns.
  */
 function withArrivals(
   state: EditorState,
@@ -547,20 +552,81 @@ function withArrivals(
   const before = state.project
   if (before === null) return state
 
-  const claimable = new Set(
-    STAGE_ORDER.filter(stage => state.selectedBy[stage] === null)
-  )
+  const runs = [...state.runs]
+  const claimable = new Set<StageKind>()
+
+  for (const entry of entries) {
+    // Already recorded: a settled event and the sweep can deliver the same job
+    // twice, and it decides nothing the second time.
+    if (before.generations.some(generation => generation.id === entry.id)) {
+      continue
+    }
+
+    const owner = runs.findIndex(run => run.generationIds.includes(entry.id))
+    const run = runs.at(owner)
+
+    if (run === undefined) {
+      const strandedId = strandedRunId(before.id, entry.stage)
+      const stranded = runs.findIndex(record => record.id === strandedId)
+      const joined = runs.at(stranded)
+
+      // A second stray of the same stage joins the first rather than claiming
+      // the selection all over again.
+      if (joined !== undefined) {
+        runs[stranded] = {
+          ...joined,
+          generationIds: [...joined.generationIds, entry.id],
+        }
+        continue
+      }
+
+      if (claimable.has(entry.stage)) continue
+      claimable.add(entry.stage)
+      runs.push(strandedRun(strandedId, before.id, entry, at))
+      continue
+    }
+
+    if (run.answered || run.claimed) continue
+    if (claimable.has(entry.stage)) continue
+
+    claimable.add(entry.stage)
+    runs[owner] = { ...run, claimed: true }
+  }
+
   const after = withCollectedGenerations(before, entries, at, claimable)
   if (after === before) return state
 
-  const selectedBy = { ...state.selectedBy }
-  for (const stage of STAGE_ORDER) {
-    if (after.selection[stage] !== before.selection[stage]) {
-      selectedBy[stage] = 'arrival'
-    }
-  }
+  return { ...state, project: after, runs }
+}
 
-  return { ...state, project: after, selectedBy }
+/**
+ * A run nobody recorded, reconstructed from the candidate that turned up.
+ *
+ * Named after the stage rather than minted, because the reducer mints nothing
+ * — and because that is exactly the identity wanted: the *next* stray of the
+ * same stage joins this one instead of claiming the selection all over again.
+ * Born answered: there was never a grid to answer.
+ */
+function strandedRunId(projectId: string, stage: StageKind): string {
+  return `stranded:${projectId}:${stage}`
+}
+
+function strandedRun(
+  id: string,
+  projectId: string,
+  entry: CompletedRun,
+  at: number
+): RunRecord {
+  return {
+    id,
+    projectId,
+    stage: entry.stage,
+    startedAt: at,
+    generationIds: [entry.id],
+    abandonedIds: [],
+    answered: true,
+    claimed: true,
+  }
 }
 
 /**
@@ -687,6 +753,26 @@ function restoreRecipe(project: Project, generationId: string): Project {
         ? { ...project.selection, [upstream]: recipe.inputGenerationId }
         : project.selection,
   }
+}
+
+/**
+ * Drops the oldest runs once there are more than a session needs.
+ *
+ * Only *answered* ones. A run the user has not answered is still owed a grid,
+ * and one whose jobs are still out there is what stops the sweep adopting them
+ * a second time — forgetting either would put a grid back on screen for a
+ * question that has already been answered.
+ */
+function forgetOldRuns(runs: readonly RunRecord[]): readonly RunRecord[] {
+  const answered = runs.filter(run => run.answered).length
+  if (answered <= RUN_HISTORY) return runs
+
+  let toDrop = answered - RUN_HISTORY
+  return runs.filter(run => {
+    if (!run.answered || toDrop === 0) return true
+    toDrop -= 1
+    return false
+  })
 }
 
 function editDraft(

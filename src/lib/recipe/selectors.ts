@@ -223,8 +223,8 @@ export function runGroups(
 /**
  * The run a stage is currently offering a choice from, or `null`.
  *
- * The newest one the user has not answered — answering is a click on a
- * candidate, which is the whole point of the grid. Deliberately not "the run
+ * The newest one that has not been answered — answering is a click on a
+ * candidate, or a dismissal, which is the whole point of the grid. Deliberately not "the run
  * with jobs still running": `active_jobs` reports only what is running, so a
  * run would vanish the moment its last job completed and the user would never
  * see the finished four-up they were waiting for.
@@ -238,7 +238,7 @@ export function activeRunFor(
     run =>
       run.projectId === projectId &&
       run.stage === stage &&
-      !run.picked &&
+      !run.answered &&
       expectedOf(run).length > 0
   )
 

@@ -11,10 +11,12 @@
 
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { render, screen } from '@/test/test-utils'
+import { act } from 'react'
+import { render, screen, within } from '@/test/test-utils'
 import { LEDGER, type Generation, type Project } from '@/lib/recipe'
 import { commands } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
+import { fixtureRunActions } from './run-request'
 import { StageEditor } from './StageEditor'
 
 const RUN = 'run-under-test'
@@ -212,5 +214,74 @@ describe('answering the run', () => {
     rerender(<StageEditor />)
 
     expect(grid()).not.toBeInTheDocument()
+  })
+})
+
+describe('a run on a stage with no model behind it yet', () => {
+  it('is chosen from the same way, even though it arrives at once', async () => {
+    // Style and animate are still fixtures (#28, #29): their candidates land
+    // in the same instant rather than a minute later, but they are still four
+    // answers to one question, and the grid is how a run is answered.
+    const project: Project = { ...LEDGER, generations: [...LEDGER.generations] }
+    const { dispatch } = useEditorStore.getState()
+    dispatch({ type: 'openProject', project, directory: `/tmp/${project.id}` })
+    dispatch({ type: 'selectStage', stage: 'style' })
+
+    render(<StageEditor />)
+
+    for (const action of fixtureRunActions(project, 'style', 4)) {
+      act(() => {
+        useEditorStore.getState().dispatch(action)
+      })
+    }
+
+    // Complete the moment it began, and still waiting for a click.
+    expect(grid()).toBeInTheDocument()
+    expect(skeletons()).toHaveLength(0)
+    expect(screen.getAllByRole('button', { name: /Style \d/ })).toHaveLength(4)
+
+    await userEvent
+      .setup()
+      .click(screen.getAllByRole('button', { name: /Style \d/ })[1] as Element)
+
+    expect(grid()).not.toBeInTheDocument()
+  })
+})
+
+describe('the seed of a candidate in the grid', () => {
+  it('can be pinned from the tile it belongs to (PRD §4.3)', async () => {
+    open([arrived('gen-a', 2, RUN)])
+    begin(['gen-a'])
+
+    render(<StageEditor />)
+
+    // Scoped to the grid: the strip below has its own pin on every tile.
+    const region = grid()
+    if (region === null) throw new Error('the run is not on screen')
+
+    await userEvent
+      .setup()
+      .click(within(region).getByRole('button', { name: /pin this seed/i }))
+
+    expect(useEditorStore.getState().state.project?.drafts.source.seed).toEqual(
+      {
+        mode: 'pinned',
+        value: 1_002,
+      }
+    )
+  })
+
+  it('offers no pin on a candidate with no seed to pin', () => {
+    open([{ ...arrived('gen-a', 2, RUN), seed: null }])
+    begin(['gen-a'])
+
+    render(<StageEditor />)
+
+    const region = grid()
+    if (region === null) throw new Error('the run is not on screen')
+
+    expect(
+      within(region).queryByRole('button', { name: /pin this seed/i })
+    ).not.toBeInTheDocument()
   })
 })

@@ -209,18 +209,13 @@ export interface EditorState {
    * manifest already records the durable half of it on each candidate. Held
    * here rather than in a module of its own so the grid subscribes to it like
    * everything else — see `docs/developer/state-management.md`.
+   *
+   * Also where "who decided this stage's selection" lives, on the two flags
+   * below. Keeping it here rather than in a field of its own is what makes the
+   * hold survive closing and reopening a project while its jobs run on.
    */
   readonly runs: readonly RunRecord[]
-  /**
-   * How each stage's selection got where it is, since that stage's last run
-   * began. `null` means nothing has decided it yet, which is the only state in
-   * which an arriving candidate may take it.
-   */
-  readonly selectedBy: Readonly<Record<StageKind, SelectionSource>>
 }
-
-/** Who last set a stage's selection — see {@link EditorState.selectedBy}. */
-export type SelectionSource = 'user' | 'arrival' | null
 
 /**
  * One click's worth of generations, and what became of them (#26, PRD §4.2).
@@ -244,6 +239,18 @@ export interface RunRecord {
    * without pretending the run was smaller than it was.
    */
   readonly abandonedIds: readonly string[]
-  /** The user has answered this run: the grid steps aside. */
-  readonly picked: boolean
+  /**
+   * The question has been answered: the user picked a candidate, dismissed the
+   * grid, or chose something else for this stage while the run was open. The
+   * grid steps aside, and no arrival of this run may move the selection again.
+   */
+  readonly answered: boolean
+  /**
+   * One of this run's candidates has already taken the stage's selection.
+   *
+   * The first arrival claims an undecided stage, so the stage after it always
+   * has an input — and the second, third and fourth do not, or a four-up would
+   * end on whichever job happened to finish last.
+   */
+  readonly claimed: boolean
 }

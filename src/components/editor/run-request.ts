@@ -21,6 +21,7 @@ import {
   buildRequest,
   freezeRecipe,
   modelById,
+  planBatch,
   MODEL_REGISTRY,
   type EditorAction,
   type Project,
@@ -32,54 +33,50 @@ import { useEditorStore } from '@/store/editor-store'
 import { generationErrorMessage } from './errors'
 
 /**
- * The ids one click needs: one for the run, one per candidate (#26).
+ * The two actions a fixture run dispatches, in order (#28, #29 will make these
+ * stages real).
  *
- * Minted in one place because both paths need exactly this and they must not
- * drift — a fixture stage that grouped its candidates differently from a paid
- * one would make the strip's grouping mean two things.
+ * A run is a run whichever stage it is on: the candidates arrive in the same
+ * instant here rather than a minute later, but they are still four answers to
+ * one question, and they are still chosen from the grid. Beginning the run
+ * before recording it is what puts the grid up — the candidates land into a
+ * run that is already open, exactly as a paid batch does.
  */
-export interface PlannedBatch {
-  readonly runId: string
-  readonly generationIds: readonly string[]
+export function fixtureRunActions(
+  project: Project,
+  stage: StageKind,
+  count: number
+): readonly EditorAction[] {
+  const batch = planBatch(count)
+  const at = Date.now()
+
+  return [
+    {
+      type: 'beginRun',
+      runId: batch.runId,
+      projectId: project.id,
+      stage,
+      generationIds: batch.generationIds,
+      at,
+    },
+    {
+      type: 'runStage',
+      stage,
+      runs: batch.generationIds.map(id => ({
+        id,
+        seed: rollSeed(),
+        asset: null,
+        runId: batch.runId,
+      })),
+      at,
+    },
+  ]
 }
 
 /** A candidate fal.ai never took, and why. */
 interface RefusedSubmit {
   readonly generationId: string
   readonly error: GenerationError
-}
-
-/**
- * One run's id. The only place one is ever made — including for a batch a
- * previous launch left running, which the sweep adopts into a run of its own.
- */
-export function mintRunId(): string {
-  return crypto.randomUUID()
-}
-
-export function planBatch(count: number): PlannedBatch {
-  return {
-    runId: mintRunId(),
-    // Minted before the submit because the file is named after it — the
-    // manifest entry and the file on disk agree by construction.
-    generationIds: Array.from({ length: count }, () => crypto.randomUUID()),
-  }
-}
-
-export function runStageAction(stage: StageKind, count: number): EditorAction {
-  const batch = planBatch(count)
-
-  return {
-    type: 'runStage',
-    stage,
-    runs: batch.generationIds.map(id => ({
-      id,
-      seed: rollSeed(),
-      asset: null,
-      runId: batch.runId,
-    })),
-    at: Date.now(),
-  }
 }
 
 /** A seed to pin when there is no generation to take one from. */
@@ -135,7 +132,11 @@ export function useRunStage(
 
   if (stage !== 'source') {
     return {
-      run: () => dispatch(runStageAction(stage, batch)),
+      run: () => {
+        for (const action of fixtureRunActions(project, stage, batch)) {
+          dispatch(action)
+        }
+      },
       isRunning: false,
     }
   }

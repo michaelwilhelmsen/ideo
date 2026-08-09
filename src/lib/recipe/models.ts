@@ -175,6 +175,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.04, unit: 'image', verifiedOn: VERIFIED_ON },
     notes:
@@ -200,6 +201,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.08, unit: 'image', verifiedOn: VERIFIED_ON },
     notes: 'Same schema as Kontext Pro at twice the price.',
@@ -224,6 +226,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.04, unit: 'megapixel', verifiedOn: VERIFIED_ON },
     notes:
@@ -249,6 +252,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.03, unit: 'megapixel', verifiedOn: VERIFIED_ON },
     notes:
@@ -274,6 +278,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.15, unit: 'image', verifiedOn: VERIFIED_ON },
     notes:
@@ -299,6 +304,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.08, unit: 'image', verifiedOn: VERIFIED_ON },
     notes:
@@ -324,6 +330,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: { negative_prompt: '' },
     price: { amount: 0.035, unit: 'image', verifiedOn: VERIFIED_ON },
     notes:
@@ -349,6 +356,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: { negative_prompt: '' },
     price: { amount: 0.075, unit: 'image', verifiedOn: VERIFIED_ON },
     notes: 'Same schema as Qwen-Image 2 at the pro tier.',
@@ -375,6 +383,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     // Token-priced. There is no per-image number, and inventing one would
     // defeat the point of a dated estimate (PRD §10.2).
@@ -402,6 +411,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.02, unit: 'image', verifiedOn: VERIFIED_ON },
     notes:
@@ -435,6 +445,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: { negative_prompt: '' },
     price: { amount: 0.035, unit: 'image', verifiedOn: VERIFIED_ON },
     notes:
@@ -460,6 +471,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: { negative_prompt: '' },
     price: { amount: 0.075, unit: 'image', verifiedOn: VERIFIED_ON },
     notes: 'Same schema as the Qwen edit endpoint at the pro tier.',
@@ -484,6 +496,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.15, unit: 'image', verifiedOn: VERIFIED_ON },
     notes:
@@ -509,6 +522,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.08, unit: 'image', verifiedOn: VERIFIED_ON },
     notes: 'Cheaper than the Pro edit, with the same absent negative prompt.',
@@ -535,6 +549,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.04, unit: 'image', verifiedOn: VERIFIED_ON },
     notes:
@@ -560,6 +575,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.08, unit: 'image', verifiedOn: VERIFIED_ON },
     notes: 'Same schema as Kontext Pro edit at twice the price.',
@@ -580,6 +596,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     // 0.7, not fal's 0.95. PRD §6.3: at 0.95 the input is discarded entirely,
     // which costs the same and produces something unrelated.
     defaults: { strength: 0.7 },
@@ -603,6 +620,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: { amount: 0.025, unit: 'megapixel', verifiedOn: VERIFIED_ON },
     notes:
@@ -666,6 +684,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: 'integer',
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: { duration: '5' },
     price: { amount: 0.112, unit: 'second', verifiedOn: VERIFIED_ON },
     notes:
@@ -701,6 +720,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: 'integer',
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: { duration: '5' },
     price: { amount: 0.112, unit: 'second', verifiedOn: VERIFIED_ON },
     notes:
@@ -726,6 +746,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: 'secondsSuffixed',
     resolutionParam: 'resolution',
     resolutions: ['540p', '720p', '1080p'],
+    extraParams: [],
     // 1080p, not Luma's own 540p — too low for a hero, and it costs the same
     // (PRD §5).
     defaults: { duration: '5s', resolution: '1080p' },
@@ -770,6 +791,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: 'integer',
     resolutionParam: 'resolution',
     resolutions: ['720p', '1080p'],
+    extraParams: [],
     defaults: { duration: '5', resolution: '1080p' },
     price: { amount: 0.29, unit: 'second', verifiedOn: VERIFIED_ON },
     notes:
@@ -799,6 +821,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: 'secondsSuffixed',
     resolutionParam: 'resolution',
     resolutions: ['720p', '1080p', '4k'],
+    extraParams: [],
     defaults: { duration: '6s', resolution: '1080p', negative_prompt: '' },
     price: { amount: 0.2, unit: 'second', verifiedOn: VERIFIED_ON },
     notes:
@@ -826,6 +849,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: 'secondsSuffixed',
     resolutionParam: 'resolution',
     resolutions: ['720p', '1080p', '4k'],
+    extraParams: [],
     defaults: { duration: '6s', resolution: '1080p', negative_prompt: '' },
     price: { amount: 0.2, unit: 'second', verifiedOn: VERIFIED_ON },
     notes:
@@ -851,6 +875,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: 'integer',
     resolutionParam: 'resolution',
     resolutions: ['1080p', '1440p', '2160p'],
+    extraParams: [],
     defaults: { duration: '6', resolution: '1080p' },
     price: { amount: 0.08, unit: 'second', verifiedOn: VERIFIED_ON },
     notes:

@@ -233,18 +233,15 @@ vi.mock('@/lib/tauri-bindings', () => ({
 
 Projects (see [data-persistence.md](./data-persistence.md) for the storage model):
 
-| Command               | Parameters            | Returns                            | Description                                |
-| --------------------- | --------------------- | ---------------------------------- | ------------------------------------------ |
-| `listProjects`        | none                  | `Result<ProjectSummary[], string>` | List projects, reconciling the index first |
-| `loadProject`         | `projectId: string`   | `Result<ProjectRecord, string>`    | Read one manifest off disk                 |
-| `saveProject`         | `manifest: JsonValue` | `Result<ProjectSummary, string>`   | Atomic write, then index — also creates    |
-| `deleteProject`       | `projectId: string`   | `Result<null, string>`             | Remove the folder and its assets           |
-| `projectUsage`        | `projectId: string`   | `Result<ProjectUsage, string>`     | Size on disk, and how much is unused       |
-| `cleanupUnusedAssets` | `projectId: string`   | `Result<CleanupOutcome, string>`   | Delete unreferenced assets only            |
-
-| Command             | Parameters                                                    | Returns                              | Description                                  |
-| ------------------- | ------------------------------------------------------------- | ------------------------------------ | -------------------------------------------- |
-| `importSourceImage` | `projectId: string, generationId: string, sourcePath: string` | `Result<ImportedImage, ImportError>` | Copy a user's own image in as a source asset |
+| Command               | Parameters                                                    | Returns                              | Description                                  |
+| --------------------- | ------------------------------------------------------------- | ------------------------------------ | -------------------------------------------- |
+| `listProjects`        | none                                                          | `Result<ProjectSummary[], string>`   | List projects, reconciling the index first   |
+| `loadProject`         | `projectId: string`                                           | `Result<ProjectRecord, string>`      | Read one manifest off disk                   |
+| `saveProject`         | `manifest: JsonValue`                                         | `Result<ProjectSummary, string>`     | Atomic write, then index — also creates      |
+| `deleteProject`       | `projectId: string`                                           | `Result<null, string>`               | Remove the folder and its assets             |
+| `projectUsage`        | `projectId: string`                                           | `Result<ProjectUsage, string>`       | Size on disk, and how much is unused         |
+| `cleanupUnusedAssets` | `projectId: string`                                           | `Result<CleanupOutcome, string>`     | Delete unreferenced assets only              |
+| `importSourceImage`   | `projectId: string, generationId: string, sourcePath: string` | `Result<ImportedImage, ImportError>` | Copy a user's own image in as a source asset |
 
 `importSourceImage` names the file after the `generationId` the caller mints, so the
 manifest entry and the file on disk agree by construction — the same shape a finished

@@ -188,5 +188,6 @@
   "editor.batch.hint": "Chaque candidat est un appel payant distinct : c'est le coût d'un seul clic.",
   "editor.run.pick": "Choisissez celui à garder. Les autres restent dans la bande ci-dessous — rien n'est supprimé.",
   "editor.run.dismiss": "Plus tard",
-  "generate.error.someCandidates": "{{failed}} candidats sur {{total}} n'ont pas pu être envoyés. {{reason}}"
+  "generate.error.someCandidates": "{{failed}} candidats sur {{total}} n'ont pas pu être envoyés. {{reason}}",
+  "editor.price.lessThan": "moins de {{amount}}"
 }

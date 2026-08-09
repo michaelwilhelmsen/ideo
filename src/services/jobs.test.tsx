@@ -295,18 +295,52 @@ describe('a collected candidate remembers its run', () => {
     })
   })
 
-  it('arrives ungrouped rather than not at all when the run is unknown', async () => {
-    // Settled before anything saw it: the candidate was still paid for.
+  it('adopts a batch that finished while the app was closed', async () => {
+    // The common resumed case: you quit, fal.ai finished anyway, and the
+    // candidates are waiting in the store on relaunch. They are a run the user
+    // never got to choose from, so they are put in front of them as one.
     vi.mocked(commands.finishedJobs).mockResolvedValue({
       status: 'ok',
-      data: [finishedJob()],
+      data: [
+        finishedJob({ requestId: 'req-a', generationId: 'gen-a' }),
+        finishedJob({ requestId: 'req-b', generationId: 'gen-b' }),
+      ],
     })
 
     await openAtlas()
 
     await waitFor(() => {
-      expect(savedCandidate()).toBeDefined()
-      expect(savedCandidate()?.runId).toBeNull()
+      const runs = useEditorStore.getState().state.runs
+      expect(runs).toHaveLength(1)
+      expect(runs[0]?.generationIds).toEqual(['gen-a', 'gen-b'])
     })
+
+    const runId = useEditorStore.getState().state.runs[0]?.id
+    const saved = lastSavedProject().generations.filter(
+      generation => generation.runId === runId
+    )
+    expect(saved).toHaveLength(2)
+  })
+
+  it('does not adopt a candidate that is already in the manifest', async () => {
+    // A run can be forgotten once it has been answered, and its jobs would
+    // then look unowned again — re-adopting them would put a grid back up for
+    // a question the user has already answered.
+    vi.mocked(commands.activeJobs).mockResolvedValue({
+      status: 'ok',
+      data: [
+        finishedJob({
+          requestId: 'req-known',
+          generationId: ATLAS.generations[0]?.id ?? '',
+        }),
+      ],
+    })
+
+    await openAtlas()
+
+    await waitFor(() => {
+      expect(commands.activeJobs).toHaveBeenCalled()
+    })
+    expect(useEditorStore.getState().state.runs).toHaveLength(0)
   })
 })

@@ -27,6 +27,7 @@ import { generationErrorMessage } from '@/components/editor/errors'
 import { logger } from '@/lib/logger'
 import {
   isStageKind,
+  mintRunId,
   readRecipe,
   runIdForGeneration,
   STAGE_ORDER,
@@ -46,7 +47,6 @@ import {
   type SubmittedJob,
 } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
-import { mintRunId } from '@/components/editor/run-request'
 import { openProjectById, saveProject } from './projects'
 
 /** Both match `src-tauri/src/jobs/runner.rs`. */
@@ -245,7 +245,7 @@ export function useJobResults(): void {
 }
 
 /**
- * Takes work a previous launch left running into a run of its own (#26).
+ * Takes work a previous launch left behind into a run of its own (#26).
  *
  * Without this a resumed batch has no run: the store does not carry one, so
  * the candidates would arrive ungrouped and the stage would have nothing to
@@ -253,38 +253,52 @@ export function useJobResults(): void {
  * exactly what the click would have done — the user is waiting on a batch
  * either way, and which launch submitted it is not their problem.
  *
- * Grouped per stage, because a run belongs to a stage. Jobs already inside a
- * run are left alone, so this runs on every poll and adopts only once.
+ * Two guards keep it from adopting the same work twice. A job already inside a
+ * run is left alone, which is what makes this safe to call on every poll; and
+ * so is one whose candidate is already in the manifest, because a run that has
+ * been collected and answered may since have been forgotten (see
+ * `forgetOldRuns`) and re-adopting it would put its grid back on screen.
  */
+function adoptRuns(projectId: string, jobs: readonly Job[]): void {
+  if (jobs.length === 0) return
+
+  const { state, dispatch } = useEditorStore.getState()
+  const project = state.project?.id === projectId ? state.project : null
+
+  const orphaned = jobs.filter(
+    job =>
+      runIdForGeneration(state, job.generationId) === null &&
+      !(project?.generations ?? []).some(
+        generation => generation.id === job.generationId
+      )
+  )
+  if (orphaned.length === 0) return
+
+  // Grouped per stage, because a run belongs to a stage.
+  for (const stage of STAGE_ORDER) {
+    const forStage = orphaned.filter(job => job.stage === stage)
+    if (forStage.length === 0) continue
+
+    dispatch({
+      type: 'beginRun',
+      runId: mintRunId(),
+      generationIds: forStage.map(job => job.generationId),
+      projectId,
+      stage,
+      // The click happened in another session; the earliest submit is the
+      // closest thing to when this run started.
+      at: Math.min(...forStage.map(job => job.submittedAt)),
+    })
+  }
+}
+
 function useAdoptedRuns(
   projectId: string | null,
   jobs: readonly Job[] | undefined
 ): void {
   useEffect(() => {
-    if (projectId === null || jobs === undefined || jobs.length === 0) return
-
-    const { state, dispatch } = useEditorStore.getState()
-
-    const orphaned = jobs.filter(
-      job => runIdForGeneration(state, job.generationId) === null
-    )
-    if (orphaned.length === 0) return
-
-    for (const stage of STAGE_ORDER) {
-      const forStage = orphaned.filter(job => job.stage === stage)
-      if (forStage.length === 0) continue
-
-      dispatch({
-        type: 'beginRun',
-        runId: mintRunId(),
-        generationIds: forStage.map(job => job.generationId),
-        projectId,
-        stage,
-        // The click happened in another session; the earliest submit is the
-        // closest thing to when this run started.
-        at: Math.min(...forStage.map(job => job.submittedAt)),
-      })
-    }
+    if (projectId === null || jobs === undefined) return
+    adoptRuns(projectId, jobs)
   }, [projectId, jobs])
 }
 
@@ -406,6 +420,13 @@ export async function collectFinished(projectId: string): Promise<void> {
 
     const finished = result.data
     if (finished.length === 0) return
+
+    // Before the candidates are read: a batch that finished while the app was
+    // closed is a run the user never got to choose from, and adopting it here
+    // is what puts it in front of them grouped rather than as loose arrivals.
+    if (useEditorStore.getState().state.project?.id === projectId) {
+      adoptRuns(projectId, finished)
+    }
 
     const entries = finished
       .map(asCompletedRun)

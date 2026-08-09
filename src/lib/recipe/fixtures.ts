@@ -325,10 +325,8 @@ export function fixtureEditorState(): EditorState {
     directory: `/tmp/ideo-fixture/${ATLAS.id}`,
     activeStage: 'style',
     showRejected: false,
-    // Nothing in flight, and nothing decided since — a project as it looks
-    // when it has just been opened.
+    // Nothing in flight — a project as it looks when it has just been opened.
     runs: [],
-    selectedBy: { source: null, style: null, animate: null },
   }
 }
 

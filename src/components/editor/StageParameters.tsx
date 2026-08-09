@@ -463,7 +463,7 @@ function CostEstimate({
   draft: StageRecipe
   batch: number
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   const chosen = draft.params[model.durationParam ?? '']
   const estimate = estimateCost(model, {
@@ -480,24 +480,33 @@ function CostEstimate({
     )
   }
 
+  // The currency is fixed and the formatting is not: fal.ai bills in US
+  // dollars wherever you are, but where the symbol goes and which separators
+  // it takes are facts about the language, not about the charge (PRD §10.4).
+  const money = new Intl.NumberFormat(i18n.language, {
+    style: 'currency',
+    currency: 'USD',
+  })
+
   return (
     <p className="text-xs text-muted-foreground">
       {t('editor.price.approximate', {
-        amount: formatMoney(estimate),
+        // Two decimals, because that is what a price looks like — except when
+        // two decimals would round a real charge to zero, which reads as free.
+        // That case is a sentence rather than a symbol, because "less than" is
+        // a word and words get translated.
+        amount:
+          estimate > 0 && estimate < SMALLEST_SHOWN
+            ? t('editor.price.lessThan', { amount: money.format(0.01) })
+            : money.format(estimate),
         date: model.price.verifiedOn,
       })}
     </p>
   )
 }
 
-/**
- * Two decimals, because that is what a price looks like — except when two
- * decimals would round a real charge to `$0.00`, which reads as free.
- */
-function formatMoney(amount: number): string {
-  if (amount > 0 && amount < 0.005) return '<$0.01'
-  return `$${amount.toFixed(2)}`
-}
+/** Below this, two decimals would say `$0.00` for something that costs money. */
+const SMALLEST_SHOWN = 0.005
 
 /**
  * What the queue is doing, while it does it.

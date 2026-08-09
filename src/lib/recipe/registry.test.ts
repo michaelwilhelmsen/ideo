@@ -39,6 +39,7 @@ function model(overrides: Partial<ModelCapabilities> = {}): ModelCapabilities {
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    extraParams: [],
     defaults: {},
     price: null,
     notes: 'A fixture.',

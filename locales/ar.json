@@ -188,5 +188,6 @@
   "editor.batch.hint": "كل مرشح استدعاء مدفوع منفصل، وهذا ما تكلّفه نقرة واحدة.",
   "editor.run.pick": "اختر ما تريد الاحتفاظ به. تبقى البقية في الشريط أدناه — لا يُحذف شيء.",
   "editor.run.dismiss": "ليس الآن",
-  "generate.error.someCandidates": "تعذّر إرسال {{failed}} من أصل {{total}} مرشحين. {{reason}}"
+  "generate.error.someCandidates": "تعذّر إرسال {{failed}} من أصل {{total}} مرشحين. {{reason}}",
+  "editor.price.lessThan": "أقل من {{amount}}"
 }

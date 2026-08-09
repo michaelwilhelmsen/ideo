@@ -278,5 +278,6 @@
   "editor.batch.hint": "Each candidate is a separate paid call, so this is what one click costs.",
   "editor.run.pick": "Pick the one to keep. The rest stay in the strip below — nothing is deleted.",
   "editor.run.dismiss": "Not now",
-  "generate.error.someCandidates": "{{failed}} of {{total}} candidates could not be submitted. {{reason}}"
+  "generate.error.someCandidates": "{{failed}} of {{total}} candidates could not be submitted. {{reason}}",
+  "editor.price.lessThan": "under {{amount}}"
 }

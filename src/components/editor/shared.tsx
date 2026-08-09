@@ -27,6 +27,7 @@ import {
   upstreamOf,
   visibleGenerations,
   rejectedCount,
+  type AspectId,
   type Generation,
   type Project,
   type StageKind,
@@ -104,7 +105,7 @@ function assetSource(directory: string | null, asset: string | null) {
  * watched in does not reflow as each job settles — the tiles are already where
  * the images will be.
  */
-export function PendingPreview({ aspect }: { aspect: string }) {
+export function PendingPreview({ aspect }: { aspect: AspectId }) {
   const { t } = useTranslation()
 
   return (
@@ -283,8 +284,11 @@ export function GenerationTile({
  * Absent when there is nothing to pin — a candidate with no seed (an upload, a
  * seedless model) or a draft whose current model has no seed field, where the
  * button would promise a reproducibility the next run cannot deliver.
+ *
+ * Exported because the grid shows the same candidates the strip does, and
+ * "keep that composition" is said most often about one that has just arrived.
  */
-function PinSeedButton({
+export function PinSeedButton({
   project,
   generation,
 }: {

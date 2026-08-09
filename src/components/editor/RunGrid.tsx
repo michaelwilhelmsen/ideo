@@ -26,7 +26,12 @@ import { cn } from '@/lib/utils'
 import { runProgress, type Project, type RunRecord } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
 import { useGenerationName } from './naming'
-import { GenerationBadges, PendingPreview, Preview } from './shared'
+import {
+  GenerationBadges,
+  PendingPreview,
+  PinSeedButton,
+  Preview,
+} from './shared'
 
 export function RunGrid({
   project,
@@ -67,26 +72,37 @@ export function RunGrid({
         data-testid="run-grid"
       >
         {progress.arrived.map(generation => (
-          <button
-            key={generation.id}
-            type="button"
-            onClick={() =>
-              dispatch({
-                type: 'selectGeneration',
-                generationId: generation.id,
-              })
-            }
-            className="cursor-pointer space-y-2 rounded-md text-start focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-          >
-            <Preview generation={generation} aspect={project.aspect} />
+          <div key={generation.id} className="space-y-2">
+            <button
+              type="button"
+              // The picture is the button, so it needs the name assistive tech
+              // would otherwise take from the label beside it.
+              aria-label={nameOf(generation)}
+              onClick={() =>
+                dispatch({
+                  type: 'selectGeneration',
+                  generationId: generation.id,
+                })
+              }
+              className="block w-full cursor-pointer rounded-md focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            >
+              <Preview generation={generation} aspect={project.aspect} />
+            </button>
+
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-sm font-medium">{nameOf(generation)}</span>
               <span className="font-mono text-xs text-muted-foreground">
                 {generation.seed === null ? '—' : generation.seed}
               </span>
             </div>
+
             <GenerationBadges project={project} generation={generation} />
-          </button>
+
+            {/* The same pin as the strip's tiles (PRD §4.3): "keep that
+                composition, change the fragment" is said most often about a
+                candidate that has just this second arrived. */}
+            <PinSeedButton project={project} generation={generation} />
+          </div>
         ))}
 
         {Array.from({ length: progress.waiting }, (_, index) => (

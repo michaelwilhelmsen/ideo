@@ -133,9 +133,9 @@ export interface ModelCapabilities {
    * undeclared-default check and the request builder's filter blind for every
    * name on it: a `guidance_scale` default on a model with no such field would
    * pass validation and ship in the body, which is a 422 at the paid step.
-   * Absent means the model does not have it — read the schema before adding.
+   * Empty means the model does not have any — read the schema before adding.
    */
-  readonly extraParams?: readonly string[]
+  readonly extraParams: readonly string[]
   /** Ours, never the API's (PRD §5, §6.3). Keyed by API field name. */
   readonly defaults: StageParams
   readonly price: Price | null
@@ -508,7 +508,7 @@ export function validateRegistry(
       fail('must declare resolutionParam and resolutions together')
     }
 
-    for (const extra of model.extraParams ?? []) {
+    for (const extra of model.extraParams) {
       if (extra.trim() === '') fail('lists an unnamed extra parameter')
     }
 
@@ -579,7 +579,7 @@ function declaredParams(model: ModelCapabilities): ReadonlySet<string> {
     model.supportsSeed ? 'seed' : null,
   ].filter((name): name is string => name !== null)
 
-  return new Set([...names, ...(model.extraParams ?? [])])
+  return new Set([...names, ...model.extraParams])
 }
 
 function validateAspects(

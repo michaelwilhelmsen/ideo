@@ -18,6 +18,7 @@ import { MODEL_REGISTRY } from './models'
 import { UPLOAD_MODEL_ID, isUploadRecipe, uploadFileName } from './upload'
 import {
   activeProject,
+  activeRunFor,
   batchSizeFor,
   configuredBatchSize,
   generationsForStage,
@@ -869,5 +870,121 @@ describe('batch size (#26)', () => {
         'source'
       )
     ).toBe(4)
+  })
+})
+
+/**
+ * What a run remembers, and for how long (#26).
+ *
+ * The hold lives on the run records rather than beside them, which is what
+ * makes it survive the editor being pointed somewhere else — a job goes on
+ * running whichever project is in front of you.
+ */
+describe('a run outlives the view of it (#26)', () => {
+  function began(runId: string, ids: readonly string[]): EditorAction {
+    return {
+      type: 'beginRun',
+      runId,
+      projectId: ATLAS.id,
+      stage: 'source',
+      generationIds: ids,
+      at: 4,
+    }
+  }
+
+  function arrival(id: string, runId: string | null): EditorAction {
+    return {
+      type: 'recordGenerations',
+      entries: [
+        {
+          id,
+          stage: 'source',
+          recipe: ATLAS.drafts.source,
+          seed: 7,
+          asset: `${id}.jpeg`,
+          runId,
+        },
+      ],
+      at: 5,
+    }
+  }
+
+  it('keeps a choice made before the project was closed and reopened', () => {
+    // Switching away and back is not a new question, and the rest of the batch
+    // is still landing while you are somewhere else.
+    const opened = apply(
+      fixtureEditorState(),
+      began('run-1', ['job-a', 'job-b']),
+      arrival('job-a', 'run-1'),
+      { type: 'selectGeneration', generationId: 'job-a' }
+    )
+
+    const project = openProjectOf(opened)
+    const returned = apply(
+      opened,
+      { type: 'closeProject' },
+      { type: 'openProject', project, directory: '/tmp/atlas' },
+      arrival('job-b', 'run-1')
+    )
+
+    expect(selectedGeneration(openProjectOf(returned), 'source')?.id).toBe(
+      'job-a'
+    )
+  })
+
+  it('puts the grid away when an image is brought in instead (#27)', () => {
+    // An upload is an answer to "which source", so the run stops asking.
+    const state = apply(
+      fixtureEditorState(),
+      began('run-1', ['job-a', 'job-b']),
+      {
+        type: 'recordUpload',
+        generationId: 'upload-1',
+        asset: 'upload-1.png',
+        fileName: 'plate.png',
+        at: 8,
+      }
+    )
+
+    expect(activeRunFor(state, ATLAS.id, 'source')).toBeNull()
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
+      'upload-1'
+    )
+  })
+
+  it('forgets old answered runs but never one still being waited on', () => {
+    // Forgetting a run whose jobs are still out there would let the sweep
+    // adopt them again and re-open a grid nobody asked for.
+    const many = Array.from({ length: 30 }, (_, index) =>
+      began(`run-${String(index)}`, [`job-${String(index)}`])
+    )
+    const answered = many.flatMap((start, index) => [
+      start,
+      { type: 'dismissRun', runId: `run-${String(index)}` } as EditorAction,
+    ])
+
+    const dropped = apply(fixtureEditorState(), ...answered)
+    expect(dropped.runs.length).toBeLessThan(30)
+
+    const kept = apply(fixtureEditorState(), ...many)
+    expect(kept.runs).toHaveLength(30)
+    expect(kept.runs.every(run => !run.answered)).toBe(true)
+  })
+
+  it('gathers candidates nobody recorded a run for into one', () => {
+    // A job that settled before the sweep could adopt it: the first is the
+    // image someone was waiting for, and the rest are its siblings — not four
+    // separate claims on the selection.
+    const state = apply(
+      fixtureEditorState(),
+      arrival('stray-a', null),
+      arrival('stray-b', null)
+    )
+
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
+      'stray-a'
+    )
+    // And no grid for a question that was never asked.
+    expect(activeRunFor(state, ATLAS.id, 'source')).toBeNull()
   })
 })
