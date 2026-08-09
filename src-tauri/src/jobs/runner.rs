@@ -23,7 +23,7 @@ use super::fal::{
 };
 use super::store::{self, Job, JobStatus, JobTarget, NewJob};
 use crate::commands::api_key::stored_key;
-use crate::projects::store::{assets_dir, validate_id};
+use crate::projects::store::{asset_file_name, assets_dir, validate_id};
 
 /// PRD §3.3 — a 4-up batch is already four concurrent calls, and each one is
 /// charged. The cap is on jobs rather than requests because a job holds its
@@ -466,7 +466,7 @@ async fn save_image(
         GenerationError::new(GenerationErrorReason::CouldNotSave)
     })?;
 
-    let name = file_name_for(&target.generation_id, fal::extension_for(image_url));
+    let name = asset_file_name(&target.generation_id, fal::extension_for(image_url));
 
     std::fs::write(dir.join(&name), &bytes).map_err(|e| {
         log::error!("Could not write the generated image: {e}");
@@ -474,23 +474,6 @@ async fn save_image(
     })?;
 
     Ok(name)
-}
-
-/// The file name a generation is saved under. The id is filtered: it reaches
-/// here from the webview.
-fn file_name_for(generation_id: &str, extension: &str) -> String {
-    let stem: String = generation_id
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .collect();
-
-    let stem = if stem.is_empty() {
-        "generation".to_string()
-    } else {
-        stem
-    };
-
-    format!("{stem}.{extension}")
 }
 
 /// Whether a failure is worth another launch's attention.
@@ -606,14 +589,14 @@ mod tests {
         // Cleanup matches manifest entries against file names, so this is the
         // only naming that keeps a candidate from looking like an orphan.
         assert_eq!(
-            file_name_for("9f1c8e4a-1111-2222-3333-444455556666", "jpeg"),
+            asset_file_name("9f1c8e4a-1111-2222-3333-444455556666", "jpeg"),
             "9f1c8e4a-1111-2222-3333-444455556666.jpeg"
         );
     }
 
     #[test]
     fn a_generation_id_cannot_escape_the_assets_directory() {
-        let name = file_name_for("../../etc/passwd", "png");
+        let name = asset_file_name("../../etc/passwd", "png");
 
         assert!(!name.contains('/'), "got: {name}");
         assert!(!name.contains(".."), "got: {name}");
@@ -621,7 +604,7 @@ mod tests {
 
     #[test]
     fn a_nameless_generation_still_produces_a_file_name() {
-        assert_eq!(file_name_for("///", "jpeg"), "generation.jpeg");
+        assert_eq!(asset_file_name("///", "jpeg"), "generation.jpeg");
     }
 
     #[test]

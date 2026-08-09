@@ -95,3 +95,55 @@ export function aspectById(id: AspectId): Aspect {
 export function isAspectId(value: unknown): value is AspectId {
   return ASPECTS.some(aspect => aspect.id === value)
 }
+
+/**
+ * How far an uploaded image's ratio may sit from the project's before it counts
+ * as a different shape (#27).
+ *
+ * Relative, not absolute, so the same slack applies at 1:1 and at 21:9. 2% is
+ * chosen against the *gaps in this list*: the closest two curated ratios are
+ * 16:9 (1.778) and 2:1 (2.0), 11% apart, so no tolerance below that can ever
+ * confuse one for another. What it does buy is the crop that is off by a few
+ * pixels — a 1920×1081 export is plainly a 16:9 image and refusing it would be
+ * pedantry, not a check.
+ */
+export const ASPECT_TOLERANCE = 0.02
+
+/**
+ * Whether an image of these pixel dimensions is the shape the project locked.
+ *
+ * PRD §4.4 fixes the ratio at creation, so an upload of another shape is not a
+ * preference to be overridden later — it is the wrong picture for every stage
+ * downstream, and the video model at the end is the pickiest of the lot. Asking
+ * here is what makes the conflict "caught early" (#27) rather than at the
+ * expensive step.
+ */
+export function matchesAspect(
+  width: number,
+  height: number,
+  aspect: AspectId
+): boolean {
+  if (!(width > 0) || !(height > 0)) return false
+
+  const target = aspectById(aspect).ratio
+  return Math.abs(width / height - target) / target <= ASPECT_TOLERANCE
+}
+
+/**
+ * The ratio an image actually is, as a label to put in a refusal — "3:2", or
+ * a decimal when it is nothing we have a name for.
+ *
+ * Only ever shown next to a mismatch, so naming the nearest curated ratio is
+ * more useful than exactness: "this is 3:2, the project is 16:9" is a sentence
+ * someone can act on.
+ */
+export function describeRatio(width: number, height: number): string {
+  if (!(width > 0) || !(height > 0)) return '—'
+
+  const ratio = width / height
+  const named = ASPECTS.find(
+    aspect => Math.abs(ratio - aspect.ratio) / aspect.ratio <= ASPECT_TOLERANCE
+  )
+
+  return named?.id ?? `${ratio.toFixed(2)}:1`
+}

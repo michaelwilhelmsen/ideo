@@ -16,6 +16,7 @@ import {
   diffRecipes,
   generationById,
   isFromAnotherInput,
+  isUploadRecipe,
   previewArt,
   recipeSummary,
   seedSibling,
@@ -132,10 +133,15 @@ export function GenerationBadges({
       {generation.verdict === 'rejected' && (
         <Badge variant="destructive">{t('editor.verdict.rejected')}</Badge>
       )}
+      {/* Where the pixels came from, said plainly (#27). Downstream treats an
+          upload as any other candidate; only the label knows the difference. */}
+      {isUploadRecipe(generation.recipe) && (
+        <Badge variant="secondary">{t('editor.upload.badge')}</Badge>
+      )}
       {generation.recipe.seed.mode === 'pinned' && (
         <Badge variant="secondary">{t('editor.badge.pinnedSeed')}</Badge>
       )}
-      {generation.seed === null && (
+      {generation.seed === null && !isUploadRecipe(generation.recipe) && (
         <Badge variant="outline">{t('editor.badge.notReproducible')}</Badge>
       )}
       {fromElsewhere && (

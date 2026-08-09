@@ -5,5 +5,6 @@
 //! this module reads either directly — `commands::projects` is the seam where
 //! an `AppHandle` turns into a root path.
 
+pub mod import;
 pub mod index;
 pub mod store;

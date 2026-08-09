@@ -23,6 +23,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             projects::delete_project,
             projects::project_usage,
             projects::cleanup_unused_assets,
+            projects::import_source_image,
             preferences::load_preferences,
             preferences::save_preferences,
             notifications::send_native_notification,

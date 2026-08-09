@@ -136,5 +136,20 @@
   "toast.error.apiKeyClearFailed": "تعذّر مسح المفتاح",
   "toast.success.apiKeyCleared": "تم مسح مفتاح API",
   "editor.price.approximate": "~{{amount}} (تقديري، جرى التحقق من الأسعار في {{date}})",
-  "editor.price.unknown": "لم يجر التحقق من سعر هذا النموذج."
+  "editor.price.unknown": "لم يجر التحقق من سعر هذا النموذج.",
+  "editor.upload.title": "أضف صورتك الخاصة",
+  "editor.upload.description": "استخدم صورة لديك بالفعل كمصدر لهذا المشروع. أفلتها هنا أو اختر ملفًا.",
+  "editor.upload.action": "اختر صورة…",
+  "editor.upload.importing": "جارٍ الإضافة…",
+  "editor.upload.dropHere": "أفلت الصورة لاستخدامها كمصدر",
+  "editor.upload.filterName": "الصور",
+  "editor.upload.badge": "مرفوعة",
+  "editor.upload.aspectMismatch": "هذه الصورة بنسبة {{found}}، لكن هذا المشروع مثبَّت على {{aspect}}. لم تتم الإضافة.",
+  "editor.upload.error.notFound": "لم يعد هذا الملف موجودًا.",
+  "editor.upload.error.unreadable": "تعذَّرت قراءة هذا الملف.",
+  "editor.upload.error.unsupportedFormat": "هذه ليست صورة PNG أو JPEG أو WebP.",
+  "editor.upload.error.unsupportedFormatIs": "هذا ملف {{format}}. استخدم صورة PNG أو JPEG أو WebP.",
+  "editor.upload.error.tooLarge": "حجم هذه الصورة يتجاوز {{limit}} ميغابايت.",
+  "editor.upload.error.unreadableImage": "تبدو هذه الصورة تالفة أو غير مكتملة.",
+  "editor.upload.error.couldNotSave": "تعذَّر حفظ الصورة في المشروع."
 }

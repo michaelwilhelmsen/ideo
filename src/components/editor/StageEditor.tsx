@@ -34,6 +34,7 @@ import {
   SeedComparison,
 } from './shared'
 import { useGenerationName } from './naming'
+import { SourceUpload } from './SourceUpload'
 
 export function StageEditor() {
   const { t } = useTranslation()
@@ -91,6 +92,9 @@ export function StageEditor() {
 
       <div className="flex-1 space-y-4 overflow-y-auto p-6">
         <InputSummary project={project} stage={stage} />
+
+        {/* Only the source stage takes pixels from outside the project (#27). */}
+        {stage === 'source' && <SourceUpload project={project} />}
 
         {selected === null ? (
           <EmptyPreview

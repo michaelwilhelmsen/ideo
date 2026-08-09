@@ -29,6 +29,17 @@ vi.mock('@tauri-apps/api/event', () => ({
   }),
 }))
 
+// The webview handle reads window internals that jsdom has none of. Only its
+// drag-drop listener is used (#27), and it hands back an unlisten like the
+// real one so components can register and tear down as they normally would.
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: vi.fn(() => ({
+    onDragDropEvent: vi.fn().mockResolvedValue(() => {
+      // Mock unlisten function
+    }),
+  })),
+}))
+
 // Mock typed Tauri bindings (tauri-specta generated)
 vi.mock('@/lib/tauri-bindings', () => ({
   commands: {
@@ -96,6 +107,10 @@ vi.mock('@/lib/tauri-bindings', () => ({
     cleanupUnusedAssets: vi.fn().mockResolvedValue({
       status: 'ok',
       data: { removedCount: 0, freedBytes: 0 },
+    }),
+    importSourceImage: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { assetName: 'imported.png', width: 1920, height: 1080 },
     }),
   },
   unwrapResult: vi.fn((result: { status: string; data?: unknown }) => {

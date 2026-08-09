@@ -15,6 +15,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
+use crate::projects::import::{self, ImportError, ImportedImage};
 use crate::projects::index;
 use crate::projects::store::{self, CleanupOutcome, ProjectRecord, ProjectSummary, ProjectUsage};
 
@@ -96,6 +97,46 @@ pub async fn delete_project(app: AppHandle, project_id: String) -> Result<(), St
 
     log::info!("Deleted project {project_id}");
     Ok(())
+}
+
+/// Copies an image the user already has into a project (#27).
+///
+/// The convergence point of the slice: what comes back is a file in the
+/// project's `assets` folder named after its generation — the same artefact a
+/// finished job produces — so nothing downstream has to know the pixels were
+/// not generated.
+///
+/// Fails with a *reason* rather than a sentence, so the refusal can be said in
+/// the user's own language (PRD §10.4), and fails before anything is recorded
+/// so an unusable file never becomes a candidate.
+#[tauri::command]
+#[specta::specta]
+pub async fn import_source_image(
+    app: AppHandle,
+    project_id: String,
+    generation_id: String,
+    source_path: String,
+) -> Result<ImportedImage, ImportError> {
+    let root = projects_root(&app).map_err(|e| {
+        log::error!("{e}");
+        ImportError::could_not_save()
+    })?;
+
+    let imported = import::import(
+        &root,
+        &project_id,
+        &generation_id,
+        std::path::Path::new(&source_path),
+    )?;
+
+    log::info!(
+        "Imported {}×{} image into {project_id} as {}",
+        imported.width,
+        imported.height,
+        imported.asset_name
+    );
+
+    Ok(imported)
 }
 
 /// What the project costs on disk, and how much of it nothing points at

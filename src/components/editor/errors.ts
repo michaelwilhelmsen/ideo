@@ -9,7 +9,7 @@
  */
 
 import type { TFunction } from 'i18next'
-import type { GenerationError } from '@/lib/tauri-bindings'
+import type { GenerationError, ImportError } from '@/lib/tauri-bindings'
 
 export function generationErrorMessage(
   t: TFunction,
@@ -43,4 +43,39 @@ export function generationErrorMessage(
         ? t('generate.error.unexpected')
         : t('generate.error.unexpectedStatus', { status: error.status })
   }
+}
+
+/**
+ * Why an image the user picked could not be brought in (#27).
+ *
+ * Same division of labour as above: Rust decides what was wrong with the file,
+ * this decides what to say about it. Every one of these is a refusal that
+ * happens before anything is recorded and long before any paid call — so the
+ * sentence has to be specific enough to act on, which is why the size ceiling
+ * and the format we actually found are named rather than alluded to.
+ */
+export function importErrorMessage(t: TFunction, error: ImportError): string {
+  switch (error.reason) {
+    case 'notFound':
+      return t('editor.upload.error.notFound')
+    case 'unreadable':
+      return t('editor.upload.error.unreadable')
+    case 'unsupportedFormat':
+      return error.detail === null || error.detail === 'unknown'
+        ? t('editor.upload.error.unsupportedFormat')
+        : t('editor.upload.error.unsupportedFormatIs', { format: error.detail })
+    case 'tooLarge':
+      return t('editor.upload.error.tooLarge', {
+        limit: formatMegabytes(error.maxBytes),
+      })
+    case 'unreadableImage':
+      return t('editor.upload.error.unreadableImage')
+    case 'couldNotSave':
+      return t('editor.upload.error.couldNotSave')
+  }
+}
+
+/** The ceiling as a round number of megabytes, because that is how it reads. */
+function formatMegabytes(bytes: number): number {
+  return Math.round(bytes / (1024 * 1024))
 }

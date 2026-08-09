@@ -14,6 +14,7 @@ import {
 } from './reducer'
 import { ATLAS, LEDGER, fixtureEditorState, summaryOf } from './fixtures'
 import { MODEL_REGISTRY } from './models'
+import { UPLOAD_MODEL_ID, isUploadRecipe, uploadFileName } from './upload'
 import {
   activeProject,
   generationsForStage,
@@ -454,5 +455,87 @@ describe('collecting a job that outlived its click (#24)', () => {
     })
 
     expect(openProjectOf(state)).toBe(openProjectOf(fixtureEditorState()))
+  })
+})
+
+describe('an image the user brought in (#27)', () => {
+  function uploaded(id = 'upload-1'): EditorAction {
+    return {
+      type: 'recordUpload',
+      generationId: id,
+      asset: `${id}.png`,
+      fileName: 'hero-plate.png',
+      at: 7,
+    }
+  }
+
+  it('records the upload as an ordinary source candidate', () => {
+    const before = generationsForStage(
+      openProjectOf(fixtureEditorState()),
+      'source'
+    )
+    const project = openProjectOf(apply(fixtureEditorState(), uploaded()))
+    const sources = generationsForStage(project, 'source')
+
+    expect(sources).toHaveLength(before.length + 1)
+
+    const upload = sources.at(-1)
+    expect(upload?.stage).toBe('source')
+    expect(upload?.asset).toBe('upload-1.png')
+    // Numbered in the same sequence as everything else in the stage, so
+    // "Source 3" keeps meaning one candidate whatever produced it.
+    expect(upload?.ordinal).toBe(before.length + 1)
+    expect(upload?.verdict).toBe('unrated')
+  })
+
+  it('is what every downstream selector sees, exactly as a generation is', () => {
+    // The acceptance criterion of #27, as an assertion: nothing here asks
+    // whether the pixels were generated.
+    const project = openProjectOf(apply(fixtureEditorState(), uploaded()))
+
+    expect(selectedGeneration(project, 'source')?.id).toBe('upload-1')
+    expect(visibleGenerations(project, 'source', false).at(-1)?.id).toBe(
+      'upload-1'
+    )
+
+    const styled = openProjectOf(
+      apply(fixtureEditorState(), uploaded(), runOf('style', 42))
+    )
+    const style = generationsForStage(styled, 'style').at(-1)
+    expect(style?.recipe.inputGenerationId).toBe('upload-1')
+  })
+
+  it('marks itself as an upload rather than claiming a model made it', () => {
+    const project = openProjectOf(apply(fixtureEditorState(), uploaded()))
+    const upload = generationsForStage(project, 'source').at(-1)
+
+    if (upload === undefined) throw new Error('the upload was not recorded')
+
+    expect(upload.recipe.modelId).toBe(UPLOAD_MODEL_ID)
+    expect(isUploadRecipe(upload.recipe)).toBe(true)
+    // Nothing produced it, so there is no seed to pin — the honest null.
+    expect(upload.seed).toBeNull()
+    expect(uploadFileName(upload.recipe)).toBe('hero-plate.png')
+  })
+
+  it('refuses to load an upload back into the draft, because it names no model', () => {
+    // The draft is what a re-run would submit, and `modelById` throws on an id
+    // with no registry entry — a restored upload would break the panel.
+    const state = apply(fixtureEditorState(), uploaded())
+    const before = openProjectOf(state).drafts.source
+
+    const after = apply(state, {
+      type: 'restoreRecipe',
+      generationId: 'upload-1',
+    })
+
+    expect(openProjectOf(after).drafts.source).toEqual(before)
+  })
+
+  it('records the same upload once, however many times it arrives', () => {
+    const once = apply(fixtureEditorState(), uploaded())
+    const twice = apply(once, uploaded())
+
+    expect(openProjectOf(twice)).toBe(openProjectOf(once))
   })
 })

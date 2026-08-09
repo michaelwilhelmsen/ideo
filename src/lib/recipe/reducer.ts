@@ -12,6 +12,7 @@
 
 import { modelById, reconcileParams, type ModelCapabilities } from './registry'
 import { upstreamOf } from './selectors'
+import { isUploadRecipe, uploadRecipe } from './upload'
 import { STAGE_ORDER } from './types'
 import type {
   EditorState,
@@ -129,6 +130,23 @@ export type EditorAction =
       readonly entries: readonly CompletedRun[]
       readonly at: number
     }
+  /**
+   * An image the user brought in, already copied into the project's assets
+   * folder by Rust (#27).
+   *
+   * Deliberately routed through the same fold as a finished job rather than
+   * given a path of its own — that is what makes "indistinguishable from a
+   * generated one" a property of the code and not a claim in a comment.
+   */
+  | {
+      readonly type: 'recordUpload'
+      readonly generationId: string
+      /** The bare file name Rust filed it under. */
+      readonly asset: string
+      /** The user's own name for the file, for the readout. */
+      readonly fileName: string
+      readonly at: number
+    }
   | { readonly type: 'selectGeneration'; readonly generationId: string }
   | {
       readonly type: 'setVerdict'
@@ -231,6 +249,25 @@ export function createEditorReducer(
       case 'recordGenerations':
         return editProject(state, project =>
           withCollectedGenerations(project, action.entries, action.at)
+        )
+
+      case 'recordUpload':
+        return editProject(state, project =>
+          withCollectedGenerations(
+            project,
+            [
+              {
+                id: action.generationId,
+                stage: 'source',
+                recipe: uploadRecipe(action.fileName),
+                // No model, so no seed — the same honest `null` a seedless
+                // model gets, rather than a number implying a re-run.
+                seed: null,
+                asset: action.asset,
+              },
+            ],
+            action.at
+          )
         )
 
       case 'selectGeneration':
@@ -417,6 +454,13 @@ function restoreRecipe(project: Project, generationId: string): Project {
   if (generation === undefined) return project
 
   const { stage, recipe } = generation
+
+  // An upload names no model (#27), so there is nothing to load into a form
+  // that would produce it again — loading it anyway would leave the draft
+  // pointing at a registry entry that does not exist. Refused here rather than
+  // hidden in the UI, because the reducer is what the manifest can reach.
+  if (isUploadRecipe(recipe)) return project
+
   const upstream = upstreamOf(stage)
   const inputStillExists =
     recipe.inputGenerationId !== null &&

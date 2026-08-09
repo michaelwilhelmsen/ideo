@@ -136,5 +136,20 @@
   "toast.error.apiKeyClearFailed": "Impossible d'effacer la clé",
   "toast.success.apiKeyCleared": "Clé API effacée",
   "editor.price.approximate": "~{{amount}} (approximatif, tarifs vérifiés le {{date}})",
-  "editor.price.unknown": "Le tarif de ce modèle n'a pas été vérifié."
+  "editor.price.unknown": "Le tarif de ce modèle n'a pas été vérifié.",
+  "editor.upload.title": "Importer votre propre image",
+  "editor.upload.description": "Utilisez une image que vous avez déjà comme source de ce projet. Déposez-la ici ou choisissez un fichier.",
+  "editor.upload.action": "Choisir une image…",
+  "editor.upload.importing": "Importation…",
+  "editor.upload.dropHere": "Déposez l'image pour l'utiliser comme source",
+  "editor.upload.filterName": "Images",
+  "editor.upload.badge": "Importée",
+  "editor.upload.aspectMismatch": "Cette image est en {{found}}, mais ce projet est verrouillé en {{aspect}}. Rien n'a été ajouté.",
+  "editor.upload.error.notFound": "Ce fichier n'existe plus.",
+  "editor.upload.error.unreadable": "Ce fichier n'a pas pu être lu.",
+  "editor.upload.error.unsupportedFormat": "Ce n'est pas une image PNG, JPEG ou WebP.",
+  "editor.upload.error.unsupportedFormatIs": "Il s'agit d'un fichier {{format}}. Utilisez une image PNG, JPEG ou WebP.",
+  "editor.upload.error.tooLarge": "Cette image dépasse {{limit}} Mo.",
+  "editor.upload.error.unreadableImage": "Cette image semble endommagée ou incomplète.",
+  "editor.upload.error.couldNotSave": "L'image n'a pas pu être enregistrée dans le projet."
 }

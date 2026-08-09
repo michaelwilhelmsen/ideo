@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { ASPECTS, aspectById, isAspectId } from './aspects'
+import {
+  ASPECTS,
+  aspectById,
+  describeRatio,
+  isAspectId,
+  matchesAspect,
+} from './aspects'
 
 describe('the aspect catalogue', () => {
   it('offers exactly the curated list of PRD §4.4', () => {
@@ -47,5 +53,39 @@ describe('the aspect catalogue', () => {
   it('describes each ratio numerically, so a preview can size itself', () => {
     expect(aspectById('16:9').ratio).toBeCloseTo(16 / 9)
     expect(aspectById('1:1').ratio).toBe(1)
+  })
+})
+
+describe('an upload has to be the shape the project locked (#27)', () => {
+  it('accepts an image at exactly the project ratio', () => {
+    expect(matchesAspect(1920, 1080, '16:9')).toBe(true)
+    expect(matchesAspect(2352, 1008, '21:9')).toBe(true)
+    expect(matchesAspect(1024, 1024, '1:1')).toBe(true)
+  })
+
+  it('accepts a crop that is off by a pixel or two, which is still 16:9', () => {
+    // Refusing a 1920×1081 export would be pedantry, not a check.
+    expect(matchesAspect(1920, 1081, '16:9')).toBe(true)
+  })
+
+  it('refuses a genuinely different shape', () => {
+    // The closest two curated ratios are 11% apart, so no adjacent pair can
+    // be confused for one another at this tolerance.
+    expect(matchesAspect(1500, 1000, '16:9')).toBe(false)
+    expect(matchesAspect(1920, 1080, '1:1')).toBe(false)
+    expect(matchesAspect(2000, 1000, '21:9')).toBe(false)
+  })
+
+  it('refuses dimensions that are not an image at all', () => {
+    expect(matchesAspect(0, 1080, '16:9')).toBe(false)
+    expect(matchesAspect(1920, 0, '16:9')).toBe(false)
+    expect(matchesAspect(Number.NaN, 1080, '16:9')).toBe(false)
+  })
+
+  it('names the ratio an image actually is, for the refusal', () => {
+    expect(describeRatio(1500, 1000)).toBe('3:2')
+    expect(describeRatio(1920, 1080)).toBe('16:9')
+    // Nothing we have a name for is said as a number rather than guessed at.
+    expect(describeRatio(1000, 1000 / 1.23)).toBe('1.23:1')
   })
 })

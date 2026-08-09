@@ -135,6 +135,30 @@ pub fn assets_dir(root: &Path, id: &str) -> Result<PathBuf, String> {
     Ok(project_dir(root, id)?.join(ASSETS_DIR))
 }
 
+/// The file name a generation's image is saved under, whether it was
+/// downloaded from fal or copied off the user's disk (#27).
+///
+/// Named after the generation rather than its origin, because the manifest
+/// refers to candidates by generation id — a file named anything else would be
+/// an orphan the moment cleanup looked at it, and an upload has to be
+/// indistinguishable from a generation once it has landed.
+///
+/// The id is filtered rather than trusted: it reaches here from the webview.
+pub fn asset_file_name(generation_id: &str, extension: &str) -> String {
+    let stem: String = generation_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+
+    let stem = if stem.is_empty() {
+        "generation".to_string()
+    } else {
+        stem
+    };
+
+    format!("{stem}.{extension}")
+}
+
 /// Reads a project, with the folder as the last word on its identity.
 ///
 /// The folder name wins over whatever `id` the manifest claims. A folder

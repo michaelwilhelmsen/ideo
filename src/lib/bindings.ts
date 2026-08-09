@@ -223,6 +223,26 @@ async cleanupUnusedAssets(projectId: string) : Promise<Result<CleanupOutcome, st
 }
 },
 /**
+ * Copies an image the user already has into a project (#27).
+ * 
+ * The convergence point of the slice: what comes back is a file in the
+ * project's `assets` folder named after its generation — the same artefact a
+ * finished job produces — so nothing downstream has to know the pixels were
+ * not generated.
+ * 
+ * Fails with a *reason* rather than a sentence, so the refusal can be said in
+ * the user's own language (PRD §10.4), and fails before anything is recorded
+ * so an unusable file never becomes a candidate.
+ */
+async importSourceImage(projectId: string, generationId: string, sourcePath: string) : Promise<Result<ImportedImage, ImportError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("import_source_image", { projectId, generationId, sourcePath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Loads user preferences from disk.
  * Returns default preferences if the file doesn't exist.
  */
@@ -448,6 +468,66 @@ export type GenerationProgress = { requestId: string; projectId: string; generat
  * Position in fal's queue, when it tells us.
  */
 queuePosition: number | null; elapsedMs: number }
+/**
+ * A refusal, as it crosses to the frontend.
+ */
+export type ImportError = { reason: ImportErrorReason; 
+/**
+ * Something specific about this file — the format we actually found, or
+ * the size it actually was. Appended to the sentence, never instead of it.
+ */
+detail: string | null; 
+/**
+ * The ceiling, in bytes, so the message can name it without the frontend
+ * keeping its own copy of a number Rust enforces.
+ */
+maxBytes: number }
+/**
+ * Why an image could not be brought in.
+ * 
+ * A reason rather than a sentence, matching `GenerationError` in
+ * `jobs/fal.rs`: the words belong in the locale files, because the frontend
+ * is the only side that knows what language to say them in (PRD §10.4).
+ */
+export type ImportErrorReason = 
+/**
+ * Nothing at that path, or it is not a file.
+ */
+"notFound" | 
+/**
+ * The file is there but could not be read.
+ */
+"unreadable" | 
+/**
+ * Not a PNG, JPEG or WebP, whatever the extension claims.
+ */
+"unsupportedFormat" | 
+/**
+ * Over `MAX_IMAGE_BYTES`.
+ */
+"tooLarge" | 
+/**
+ * The magic bytes matched but the header did not parse — a truncated or
+ * corrupt file, which we would rather name now than hand to a model.
+ */
+"unreadableImage" | 
+/**
+ * The bytes were fine; writing them into the project was not.
+ */
+"couldNotSave"
+/**
+ * What landed in the project folder.
+ * 
+ * The dimensions come back because the aspect ratio has to be checked against
+ * the project's locked one (PRD §4.4) *before* the upload is recorded, and the
+ * frontend cannot read a local file's header itself.
+ */
+export type ImportedImage = { 
+/**
+ * A bare file name inside the project's `assets` folder, exactly as a
+ * generated asset is — never a path.
+ */
+assetName: string; width: number; height: number }
 /**
  * A job as the frontend sees it: enough to show it, enough to record it in
  * the manifest once it finishes. The queue URLs stay in this module — they

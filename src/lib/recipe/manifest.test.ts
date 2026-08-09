@@ -8,6 +8,8 @@
 import { describe, expect, it } from 'vitest'
 import { ATLAS } from './fixtures'
 import { MANIFEST_VERSION, readManifest, writeManifest } from './manifest'
+import { UPLOAD_MODEL_ID, uploadRecipe } from './upload'
+import type { Generation } from './types'
 
 describe('a manifest round-trips', () => {
   it('comes back as the project that went in', () => {
@@ -97,5 +99,49 @@ describe('assets', () => {
 
     // The generation survives; only the claim about where its file lives does.
     expect(project.generations[0]?.asset).toBeNull()
+  })
+})
+
+describe('an upload survives the manifest (#27)', () => {
+  const upload: Generation = {
+    id: 'upload-1',
+    stage: 'source',
+    recipe: uploadRecipe('hero-plate.png'),
+    seed: null,
+    verdict: 'unrated',
+    createdAt: 1_700_000_000,
+    ordinal: 1,
+    asset: 'upload-1.png',
+  }
+
+  it('comes back as the same upload, at the version this build already writes', () => {
+    // The reserved model id is why the manifest version does not have to move:
+    // `readRecipe` only ever asked that `modelId` is a string.
+    const manifest = writeManifest(
+      { ...ATLAS, generations: [upload], selection: { ...ATLAS.selection } },
+      1_700_000_000
+    )
+
+    expect(manifest.version).toBe(MANIFEST_VERSION)
+
+    const project = readManifest(manifest)
+    const read = project.generations.find(g => g.id === 'upload-1')
+
+    expect(read).toEqual(upload)
+    expect(read?.recipe.modelId).toBe(UPLOAD_MODEL_ID)
+    expect(read?.asset).toBe('upload-1.png')
+  })
+
+  it('is read as a generation like any other, with no shape of its own', () => {
+    const project = readManifest(
+      writeManifest(
+        { ...ATLAS, generations: [upload], selection: { ...ATLAS.selection } },
+        1_700_000_000
+      )
+    )
+
+    // The point of the reserved id: nothing in the reader branches on it.
+    expect(project.generations).toHaveLength(1)
+    expect(project.generations[0]?.stage).toBe('source')
   })
 })
