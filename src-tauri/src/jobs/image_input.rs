@@ -36,6 +36,7 @@ use specta::Type;
 use std::collections::HashMap;
 use std::path::Path;
 
+use super::downscale;
 use super::fal::{GenerationError, GenerationErrorReason, InputImageProblem};
 use crate::projects::import::sniff_format;
 use crate::projects::store::asset_path;
@@ -201,7 +202,8 @@ fn encode_once<'a>(
     for input in inputs {
         let id = input.generation_id.as_str();
         if !encoded.contains_key(id) {
-            encoded.insert(id, data_uri(&read_image(root, project_id, id)?)?);
+            let bytes = downscale::apply(read_image(root, project_id, id)?);
+            encoded.insert(id, data_uri(&bytes)?);
         }
     }
 

@@ -11,6 +11,7 @@
 //! is the expensive artefact (PRD §1); this database holds only what is in
 //! flight, so losing it costs a poll rather than a recipe.
 
+pub mod downscale;
 pub mod fal;
 pub mod image_input;
 pub mod runner;

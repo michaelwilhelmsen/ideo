@@ -52,6 +52,7 @@ imagesize = "0.14"
 # The input image reaches fal as an inline base64 data URI (#28, and
 # `docs/research/models-gaps.md` §4 — the one transfer confirmed to work).
 base64 = "0.22"
+image = { version = "0.25.6", default-features = false, features = ["png", "jpeg", "webp"] }
 
 # OS keychain for the fal.ai API key. Backends are selected per platform so the
 # cross-platform CI build doesn't pull the others' native dependencies.
