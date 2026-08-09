@@ -270,16 +270,32 @@ pub async fn submit(
     };
     body["prompt"] = json!(prompt);
 
+    // Serialised here rather than by `.json()` so the size can be logged. An
+    // inlined image is the bulk of it and a looping animate run carries the same
+    // one twice (#30), so "how big was the body we just failed to send" is the
+    // first question worth answering about a transport failure, and it is
+    // unanswerable after the fact.
+    let payload = serde_json::to_vec(&body).map_err(|e| {
+        log::error!("Could not encode the request body: {e}");
+        GenerationError::new(GenerationErrorReason::Unexpected)
+    })?;
+
+    log::info!(
+        "Submitting to {model_id} with a {} KB body",
+        payload.len() / 1024
+    );
+
     let response = client(SUBMIT_TIMEOUT)?
         .post(format!("https://queue.fal.run/{model_id}"))
         .header("Authorization", format!("Key {key}"))
-        .json(&body)
+        .header("Content-Type", "application/json")
+        .body(payload)
         .send()
         .await
-        .map_err(|e| offline("Could not submit the generation", e))?;
+        .map_err(|e| offline("Could not submit the generation", &e))?;
 
     let status = response.status().as_u16();
-    if status != 200 {
+    if !is_accepted(status) {
         let body = response.text().await.unwrap_or_default();
         log::error!("fal.ai refused the submit with status {status}: {body}");
         return Err(fal_error(status, &body));
@@ -303,12 +319,12 @@ pub async fn poll(
         .header("Authorization", format!("Key {key}"))
         .send()
         .await
-        .map_err(|e| offline("Could not read job status", e))?;
+        .map_err(|e| offline("Could not read job status", &e))?;
 
     let status_code = response.status().as_u16();
     let body = response.text().await.unwrap_or_default();
 
-    if status_code != 200 {
+    if !is_accepted(status_code) {
         log::error!("fal.ai status check failed with {status_code}: {body}");
         return Err(fal_error(status_code, &body));
     }
@@ -341,12 +357,12 @@ pub async fn fetch_result(
         .header("Authorization", format!("Key {key}"))
         .send()
         .await
-        .map_err(|e| offline("Could not fetch the finished result", e))?;
+        .map_err(|e| offline("Could not fetch the finished result", &e))?;
 
     let status = response.status().as_u16();
     let body = response.text().await.unwrap_or_default();
 
-    if status != 200 {
+    if !is_accepted(status) {
         log::error!("fal.ai result fetch failed with {status}: {body}");
         return Err(fal_error(status, &body));
     }
@@ -371,7 +387,7 @@ pub async fn cancel(key: &str, cancel_url: &str) -> Result<bool, GenerationError
         .header("Authorization", format!("Key {key}"))
         .send()
         .await
-        .map_err(|e| offline("Could not reach fal to cancel", e))?;
+        .map_err(|e| offline("Could not reach fal to cancel", &e))?;
 
     let status = response.status().as_u16();
     if status == 200 {
@@ -478,7 +494,20 @@ fn extract_result(payload: &Value) -> Result<QueueResult, GenerationError> {
     })
 }
 
-/// Classifies any non-200 answer from fal, whichever call produced it.
+/// Whether fal's answer means "taken", whichever call asked.
+///
+/// Any 2xx, not `== 200`, and the difference is the whole queue. **Submit
+/// answers `202 Accepted`** — the point of a queue is that it accepts work
+/// rather than doing it — so a 200-only check rejects every generation at the
+/// first step and reports the acceptance itself as an unexpected error, which
+/// is what it did until 2026-08-09. Nothing downstream needs the distinction:
+/// a submit is read for its ids and a poll for its `status` field, and both
+/// are there on any answer fal calls successful.
+fn is_accepted(status: u16) -> bool {
+    (200..300).contains(&status)
+}
+
+/// Classifies any non-2xx answer from fal, whichever call produced it.
 fn fal_error(status: u16, body: &str) -> GenerationError {
     match status {
         401 | 403 => GenerationError::new(GenerationErrorReason::KeyRejected),
@@ -539,9 +568,32 @@ fn terminal_error(payload: &Value) -> Option<GenerationError> {
     })
 }
 
-fn offline(context: &str, e: impl std::fmt::Display) -> GenerationError {
-    log::warn!("{context}: {e}");
+fn offline(context: &str, e: &reqwest::Error) -> GenerationError {
+    let kind = transport_kind(e);
+    log::warn!("{context}: {kind} ({e})");
     GenerationError::new(GenerationErrorReason::Offline)
+}
+
+/// Which transport failure this was, in words.
+///
+/// reqwest says `error sending request for url (…)` for a timeout, a refused
+/// connection and a body that died halfway alike — one Display for three
+/// problems with three different fixes. A submit that times out on a 13 MB
+/// inlined payload is a size problem and wants the upload endpoint
+/// (`models-gaps.md` §4); a refused connection is the user's network and wants
+/// nothing from us. Guessing between them from the log is how the wrong one
+/// gets fixed, so the distinction reqwest keeps in its flags is named here.
+fn transport_kind(e: &reqwest::Error) -> &'static str {
+    classify_transport(e.is_timeout(), e.is_connect(), e.is_body())
+}
+
+fn classify_transport(timeout: bool, connect: bool, body: bool) -> &'static str {
+    match (timeout, connect, body) {
+        (true, _, _) => "timed out",
+        (_, true, _) => "could not open a connection",
+        (_, _, true) => "died while sending the body",
+        _ => "failed in transport",
+    }
 }
 
 #[cfg(test)]
@@ -652,6 +704,47 @@ mod tests {
 
         assert_eq!(error.reason, GenerationErrorReason::RequestRejected);
         assert_eq!(error.detail.as_deref(), Some("field required"));
+    }
+
+    #[test]
+    fn a_queued_submit_is_a_success_not_an_error() {
+        // The bug this exists to prevent: fal's submit answers `202 Accepted`,
+        // and a 200-only check turned every generation into
+        // "unexpected error (status 202)" before anything was even queued.
+        assert!(is_accepted(202));
+        assert!(is_accepted(200));
+    }
+
+    #[test]
+    fn a_refusal_is_still_a_refusal() {
+        assert!(!is_accepted(401));
+        assert!(!is_accepted(422));
+        assert!(!is_accepted(500));
+        // A redirect is not an acceptance — fal does not issue one, and reading
+        // a 3xx body for request ids would find nothing.
+        assert!(!is_accepted(302));
+    }
+
+    #[test]
+    fn a_transport_failure_is_named_rather_than_left_as_one_sentence() {
+        // reqwest's Display is the same line for all of these, which is what
+        // made a 13 MB submit indistinguishable from an unplugged cable.
+        assert_eq!(classify_transport(true, false, false), "timed out");
+        assert_eq!(
+            classify_transport(false, true, false),
+            "could not open a connection"
+        );
+        assert_eq!(
+            classify_transport(false, false, true),
+            "died while sending the body"
+        );
+        assert_eq!(
+            classify_transport(false, false, false),
+            "failed in transport"
+        );
+        // A timeout that reqwest also flags as a body failure is still a
+        // timeout — the deadline is the thing worth acting on.
+        assert_eq!(classify_transport(true, false, true), "timed out");
     }
 
     #[test]
