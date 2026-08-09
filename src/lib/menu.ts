@@ -60,6 +60,39 @@ export async function buildAppMenu(): Promise<Menu> {
       ],
     })
 
+    // Build the Edit submenu (also provides the standard macOS accelerators
+    // for Undo/Redo/Cut/Copy/Paste/Select All so text inputs work app-wide)
+    const editSubmenu = await Submenu.new({
+      text: t('menu.edit'),
+      items: [
+        await PredefinedMenuItem.new({
+          item: 'Undo',
+          text: t('menu.undo'),
+        }),
+        await PredefinedMenuItem.new({
+          item: 'Redo',
+          text: t('menu.redo'),
+        }),
+        await PredefinedMenuItem.new({ item: 'Separator' }),
+        await PredefinedMenuItem.new({
+          item: 'Cut',
+          text: t('menu.cut'),
+        }),
+        await PredefinedMenuItem.new({
+          item: 'Copy',
+          text: t('menu.copy'),
+        }),
+        await PredefinedMenuItem.new({
+          item: 'Paste',
+          text: t('menu.paste'),
+        }),
+        await PredefinedMenuItem.new({
+          item: 'SelectAll',
+          text: t('menu.selectAll'),
+        }),
+      ],
+    })
+
     // Build the View submenu
     const viewSubmenu = await Submenu.new({
       text: t('menu.view'),
@@ -81,7 +114,7 @@ export async function buildAppMenu(): Promise<Menu> {
 
     // Build the complete menu
     const menu = await Menu.new({
-      items: [appSubmenu, viewSubmenu],
+      items: [appSubmenu, editSubmenu, viewSubmenu],
     })
 
     // Set as the application menu
