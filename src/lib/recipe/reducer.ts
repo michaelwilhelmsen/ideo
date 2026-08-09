@@ -10,6 +10,7 @@
  * because it is repo-committed data (PRD §5) that no action can change.
  */
 
+import { composePreset, type StylePreset } from './presets'
 import { modelById, reconcileParams, type ModelCapabilities } from './registry'
 import { clampBatchSize, upstreamOf } from './selectors'
 import { isUploadRecipe, uploadRecipe } from './upload'
@@ -111,10 +112,27 @@ export type EditorAction =
       readonly stage: StageKind
       readonly prompt: string
     }
+  /**
+   * A preset was picked — which, for the style stage, *seeds the form* (#28).
+   *
+   * The preset itself rides on the action rather than being looked up here, for
+   * the reason nothing else is minted here either: half the library lives in
+   * app data and is loaded by TanStack Query, so the reducer would have to
+   * either know about the disk or work from a stale copy of it. `null` is the
+   * honest answer for the stages whose libraries are still fixtures — a source
+   * or motion preset has no composed prompt to seed with — and for a
+   * deselection, which records that nothing is selected and leaves the form
+   * exactly as the user left it.
+   *
+   * Re-seeding after a model switch is this same action with the same preset:
+   * seeding is idempotent and always starts the provenance flag clean, which is
+   * precisely what "start again from the preset" means.
+   */
   | {
       readonly type: 'choosePreset'
       readonly stage: StageKind
       readonly presetId: string | null
+      readonly preset: StylePreset | null
     }
   | {
       readonly type: 'chooseModel'
@@ -261,11 +279,9 @@ export function createEditorReducer(
 
       // A fresh selection is a fresh seed, so nothing has been changed yet.
       case 'choosePreset':
-        return editDraft(state, action.stage, draft => ({
-          ...draft,
-          presetId: action.presetId,
-          presetModified: false,
-        }))
+        return editDraft(state, action.stage, draft =>
+          seedFromPreset(registry, draft, action.presetId, action.preset)
+        )
 
       case 'chooseModel':
         return editDraft(state, action.stage, draft => {
@@ -280,6 +296,10 @@ export function createEditorReducer(
             // A model with no seed field cannot honour a pin. Dropping it here
             // keeps the draft from claiming a reproducibility it does not have.
             seed: model.supportsSeed ? draft.seed : { mode: 'roll' },
+            // The prompt is deliberately untouched, and so is `presetModified`:
+            // switching models keeps whatever the user has written, even when
+            // the new model reads a different idiom (#28). The re-seed is
+            // *offered* instead — see `presetSeedState`.
           }
         })
 
@@ -445,6 +465,53 @@ export function createEditorReducer(
         )
     }
   }
+}
+
+/**
+ * Pre-fill the form from a preset — the seeding model of #28, in one place.
+ *
+ * What lands in the box is the *fully composed* prompt, because what is in the
+ * box is exactly what is sent: a preset that seeded a fragment and assembled
+ * the rest at submit time would be a filter wearing a text field, and the
+ * prompt box is where people find out what the prompt language actually does.
+ *
+ * Three seeded fields, each gated by the registry rather than by the preset:
+ *
+ * - The prompt, always.
+ * - Strength, only where the model has a field for one. The value is already
+ *   the model's default or the preset's clamped opinion (`composePreset`).
+ * - The negative, only where `negativePromptParam` exists — routed there or
+ *   dropped, never folded into the positive prompt (PRD §9). Cleared rather
+ *   than left when the new preset has nothing to subtract, or the last
+ *   preset's negative would quietly outlive it.
+ *
+ * A preset that does not speak the model's idiom seeds *nothing* and keeps the
+ * user's text. The picker disables that combination with its reason attached,
+ * so this is the belt to that braces — and the alternative, seeding the other
+ * idiom, is the cross-send the schema exists to prevent (PRD §6.2).
+ */
+function seedFromPreset(
+  registry: readonly ModelCapabilities[],
+  draft: StageRecipe,
+  presetId: string | null,
+  preset: StylePreset | null
+): StageRecipe {
+  const chosen: StageRecipe = { ...draft, presetId, presetModified: false }
+  if (preset === null) return chosen
+
+  const model = modelById(registry, draft.modelId)
+  const composed = composePreset(preset, model)
+  if (composed === null) return chosen
+
+  const params = { ...draft.params }
+  if (model.strengthParam !== null && composed.strength !== null) {
+    params[model.strengthParam] = composed.strength
+  }
+  if (model.negativePromptParam !== null) {
+    params[model.negativePromptParam] = composed.negative ?? ''
+  }
+
+  return { ...chosen, prompt: composed.prompt, params }
 }
 
 /**

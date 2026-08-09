@@ -22,6 +22,7 @@ Technical documentation for building and extending this app. These docs describe
 | [Tauri Commands](./tauri-commands.md)         | Type-safe Rust-TypeScript bridge (tauri-specta) |
 | [Tauri Plugins](./tauri-plugins.md)           | Plugin usage and configuration                  |
 | [Model Registry](./model-registry.md)         | Model capabilities, aspect idioms, validation   |
+| [Style Presets](./style-presets.md)           | Seeding the form, prompt idioms, the fork flow  |
 
 ## UI & UX
 

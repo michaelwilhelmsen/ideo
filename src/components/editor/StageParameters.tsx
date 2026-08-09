@@ -31,7 +31,6 @@ import {
   modelAvailability,
   modelById,
   modelsForStage,
-  presetsForStage,
   selectedGeneration,
   type AspectId,
   type ControlAvailability,
@@ -42,6 +41,7 @@ import {
   type StageRecipe,
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
+import { PresetField } from './PresetField'
 import { rollSeed, useRunStage } from './run-request'
 import { useCancelJob, useJobProgress, useStageJobs } from '@/services/jobs'
 import { InputSummary } from './shared'
@@ -149,28 +149,11 @@ export function StageParameters({
         </p>
       </Field>
 
-      <Field label={t('editor.field.preset')}>
-        <NativeSelect
-          className="w-full"
-          value={draft.presetId ?? ''}
-          onChange={event =>
-            dispatch({
-              type: 'choosePreset',
-              stage,
-              presetId: event.target.value === '' ? null : event.target.value,
-            })
-          }
-        >
-          <NativeSelectOption value="">
-            {t('editor.preset.none')}
-          </NativeSelectOption>
-          {presetsForStage(stage).map(preset => (
-            <NativeSelectOption key={preset.id} value={preset.id}>
-              {preset.name}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-      </Field>
+      {/* Its own component because a style preset is a *seed* (#28): choosing
+          one pre-fills the fields above, which brings a re-seed offer, a fork
+          flow and a picker that has to say when a preset cannot speak to the
+          selected model. */}
+      <PresetField project={project} stage={stage} />
 
       {/* Seed. Headline rather than plumbing: a model with no seed makes the
           whole recipe approximate, and that has to be said out loud. */}

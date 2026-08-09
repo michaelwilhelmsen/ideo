@@ -286,6 +286,11 @@ function readVariant(
 const PRESERVE_SLOT = '{preserve}'
 const TRANSFORM_SLOT = '{transform}'
 
+/** One variant's whole prompt — the template with the look dropped into it. */
+function variantPrompt(variant: PresetVariant): string {
+  return variant.compose.replaceAll(TRANSFORM_SLOT, variant.transform).trim()
+}
+
 /**
  * What selecting this preset should put in the form, or `null` when the model's
  * idiom is one this preset does not speak.
@@ -308,12 +313,8 @@ export function composePreset(
   const variant = preset.variants[model.promptStyle]
   if (variant === null) return null
 
-  const prompt = variant.compose
-    .replaceAll(TRANSFORM_SLOT, variant.transform)
-    .trim()
-
   return {
-    prompt,
+    prompt: variantPrompt(variant),
     // Dropped where the model has no field for it, never folded in (PRD §9).
     negative: model.negativePromptParam === null ? null : variant.negative,
     strength: strengthFor(model, variant),
@@ -371,6 +372,237 @@ export const BUILT_IN_STYLE_PRESETS: readonly StylePreset[] =
 export function stylePresetById(id: string | null): StylePreset | null {
   if (id === null) return null
   return BUILT_IN_STYLE_PRESETS.find(preset => preset.id === id) ?? null
+}
+
+/**
+ * Whether this preset has anything to say in the model's idiom.
+ *
+ * The picker asks before offering it. A preset that cannot speak to the
+ * selected model is disabled with the reason attached rather than left
+ * selectable — PRD §10.1's disabled-with-a-reason, for the same argument: a
+ * selection that seeds nothing looks like a broken picker, and the alternative
+ * (seeding the other idiom anyway) is the cross-send `composePreset` exists to
+ * refuse.
+ */
+export function presetSupportsModel(
+  preset: StylePreset,
+  model: ModelCapabilities
+): boolean {
+  return preset.variants[model.promptStyle] !== null
+}
+
+/**
+ * Whether the form still says what the selected preset says — and when it does
+ * not, why, so a re-seed can be *offered* rather than forced (#28's settled
+ * model-switch rule).
+ *
+ * Derived rather than recorded. The alternative was a "seeded with" field on
+ * the recipe, which is a second copy of a library the user can edit and one
+ * more thing a persisted manifest has to round-trip. What is on screen and what
+ * the preset would produce are both here already, so the question answers
+ * itself.
+ *
+ * `idiom` and `edited` are told apart by looking for the prompt in the preset's
+ * *other* idiom: a prompt that is verbatim what the previous model's variant
+ * says was seeded and then stranded by a model switch, and saying so is the
+ * difference between an offer that explains itself and a button that does not.
+ */
+export type PresetSeedState =
+  /** Nothing selected, or a stage whose library does not compose. */
+  | { readonly state: 'none' }
+  /** The box says exactly what this model's variant says. */
+  | { readonly state: 'seeded' }
+  /** This model reads an idiom the preset does not speak. */
+  | { readonly state: 'unsupported' }
+  /** The box says something else — offer to seed it again. */
+  | { readonly state: 'stale'; readonly reasonKey: string }
+
+export function presetSeedState(
+  prompt: string,
+  preset: StylePreset | null,
+  model: ModelCapabilities
+): PresetSeedState {
+  if (preset === null) return { state: 'none' }
+
+  const composed = composePreset(preset, model)
+  if (composed === null) return { state: 'unsupported' }
+  if (composed.prompt === prompt) return { state: 'seeded' }
+
+  const strandedByModelSwitch = PROMPT_STYLES.filter(
+    style => style !== model.promptStyle
+  ).some(style => {
+    const variant = preset.variants[style]
+    return variant !== null && variantPrompt(variant) === prompt
+  })
+
+  return {
+    state: 'stale',
+    reasonKey: strandedByModelSwitch
+      ? 'editor.preset.staleIdiom'
+      : 'editor.preset.staleEdited',
+  }
+}
+
+// ── The user's own library (#28's fork flow) ─────────────────────────────────
+
+/**
+ * Bumped when a saved fork written today would be misread by an older build.
+ *
+ * Separate from {@link PRESET_LIBRARY_VERSION} because these are separate
+ * artefacts with separate lifetimes: the built-ins ship with the app and move
+ * when we move them, a fork lives in app data and must survive an update that
+ * rewrites the built-ins entirely (PRD §6).
+ */
+export const USER_PRESET_VERSION = 1
+
+/** The family a fork is filed under, since it is grouped by being yours. */
+export const USER_PRESET_FAMILY = 'user'
+
+/**
+ * The ids `presets::store::validate_id` will accept — one preset is one file,
+ * so an id has to be a plain file name. Rust refuses anything else rather than
+ * sanitising it, which means agreeing here is the frontend's job.
+ */
+const PRESET_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
+/** Long enough to read, short enough to leave room for a collision suffix. */
+const PRESET_SLUG_MAX = 48
+
+export function isPresetId(id: string): boolean {
+  return PRESET_ID_PATTERN.test(id)
+}
+
+/**
+ * One saved fork, from the file it was read out of.
+ *
+ * A user preset file *is* a preset — no `presets` array, no shared preserve
+ * blocks — which is what makes each fork independent of the others and of ours.
+ * Being self-contained is enforced rather than assumed: composing against no
+ * preserve block means a template that still asks for `{preserve}` is refused
+ * here, where the alternative is a prompt with a hole in it at the paid step.
+ *
+ * Throws, naming what was wrong. The caller skips that one file and says so —
+ * a hand-edited fork must never be able to take the library down (#28).
+ */
+export function readUserPreset(document: unknown): StylePreset {
+  const record = asRecord(document, 'user preset')
+
+  const version = record.version
+  if (version !== USER_PRESET_VERSION) {
+    throw new Error(
+      `User preset version ${String(version)} is not version ${USER_PRESET_VERSION}`
+    )
+  }
+
+  const preset = readPreset(record, NO_PRESERVE)
+
+  if (!isPresetId(preset.id)) {
+    throw new Error(`Preset id "${preset.id}" is not one a file can be named`)
+  }
+
+  return preset
+}
+
+/** A fork carries its own wording, so there is nothing to substitute. */
+const NO_PRESERVE: PresetLibrary['preserve'] = { prose: null, tags: null }
+
+/** The document written to app data — one preset, plus what version it is. */
+export function writeUserPreset(preset: StylePreset): Record<string, unknown> {
+  return {
+    version: USER_PRESET_VERSION,
+    id: preset.id,
+    name: preset.name,
+    family: preset.family,
+    variants: preset.variants,
+  }
+}
+
+/** The form as it stands, on its way to becoming a fork. */
+export interface PresetCapture {
+  readonly id: string
+  /** User data, so no `t()` ever goes near it. */
+  readonly name: string
+  /** The idiom of the model in front of you — the only one this can claim. */
+  readonly promptStyle: PromptStyle
+  /** Exactly what is in the prompt box, which is exactly what was sent. */
+  readonly prompt: string
+  /** Whatever is in the negative field, or `null` where there is no field. */
+  readonly negative: string | null
+  /** The strength as set, or `null` on a model that has none. */
+  readonly strength: number | null
+}
+
+/**
+ * A fork of what is on screen right now.
+ *
+ * One idiom, and the other explicitly `null`: a save can only speak for the
+ * model in front of it, and inventing the other idiom's wording is exactly the
+ * cross-send this schema exists to prevent. So a fork seeds the models that
+ * read prompts the way this one did, and is honestly disabled for the rest.
+ *
+ * The prompt is stored whole, as `transform` with a `{transform}`-only
+ * template. There is no preserve block to re-apply because the box already
+ * contains one — the composed prompt is what was captured — and re-composing
+ * would say it twice.
+ */
+export function userPresetFrom(capture: PresetCapture): StylePreset {
+  const negative = capture.negative?.trim() ?? ''
+  const strength = capture.strength
+
+  const variant: PresetVariant = {
+    transform: capture.prompt.trim(),
+    compose: TRANSFORM_SLOT,
+    negative: negative === '' ? null : negative,
+    // Held to what a variant may say, so a fork always reads back: an empty
+    // strength field arrives here as 0, which is not an opinion about strength.
+    strength:
+      strength !== null && strength > 0 && strength <= 1 ? strength : null,
+  }
+
+  return {
+    id: capture.id,
+    name: capture.name.trim(),
+    family: USER_PRESET_FAMILY,
+    variants: {
+      prose: capture.promptStyle === 'prose' ? variant : null,
+      tags: capture.promptStyle === 'tags' ? variant : null,
+    },
+  }
+}
+
+/**
+ * An id for a name, unused by anything in `taken`.
+ *
+ * Slugified rather than minted, because this is a file name someone may go
+ * looking for in app data. Collisions take a numeric suffix rather than
+ * overwriting: two forks called "Warmer" are two forks, and the whole promise
+ * of the user library is that nothing we do can clobber it.
+ */
+export function presetIdFrom(name: string, taken: Iterable<string>): string {
+  const base = slugify(name)
+  const used = new Set(taken)
+  if (!used.has(base)) return base
+
+  for (let suffix = 2; suffix <= 999; suffix += 1) {
+    const candidate = `${base}-${suffix}`
+    if (!used.has(candidate)) return candidate
+  }
+
+  // A thousand forks of one name is not a case worth a nicer answer than an
+  // id that is certainly free.
+  return `${base}-${Date.now().toString(36)}`
+}
+
+function slugify(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, PRESET_SLUG_MAX)
+    .replace(/^-+|-+$/g, '')
+
+  // A name in a script this slug cannot represent is still a valid name — it
+  // just cannot be the file name, and the name is what is shown anyway.
+  return slug === '' ? 'preset' : slug
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

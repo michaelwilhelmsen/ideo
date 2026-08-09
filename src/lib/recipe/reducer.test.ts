@@ -15,6 +15,13 @@ import {
 } from './reducer'
 import { ATLAS, LEDGER, fixtureEditorState, summaryOf } from './fixtures'
 import { MODEL_REGISTRY } from './models'
+import { modelById } from './registry'
+import {
+  composePreset,
+  stylePresetById,
+  userPresetFrom,
+  type StylePreset,
+} from './presets'
 import { UPLOAD_MODEL_ID, isUploadRecipe, uploadFileName } from './upload'
 import {
   activeProject,
@@ -39,6 +46,23 @@ function openProjectOf(state: EditorState): Project {
 
 function apply(state: EditorState, ...actions: EditorAction[]): EditorState {
   return actions.reduce(reduce, state)
+}
+
+/** A built-in by id, or a failure — the library is committed data. */
+function presetOf(id: string): StylePreset {
+  const preset = stylePresetById(id)
+  if (preset === null) throw new Error(`no built-in preset "${id}"`)
+  return preset
+}
+
+/** Choosing a style preset as the panel does: the preset rides along. */
+function choose(id: string): EditorAction {
+  return {
+    type: 'choosePreset',
+    stage: 'style',
+    presetId: id,
+    preset: presetOf(id),
+  }
 }
 
 function runOf(
@@ -225,31 +249,28 @@ describe('the recipe is the artefact (PRD §1)', () => {
  */
 describe('preset provenance', () => {
   it('starts a freshly chosen preset unmodified', () => {
-    const state = apply(fixtureEditorState(), {
-      type: 'choosePreset',
-      stage: 'style',
-      presetId: 'glass-caustics',
-    })
+    const state = apply(fixtureEditorState(), choose('glass-caustics'))
 
     expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
   })
 
   it('records an edit to a seeded field', () => {
-    const state = apply(
-      fixtureEditorState(),
-      { type: 'choosePreset', stage: 'style', presetId: 'glass-caustics' },
-      { type: 'setPrompt', stage: 'style', prompt: 'my own words' }
-    )
+    const state = apply(fixtureEditorState(), choose('glass-caustics'), {
+      type: 'setPrompt',
+      stage: 'style',
+      prompt: 'my own words',
+    })
 
     expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
   })
 
   it('records a parameter move as an edit too', () => {
-    const state = apply(
-      fixtureEditorState(),
-      { type: 'choosePreset', stage: 'style', presetId: 'glass-caustics' },
-      { type: 'setParam', stage: 'style', key: 'strength', value: 0.8 }
-    )
+    const state = apply(fixtureEditorState(), choose('glass-caustics'), {
+      type: 'setParam',
+      stage: 'style',
+      key: 'strength',
+      value: 0.8,
+    })
 
     expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
   })
@@ -257,11 +278,186 @@ describe('preset provenance', () => {
   it('claims no modification when there was no preset to modify', () => {
     const state = apply(
       fixtureEditorState(),
-      { type: 'choosePreset', stage: 'style', presetId: null },
+      { type: 'choosePreset', stage: 'style', presetId: null, preset: null },
       { type: 'setPrompt', stage: 'style', prompt: 'from scratch' }
     )
 
     expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
+  })
+})
+
+/**
+ * Seeding (#28) — "presets are seeds, not filters", as transitions.
+ *
+ * The claim being tested is that what lands in the form is the whole of what
+ * will be sent: the composed prompt in the box, the strength and the negative in
+ * the fields the *model* names for them, and nothing anywhere it does not
+ * belong. Which is why every case here is really about the registry — the same
+ * preset seeds two fields on flux i2i and a different one on Qwen.
+ */
+describe('seeding the form from a preset', () => {
+  /** Atlas's style draft is on flux i2i: prose, a strength, no negative. */
+  const FLUX_I2I = modelById(MODEL_REGISTRY, 'fal-ai/flux/dev/image-to-image')
+  /** The tags exemplar: a real `negative_prompt`, and no strength at all. */
+  const QWEN = modelById(MODEL_REGISTRY, 'fal-ai/qwen-image-2/edit')
+
+  const onQwen: EditorAction = {
+    type: 'chooseModel',
+    stage: 'style',
+    modelId: QWEN.id,
+  }
+
+  it('pre-fills the box with the fully composed prompt', () => {
+    // Not a fragment assembled later: what is in the box is what is sent, so
+    // the preserve block has to be visible to the person about to pay for it.
+    const state = apply(fixtureEditorState(), choose('glass-caustics'))
+    const draft = openProjectOf(state).drafts.style
+
+    expect(draft.prompt).toBe(
+      composePreset(presetOf('glass-caustics'), FLUX_I2I)?.prompt
+    )
+    expect(draft.prompt).toContain('Keep the composition exactly as it is')
+    expect(draft.presetId).toBe('glass-caustics')
+  })
+
+  it('seeds the strength under the name the model gives it', () => {
+    const state = apply(fixtureEditorState(), choose('topographic-contour'))
+
+    // The preset's own opinion, clamped to the measured window by `composePreset`.
+    expect(openProjectOf(state).drafts.style.params.strength).toBe(0.78)
+  })
+
+  it('leaves a model with no strength field without one', () => {
+    const state = apply(
+      fixtureEditorState(),
+      onQwen,
+      choose('topographic-contour')
+    )
+    const params = openProjectOf(state).drafts.style.params
+
+    expect(params.strength).toBeUndefined()
+    expect(
+      composePreset(presetOf('topographic-contour'), QWEN)?.strength
+    ).toBeNull()
+  })
+
+  it('routes the negative to the field the model names, never into the prompt', () => {
+    const state = apply(fixtureEditorState(), onQwen, choose('glass-caustics'))
+    const draft = openProjectOf(state).drafts.style
+    const negative = presetOf('glass-caustics').variants.tags?.negative ?? ''
+
+    expect(draft.params.negative_prompt).toBe(negative)
+    // PRD §9 — "no gradients" inside a positive prompt is a request for gradients.
+    expect(draft.prompt).not.toContain(negative)
+  })
+
+  it('drops the negative entirely on a model with nowhere to put one', () => {
+    const state = apply(fixtureEditorState(), choose('glass-caustics'))
+
+    expect(FLUX_I2I.negativePromptParam).toBeNull()
+    expect(
+      openProjectOf(state).drafts.style.params.negative_prompt
+    ).toBeUndefined()
+  })
+
+  it('clears the last preset’s negative rather than letting it outlive it', () => {
+    const nothingToSubtract = userPresetFrom({
+      id: 'nothing-to-subtract',
+      name: 'Nothing to subtract',
+      promptStyle: 'tags',
+      prompt: 'plain and unopinionated',
+      negative: null,
+      strength: null,
+    })
+
+    const state = apply(
+      fixtureEditorState(),
+      onQwen,
+      choose('glass-caustics'),
+      {
+        type: 'choosePreset',
+        stage: 'style',
+        presetId: nothingToSubtract.id,
+        preset: nothingToSubtract,
+      }
+    )
+
+    expect(openProjectOf(state).drafts.style.params.negative_prompt).toBe('')
+  })
+
+  it('seeds nothing when the preset does not speak the model’s idiom', () => {
+    // A fork carries the one idiom it was saved in. Seeding the other one is the
+    // cross-send the schema exists to refuse, so the text is left alone — the
+    // picker disables this combination with the reason attached.
+    const tagsOnly = userPresetFrom({
+      id: 'tags-only',
+      name: 'Tags only',
+      promptStyle: 'tags',
+      prompt: 'a keyword list',
+      negative: null,
+      strength: null,
+    })
+
+    const before = openProjectOf(fixtureEditorState()).drafts.style.prompt
+    const state = apply(fixtureEditorState(), {
+      type: 'choosePreset',
+      stage: 'style',
+      presetId: tagsOnly.id,
+      preset: tagsOnly,
+    })
+
+    expect(openProjectOf(state).drafts.style.prompt).toBe(before)
+    // Still recorded: the recipe says what was selected either way.
+    expect(openProjectOf(state).drafts.style.presetId).toBe('tags-only')
+  })
+
+  it('keeps the user’s own words when the model changes', () => {
+    const state = apply(
+      fixtureEditorState(),
+      choose('glass-caustics'),
+      { type: 'setPrompt', stage: 'style', prompt: 'my own words' },
+      onQwen
+    )
+    const draft = openProjectOf(state).drafts.style
+
+    expect(draft.prompt).toBe('my own words')
+    expect(draft.presetId).toBe('glass-caustics')
+    expect(draft.presetModified).toBe(true)
+  })
+
+  it('re-seeds in the new model’s idiom when asked, and only then', () => {
+    // The offer is made in the UI; taking it is this same action again. Note the
+    // prompt is the *tags* phrasing now, which is the whole point of asking.
+    const state = apply(
+      fixtureEditorState(),
+      choose('glass-caustics'),
+      { type: 'setPrompt', stage: 'style', prompt: 'my own words' },
+      onQwen,
+      choose('glass-caustics')
+    )
+    const draft = openProjectOf(state).drafts.style
+
+    expect(draft.prompt).toBe(
+      composePreset(presetOf('glass-caustics'), QWEN)?.prompt
+    )
+    expect(draft.presetModified).toBe(false)
+  })
+
+  it('leaves the form alone when the preset is cleared', () => {
+    // Deselecting is not undoing: the text is the user's now, whatever put it
+    // there. Only the provenance pointer goes.
+    const state = apply(fixtureEditorState(), choose('glass-caustics'), {
+      type: 'choosePreset',
+      stage: 'style',
+      presetId: null,
+      preset: null,
+    })
+    const draft = openProjectOf(state).drafts.style
+
+    expect(draft.presetId).toBeNull()
+    expect(draft.prompt).toBe(
+      composePreset(presetOf('glass-caustics'), FLUX_I2I)?.prompt
+    )
   })
 })
 
@@ -318,7 +514,12 @@ describe('changing model (PRD §5, §6.3)', () => {
       { type: 'setOption', stage: 'animate', key: 'loop', value: true },
       { type: 'setOption', stage: 'animate', key: 'rewind', value: true },
       { type: 'setPrompt', stage: 'animate', prompt: 'a slow drift' },
-      { type: 'choosePreset', stage: 'animate', presetId: 'slow-drift' },
+      {
+        type: 'choosePreset',
+        stage: 'animate',
+        presetId: 'slow-drift',
+        preset: null,
+      },
       { type: 'pinSeed', stage: 'animate', value: 7 },
       { type: 'unpinSeed', stage: 'animate' }
     )

@@ -265,7 +265,10 @@ fork:
 | `userPresetDelete` | `id: string`                      | `Result<null, string>`        | Remove one; already-gone is fine  |
 
 The documents are opaque to Rust: the preset schema lives in `src/lib/recipe/presets.ts`
-and is validated there by `readPresetLibrary`, which fails loudly. What Rust owns is the
+and is validated there — `readPresetLibrary` for the committed built-ins, which fails
+loudly, and `readUserPreset` per file for these, where one bad fork is skipped with a
+warning rather than costing the whole library (see
+[style-presets.md](./style-presets.md)). What Rust owns is the
 part TypeScript cannot vouch for — the id becomes a file name, so anything that is not
 `[A-Za-z0-9_-]{1,64}` is **rejected** rather than sanitised (sanitising would let
 `../evil` and `evil` name the same file). A file that is not JSON at all is skipped with a

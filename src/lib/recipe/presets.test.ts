@@ -15,10 +15,18 @@ import { MODEL_REGISTRY } from './models'
 import {
   BUILT_IN_STYLE_PRESETS,
   composePreset,
+  isPresetId,
   PRESET_STRENGTH_WINDOW,
+  presetIdFrom,
+  presetSeedState,
+  presetSupportsModel,
   readPresetLibrary,
+  readUserPreset,
   STYLE_PRESET_LIBRARY,
   stylePresetById,
+  USER_PRESET_FAMILY,
+  userPresetFrom,
+  writeUserPreset,
   type PresetVariant,
   type StylePreset,
 } from './presets'
@@ -419,5 +427,207 @@ describe('composePreset', () => {
     expect(composed?.negative).toBe(
       'opaque surface, flat lighting, matte finish'
     )
+  })
+})
+
+/**
+ * #28 — a preset is a seed, so the interesting question is not "which preset"
+ * but "does the form still say what it seeded". That is asked of what is on
+ * screen rather than of a recorded field, so these are the cases that make the
+ * re-seed offer appear and disappear.
+ */
+describe('whether the form still says what the preset says', () => {
+  it('offers a preset only in an idiom it speaks', () => {
+    const tagsOnly = tagsPreset()
+
+    expect(presetSupportsModel(tagsOnly, QWEN)).toBe(true)
+    expect(presetSupportsModel(tagsOnly, FLUX_I2I)).toBe(false)
+  })
+
+  it('is seeded while the box holds the composed prompt', () => {
+    const composed = composePreset(tagsPreset(), QWEN)
+
+    expect(presetSeedState(composed?.prompt ?? '', tagsPreset(), QWEN)).toEqual(
+      {
+        state: 'seeded',
+      }
+    )
+  })
+
+  it('has nothing to say when no preset is selected', () => {
+    expect(presetSeedState('anything', null, QWEN)).toEqual({ state: 'none' })
+  })
+
+  it('reports the model’s idiom as unsupported rather than offering a re-seed', () => {
+    // Cross-sending is what the null variant exists to prevent, so there is no
+    // re-seed to offer here — the picker disables the preset and says why.
+    expect(presetSeedState('anything', tagsPreset(), FLUX_I2I).state).toBe(
+      'unsupported'
+    )
+  })
+
+  it('knows a box stranded by a model switch from one the user edited', () => {
+    const bothIdioms = readPresetLibrary(
+      document({
+        presets: [
+          preset({
+            variants: {
+              tags: variant({ compose: '{transform}', transform: 'a look' }),
+              prose: variant({
+                compose: '{transform}',
+                transform: 'Make it look a certain way.',
+              }),
+            },
+          }),
+        ],
+      })
+    ).presets[0]
+    if (bothIdioms === undefined) throw new Error('the fixture has no presets')
+
+    // Seeded on Qwen, then switched to a prose model: the text is kept, and the
+    // offer explains itself with the reason it is being made.
+    const stranded = presetSeedState('a look', bothIdioms, FLUX_I2I)
+    expect(stranded).toEqual({
+      state: 'stale',
+      reasonKey: 'editor.preset.staleIdiom',
+    })
+
+    expect(presetSeedState('my own words', bothIdioms, FLUX_I2I)).toEqual({
+      state: 'stale',
+      reasonKey: 'editor.preset.staleEdited',
+    })
+  })
+})
+
+/**
+ * The fork flow's half of the library. A saved preset is a file in app data
+ * that a user may hand-edit and that a repo update must never touch, so it is
+ * read exactly as suspiciously as the committed one — and skipped rather than
+ * fatal, because one bad file must not cost the whole library.
+ */
+describe('a saved fork', () => {
+  const capture = {
+    id: 'warm-dusk',
+    name: 'Warm dusk',
+    promptStyle: 'tags',
+    prompt: 'same composition, warm dusk grade',
+    negative: 'cold light',
+    strength: 0.72,
+  } as const
+
+  it('round-trips through the file it is written to', () => {
+    const saved = readUserPreset(writeUserPreset(userPresetFrom(capture)))
+
+    expect(saved).toEqual(userPresetFrom(capture))
+    expect(saved.family).toBe(USER_PRESET_FAMILY)
+  })
+
+  it('claims only the idiom of the model in front of it', () => {
+    const fork = userPresetFrom(capture)
+
+    expect(fork.variants.prose).toBeNull()
+    expect(fork.variants.tags?.transform).toBe(capture.prompt)
+    // Self-contained: what was captured is the whole composed prompt, so
+    // composing it again must not re-apply a preserve block on top of one.
+    expect(composePreset(fork, QWEN)?.prompt).toBe(capture.prompt)
+  })
+
+  it('carries the seeded fields the model had a place for', () => {
+    const fork = userPresetFrom(capture)
+
+    expect(composePreset(fork, QWEN)?.negative).toBe('cold light')
+    // Qwen has no strength field, so the saved opinion is simply not routed.
+    expect(composePreset(fork, QWEN)?.strength).toBeNull()
+  })
+
+  it('does not mistake an empty field for an opinion', () => {
+    // An empty negative box and a strength field the model does not have both
+    // arrive here as blanks; a fork that recorded them would read back as
+    // "subtract nothing, at strength zero".
+    const blank = userPresetFrom({ ...capture, negative: '  ', strength: 0 })
+
+    expect(blank.variants.tags?.negative).toBeNull()
+    expect(blank.variants.tags?.strength).toBeNull()
+    expect(() => readUserPreset(writeUserPreset(blank))).not.toThrow()
+  })
+
+  it('refuses a document that is not a fork', () => {
+    expect(() => readUserPreset(null)).toThrow()
+    expect(() => readUserPreset({})).toThrow()
+    expect(() =>
+      readUserPreset({
+        ...writeUserPreset(userPresetFrom(capture)),
+        version: 9,
+      })
+    ).toThrow(/version/i)
+  })
+
+  it('refuses an id no file could be named', () => {
+    expect(() =>
+      readUserPreset({
+        ...writeUserPreset(userPresetFrom(capture)),
+        id: '../evil',
+      })
+    ).toThrow(/id/i)
+  })
+
+  it('refuses a fork that is not self-contained', () => {
+    // A saved fork carries the preserve wording it was saved with. One still
+    // asking for `{preserve}` would compose a prompt with a hole in it, because
+    // a fork has no library-level block to fill it from.
+    expect(() =>
+      readUserPreset({
+        version: 1,
+        id: 'half-written',
+        name: 'Half written',
+        family: 'user',
+        variants: {
+          prose: null,
+          tags: {
+            transform: 'a look',
+            compose: '{preserve}, {transform}',
+            negative: null,
+            strength: null,
+          },
+        },
+      })
+    ).toThrow(/preserve/i)
+  })
+})
+
+describe('minting an id for a fork', () => {
+  it('slugifies the name into something Rust will accept', () => {
+    const id = presetIdFrom('Warm dusk — grade #2', [])
+
+    expect(isPresetId(id)).toBe(true)
+    expect(id).toBe('warm-dusk-grade-2')
+  })
+
+  it('suffixes rather than overwriting an id already in use', () => {
+    // Two forks called "Warmer" are two forks. Overwriting would break the one
+    // promise the user library makes.
+    expect(presetIdFrom('Warmer', ['warmer'])).toBe('warmer-2')
+    expect(presetIdFrom('Warmer', ['warmer', 'warmer-2'])).toBe('warmer-3')
+  })
+
+  it('never collides with a built-in either', () => {
+    const taken = BUILT_IN_STYLE_PRESETS.map(builtIn => builtIn.id)
+    const id = presetIdFrom('Glass caustics', taken)
+
+    expect(taken).not.toContain(id)
+    expect(id).toBe('glass-caustics-2')
+  })
+
+  it('still produces an id for a name it cannot slugify', () => {
+    // The name is what is shown; the id only has to be a file name.
+    expect(presetIdFrom('日本語', [])).toBe('preset')
+    expect(presetIdFrom('!!!', ['preset'])).toBe('preset-2')
+  })
+
+  it('keeps an id short enough to be a file name', () => {
+    const id = presetIdFrom('a'.repeat(200), [])
+
+    expect(isPresetId(id)).toBe(true)
+    expect(id.length).toBeLessThanOrEqual(48)
   })
 })
