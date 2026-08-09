@@ -192,6 +192,12 @@ Cast when needed:
 await commands.saveEmergencyData(filename, data as JsonValue)
 ```
 
+### Doc comments are copied verbatim
+
+specta copies a Rust doc comment into the generated TypeScript as a block comment, so a
+`*/` sequence anywhere inside one — `nano-banana-*/edit`, a glob, a path — closes the
+comment early and makes `bindings.ts` fail to parse. Rephrase rather than escape.
+
 ### Bindings generated at runtime
 
 TypeScript bindings are generated when the app runs in debug mode, or via:
@@ -248,6 +254,23 @@ manifest entry and the file on disk agree by construction — the same shape a f
 job produces. Its error is a typed `ImportError` rather than a string, because the
 refusal is shown to the user and therefore has to be translated.
 
+User presets (#28). App-level, outside the repository, one JSON file per preset under
+`app_data_dir/presets/`, so a repo update to the committed built-ins can never clobber a
+fork:
+
+| Command            | Parameters                        | Returns                       | Description                       |
+| ------------------ | --------------------------------- | ----------------------------- | --------------------------------- |
+| `userPresetsList`  | none                              | `Result<JsonValue[], string>` | Every saved preset, stable order  |
+| `userPresetSave`   | `id: string, document: JsonValue` | `Result<null, string>`        | Create or update in place, atomic |
+| `userPresetDelete` | `id: string`                      | `Result<null, string>`        | Remove one; already-gone is fine  |
+
+The documents are opaque to Rust: the preset schema lives in `src/lib/recipe/presets.ts`
+and is validated there by `readPresetLibrary`, which fails loudly. What Rust owns is the
+part TypeScript cannot vouch for — the id becomes a file name, so anything that is not
+`[A-Za-z0-9_-]{1,64}` is **rejected** rather than sanitised (sanitising would let
+`../evil` and `evil` name the same file). A file that is not JSON at all is skipped with a
+warning rather than failing the whole library.
+
 Jobs (see the queue-API section of [external-apis.md](./external-apis.md)). Note that
 `generateImage` returns a **receipt, not an image**: the generation outlives the call,
 and its result is collected from the job store.
@@ -259,6 +282,11 @@ and its result is collected from the job store.
 | `finishedJobs`  | `projectId: string`     | `Result<Job[], string>`                 | Finished, not yet in the manifest         |
 | `claimJob`      | `requestId: string`     | `Result<null, string>`                  | Off the books — only after the save       |
 | `cancelJob`     | `requestId: string`     | `Result<null, string>`                  | Stop watching, and ask fal to stop        |
+
+`StartRequest.imageInput` is how an image-to-image call gets its input: a generation id
+plus the model's field name and shape, never the pixels. Rust reads the file and inlines
+it as base64, and refuses a `style` submit that has none — see
+[external-apis.md](./external-apis.md).
 
 Two event payloads are registered with `.typ::<T>()` rather than appearing in any
 signature, because they are emitted while a command is still running:

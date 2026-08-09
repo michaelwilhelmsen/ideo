@@ -266,6 +266,25 @@ Three practical points, each learned the expensive way:
   API to stop working, but a job far enough along is charged anyway — so the copy beside
   the button says "may still charge", and no code path claims otherwise.
 
+### Sending an input image
+
+An image-to-image endpoint needs the input image _in the request body_. It travels as an
+inline base64 data URI (`data:image/png;base64,…`), which `docs/research/models-gaps.md` §4
+settled: it is the transfer confirmed to work on every image field surveyed, and the
+two-step storage upload's wire protocol is still unverified. The ceiling is 10 MB raw,
+refused locally rather than discovered as a 4xx.
+
+The bytes never cross the IPC boundary. `StartRequest.imageInput` carries a **generation
+id**, the field name and its shape; `jobs::image_input::prepare` resolves the id to a file
+in the project's `assets` folder, sniffs its media type from the magic bytes, encodes it,
+and writes it into the params under that name — a string for `image_url`, a one-element
+array for `image_urls` — before `fal::submit` posts anything.
+
+That module also holds a refusal worth copying: a `style` submit with no resolvable input
+fails there, before the key is fetched and before a concurrency slot is taken. The reason
+is specific — the Nano Banana edit endpoints do not _require_ their image field, so a
+missing source would have succeeded as a text-to-image and been charged for.
+
 Progress crosses as an emitted event rather than a return value, because the interesting
 part happens while the command is still running — see
 [tauri-commands.md](./tauri-commands.md) for registering an event payload type with

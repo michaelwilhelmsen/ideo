@@ -97,6 +97,14 @@ pub struct GenerationProgress {
 pub enum GenerationErrorReason {
     /// Nothing was typed.
     EmptyPrompt,
+    /// The stage had no usable input image (#28) — none was named, the file is
+    /// not on disk, or it is too large to inline. `detail` says which.
+    ///
+    /// A reason of its own rather than a `RequestRejected`, because fal never
+    /// saw this one: it is refused here, before the key is fetched and before
+    /// anything is charged. The Nano Banana edit endpoints do not require their
+    /// image field, so the alternative is a paid text-to-image nobody asked for.
+    InputImageUnusable,
     /// No key in the keychain — Settings first.
     NoApiKey,
     /// fal refused the key.

@@ -243,6 +243,43 @@ async importSourceImage(projectId: string, generationId: string, sourcePath: str
 }
 },
 /**
+ * Every preset the user has saved, in a stable order.
+ * 
+ * Whether each document *is* a preset is not asked here — the frontend runs it
+ * through `readPresetLibrary`, which fails loudly on a malformed one (PRD §6).
+ */
+async userPresetsList() : Promise<Result<JsonValue[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("user_presets_list") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Writes one preset, by id — creating it, or updating one of the user's own in
+ * place. Atomically, so an interrupted save cannot leave a half-written fork.
+ */
+async userPresetSave(id: string, document: JsonValue) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("user_preset_save", { id, document }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Removes one preset. Deleting one that is already gone is not an error.
+ */
+async userPresetDelete(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("user_preset_delete", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Loads user preferences from disk.
  * Returns default preferences if the file doesn't exist.
  */
@@ -430,6 +467,16 @@ export type GenerationErrorReason =
  */
 "emptyPrompt" | 
 /**
+ * The stage had no usable input image (#28) — none was named, the file is
+ * not on disk, or it is too large to inline. `detail` says which.
+ * 
+ * A reason of its own rather than a `RequestRejected`, because fal never
+ * saw this one: it is refused here, before the key is fetched and before
+ * anything is charged. The Nano Banana edit endpoints do not require their
+ * image field, so the alternative is a paid text-to-image nobody asked for.
+ */
+"inputImageUnusable" | 
+/**
  * No key in the keychain — Settings first.
  */
 "noApiKey" | 
@@ -474,6 +521,29 @@ export type GenerationProgress = { requestId: string; projectId: string; generat
  * Position in fal's queue, when it tells us.
  */
 queuePosition: number | null; elapsedMs: number }
+/**
+ * Which image goes where, as the frontend names it.
+ * 
+ * The generation id rather than a path or bytes: the frontend knows *which
+ * candidate* the stage is working from and nothing about the folder, and the
+ * field name and shape are the registry's answer (PRD §5) rather than
+ * something Rust should hold a second copy of.
+ */
+export type ImageInput = { generationId: string; 
+/**
+ * The model's own field name, from the registry's `imageParam`.
+ */
+param: string; shape: ImageParamShape }
+/**
+ * How a model's image field is shaped — the one thing knowing its *name* does
+ * not tell you.
+ * 
+ * The style stage splits on this: the FLUX family takes a single `image_url`
+ * string, Qwen and Nano Banana take an `image_urls` **array**. A string where an
+ * array is required is a 422 at the paid step with no visual signal that the
+ * parameter shape, rather than the prompt, was the problem.
+ */
+export type ImageParamShape = "url" | "urlArray"
 /**
  * A refusal, as it crosses to the frontend.
  */
@@ -742,7 +812,16 @@ modelId: string;
  * duration `"5s"` requires the capability table, and there is one of
  * those.
  */
-params: JsonValue }
+params: JsonValue; 
+/**
+ * Which generation's image this run consumes, and the field it goes in
+ * (#28). `None` on a stage that takes no input image.
+ * 
+ * A generation id rather than the bytes: the image is read and encoded on
+ * this side, so a hero-size payload never crosses the IPC boundary, and the
+ * webview never has to be handed a path into the project folder.
+ */
+imageInput: ImageInput | null }
 /**
  * What the caller gets back: a job that is now on the books, not a result.
  */

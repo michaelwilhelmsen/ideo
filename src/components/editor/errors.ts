@@ -20,6 +20,12 @@ export function generationErrorMessage(
       return t('generate.error.emptyPrompt')
     case 'noApiKey':
       return t('generate.error.noApiKey')
+    case 'inputImageUnusable':
+      return error.detail === null
+        ? t('generate.error.inputImageUnusable')
+        : t('generate.error.inputImageUnusableBecause', {
+            detail: error.detail,
+          })
     case 'keyRejected':
       return t('generate.error.keyRejected')
     case 'requestRejected':

@@ -86,6 +86,16 @@ family takes a single `image_url` string, while Qwen and Nano Banana take an `im
 | `style`   | required — `image_url` or `image_urls`                                   |
 | `animate` | `null` today; the start-frame name lands with the slice that sends it    |
 
+`imageParamShape(model)` answers whether that field is a string or an array — on fal the
+name is the declaration, so the plural is the array. `validateRegistry` refuses a name the
+shape table does not know, which makes a model with a differently-named input a startup
+crash that asks for its shape rather than a guess that 422s at the paid step.
+
+The value never comes from the draft: `buildRequest` drops the image field even when a
+persisted manifest names it, because what belongs there is a whole image. The frontend
+sends the _generation id_ instead, and Rust reads the file and inlines it — see
+[external-apis.md](./external-apis.md).
+
 ## validateRegistry
 
 Runs at module load, so a bad row is a startup crash rather than a 422 later. It covers

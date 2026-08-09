@@ -7,6 +7,7 @@
 mod bindings;
 mod commands;
 mod jobs;
+mod presets;
 mod projects;
 mod types;
 mod utils;

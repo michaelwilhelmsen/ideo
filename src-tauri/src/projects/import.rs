@@ -120,6 +120,19 @@ impl ImageFormat {
             Self::WebP => "webp",
         }
     }
+
+    /// The media type a data URI has to name (#28).
+    ///
+    /// From the sniffed bytes rather than from the file's extension, for the
+    /// same reason the import checks them: a `.png` holding a JPEG would be
+    /// handed to fal announced as something it is not.
+    pub fn mime(self) -> &'static str {
+        match self {
+            Self::Png => "image/png",
+            Self::Jpeg => "image/jpeg",
+            Self::WebP => "image/webp",
+        }
+    }
 }
 
 /// What the bytes actually are, or `None` for anything we do not accept.

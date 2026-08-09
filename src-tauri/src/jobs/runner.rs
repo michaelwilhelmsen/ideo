@@ -21,6 +21,7 @@ use tokio::sync::{Semaphore, SemaphorePermit};
 use super::fal::{
     self, GenerationError, GenerationErrorReason, GenerationProgress, QueueResult, QueueStatus,
 };
+use super::image_input::{self, ImageInput};
 use super::store::{self, Job, JobStatus, JobTarget, NewJob};
 use crate::commands::api_key::stored_key;
 use crate::projects::store::{asset_file_name, assets_dir, validate_id};
@@ -82,6 +83,13 @@ pub struct StartRequest {
     /// duration `"5s"` requires the capability table, and there is one of
     /// those.
     pub params: Value,
+    /// Which generation's image this run consumes, and the field it goes in
+    /// (#28). `None` on a stage that takes no input image.
+    ///
+    /// A generation id rather than the bytes: the image is read and encoded on
+    /// this side, so a hero-size payload never crosses the IPC boundary, and the
+    /// webview never has to be handed a path into the project folder.
+    pub image_input: Option<ImageInput>,
 }
 
 /// What the caller gets back: a job that is now on the books, not a result.
@@ -132,6 +140,17 @@ fn app_data(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("Could not locate the app data directory: {e}"))
 }
 
+/// Where project folders live. Needed both to file a finished image and to read
+/// the input image a restyle consumes (#28).
+fn projects_root(app: &AppHandle) -> Result<PathBuf, GenerationError> {
+    app_data(app)
+        .map(|root| root.join(PROJECTS_DIR))
+        .map_err(|e| {
+            log::error!("{e}");
+            GenerationError::new(GenerationErrorReason::CouldNotSave)
+        })
+}
+
 /// Submits one generation and starts watching it.
 ///
 /// Returns once the job is recorded, which is deliberately before it has
@@ -152,6 +171,19 @@ pub async fn start(app: AppHandle, request: StartRequest) -> Result<SubmittedJob
     // endpoint id is not worth a keychain prompt.
     fal::validate_model_id(&request.model_id)?;
 
+    // The image goes in here rather than in `fal::submit`, which stays a client
+    // that sends the body it is given: reading the project folder is this side's
+    // job. A style run whose source cannot be resolved is refused (#28) — before
+    // the key, before a concurrency slot, and before the charge.
+    let mut params = request.params.clone();
+    image_input::prepare(
+        &projects_root(&app)?,
+        &request.project_id,
+        &request.stage,
+        request.image_input.as_ref(),
+        &mut params,
+    )?;
+
     let key = stored_key()
         .map_err(|e| GenerationError::with_detail(GenerationErrorReason::NoApiKey, e))?
         .ok_or_else(|| GenerationError::new(GenerationErrorReason::NoApiKey))?;
@@ -160,7 +192,7 @@ pub async fn start(app: AppHandle, request: StartRequest) -> Result<SubmittedJob
     // the submit is the charge — queueing behind the cap is the point.
     let permit = slot().await;
 
-    let submitted = fal::submit(&key, &request.model_id, &prompt, &request.params).await?;
+    let submitted = fal::submit(&key, &request.model_id, &prompt, &params).await?;
     log::info!("generation submitted, request {}", submitted.request_id);
 
     let target = JobTarget {
@@ -447,12 +479,7 @@ async fn save_image(
 ) -> Result<String, GenerationError> {
     let bytes = fal::download(image_url).await?;
 
-    let root = app_data(app)
-        .map_err(|e| {
-            log::error!("{e}");
-            GenerationError::new(GenerationErrorReason::CouldNotSave)
-        })?
-        .join(PROJECTS_DIR);
+    let root = projects_root(app)?;
 
     // The store owns the layout inside a project folder, and validates the id
     // on the way — one module decides where a project's files are.

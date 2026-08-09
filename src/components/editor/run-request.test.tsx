@@ -16,8 +16,8 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import { render, screen, waitFor } from '@/test/test-utils'
-import { LEDGER } from '@/lib/recipe'
-import { commands, type Job } from '@/lib/tauri-bindings'
+import { ATLAS, LEDGER, type Project, type StageRecipe } from '@/lib/recipe'
+import { commands, type ImageInput, type Job } from '@/lib/tauri-bindings'
 import { useUIStore } from '@/store/ui-store'
 import { useEditorStore } from '@/store/editor-store'
 import { useRunStage } from './run-request'
@@ -269,6 +269,184 @@ describe('one click, several candidates', () => {
     const run = useEditorStore.getState().state.runs.at(-1)
     expect(run?.generationIds).toHaveLength(4)
     expect(run?.abandonedIds).toHaveLength(1)
+  })
+})
+
+/**
+ * The style stage stopped being a fixture (#28).
+ *
+ * Every assertion here is on the request Rust was handed, because that is where
+ * the claims live: what is in the form is what is sent, the input image is named
+ * rather than piped through the webview, a negative only reaches a model that has
+ * a field for it, and a restyle with nothing to restyle never goes out at all.
+ */
+describe('restyling the source', () => {
+  beforeEach(() => {
+    useEditorStore.getState().reset()
+    mockCommands.hasFalApiKey.mockResolvedValue({ status: 'ok', data: true })
+    mockCommands.generateImage.mockResolvedValue({
+      status: 'ok',
+      data: { requestId: 'req-style', generationId: 'gen-style' },
+    })
+    mockCommands.activeJobs.mockResolvedValue({ status: 'ok', data: [] })
+  })
+
+  /** One submitted request, as `generateImage` received it. */
+  interface Submitted {
+    readonly stage: string
+    readonly prompt: string
+    readonly modelId: string
+    readonly params: Record<string, unknown>
+    readonly recipe: StageRecipe
+    readonly imageInput: ImageInput | null
+  }
+
+  function submitted(): Submitted[] {
+    return mockCommands.generateImage.mock.calls.map(
+      ([request]) => request as unknown as Submitted
+    )
+  }
+
+  /** The same project, with a different style draft. */
+  function styling(project: Project, draft: Partial<StageRecipe>): Project {
+    return {
+      ...project,
+      drafts: {
+        ...project.drafts,
+        style: { ...project.drafts.style, ...draft },
+      },
+    }
+  }
+
+  function StyleProbe({ project }: { project: Project }) {
+    const { run } = useRunStage(project, 'style', 1)
+    return <button onClick={run}>run</button>
+  }
+
+  async function clickRun(project: Project) {
+    render(<StyleProbe project={project} />)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'run' }))
+  }
+
+  it('submits a real request rather than minting a fixture candidate', async () => {
+    await clickRun(ATLAS)
+
+    await waitFor(() => expect(submitted()).toHaveLength(1))
+    const request = submitted()[0]
+    expect(request?.stage).toBe('style')
+    expect(request?.modelId).toBe('fal-ai/flux/dev/image-to-image')
+    // The prompt and the parameters as the form has them — seeding a preset
+    // into those fields happened earlier and elsewhere.
+    expect(request?.prompt).toBe(ATLAS.drafts.style.prompt)
+    expect(request?.params.strength).toBe(0.7)
+  })
+
+  it('names the generation to restyle, so no pixels cross the boundary', async () => {
+    await clickRun(ATLAS)
+
+    await waitFor(() => expect(submitted()).toHaveLength(1))
+    expect(submitted()[0]?.imageInput).toEqual({
+      // The project's current source, whether it was generated or uploaded.
+      generationId: ATLAS.selection.source,
+      param: 'image_url',
+      shape: 'url',
+    })
+    // Nothing image-shaped in the body itself: the URI is Rust's to build.
+    expect(submitted()[0]?.params).not.toHaveProperty('image_url')
+  })
+
+  it('asks for an array on the models whose image field is one', async () => {
+    // A string where Qwen requires an array is a 422 at the paid step, with
+    // nothing on screen to say the shape rather than the prompt was wrong.
+    await clickRun(
+      styling(ATLAS, { modelId: 'fal-ai/qwen-image-2/edit', params: {} })
+    )
+
+    await waitFor(() => expect(submitted()).toHaveLength(1))
+    expect(submitted()[0]?.imageInput?.param).toBe('image_urls')
+    expect(submitted()[0]?.imageInput?.shape).toBe('urlArray')
+  })
+
+  it('sends a negative only where the model has a field for it', async () => {
+    await clickRun(
+      styling(ATLAS, {
+        modelId: 'fal-ai/qwen-image-2/edit',
+        params: { negative_prompt: 'no gradients' },
+      })
+    )
+
+    await waitFor(() => expect(submitted()).toHaveLength(1))
+    expect(submitted()[0]?.params.negative_prompt).toBe('no gradients')
+  })
+
+  it('drops a negative on a model with nowhere to put it, never folding it in', async () => {
+    // PRD §9, settled 2026-08-09: "no gradients" inside a positive prompt reads
+    // as a request for gradients.
+    await clickRun(
+      styling(ATLAS, {
+        modelId: 'fal-ai/flux-pro/kontext',
+        params: { negative_prompt: 'no gradients' },
+      })
+    )
+
+    await waitFor(() => expect(submitted()).toHaveLength(1))
+    expect(submitted()[0]?.params).not.toHaveProperty('negative_prompt')
+    expect(submitted()[0]?.prompt).not.toMatch(/gradients/)
+  })
+
+  it('sends a strength only on the one model that has one', async () => {
+    await clickRun(
+      styling(ATLAS, {
+        modelId: 'fal-ai/nano-banana-2/edit',
+        params: { strength: 0.7 },
+      })
+    )
+
+    await waitFor(() => expect(submitted()).toHaveLength(1))
+    expect(submitted()[0]?.params).not.toHaveProperty('strength')
+  })
+
+  it('records the preset the fields were seeded from, and whether they moved', async () => {
+    await clickRun(
+      styling(ATLAS, { presetId: 'glass-caustics', presetModified: true })
+    )
+
+    await waitFor(() => expect(submitted()).toHaveLength(1))
+    expect(submitted()[0]?.recipe.presetId).toBe('glass-caustics')
+    expect(submitted()[0]?.recipe.presetModified).toBe(true)
+    expect(submitted()[0]?.recipe.inputGenerationId).toBe(
+      ATLAS.selection.source
+    )
+  })
+
+  it('refuses a restyle with no source, rather than paying for a text-to-image', async () => {
+    // The whole reason this is a hard failure: the Nano Banana edit endpoints do
+    // not require their image field, so this call would have succeeded — and
+    // been charged — as a picture of something else entirely.
+    const sourceless: Project = {
+      ...styling(ATLAS, { modelId: 'fal-ai/nano-banana-2/edit', params: {} }),
+      selection: { ...ATLAS.selection, source: null },
+    }
+
+    await clickRun(sourceless)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(mockCommands.generateImage).not.toHaveBeenCalled()
+    expect(String(vi.mocked(toast.error).mock.calls[0]?.[0])).toMatch(
+      /restyle/i
+    )
+  })
+
+  it('leaves animate on fixtures, which spend nothing', async () => {
+    function AnimateProbe() {
+      const { run } = useRunStage(ATLAS, 'animate', 1)
+      return <button onClick={run}>run</button>
+    }
+
+    render(<AnimateProbe />)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'run' }))
+
+    expect(mockCommands.generateImage).not.toHaveBeenCalled()
   })
 })
 

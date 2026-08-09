@@ -180,6 +180,28 @@ describe('buildRequest — defaults and unknown fields', () => {
     expect(request.params.negative_prompt).toBeUndefined()
   })
 
+  it('never carries an image field, whatever a draft claims about it', () => {
+    // The image field holds a whole picture (#28), read and encoded on the Rust
+    // side from the generation the recipe names. A value here could only be a
+    // stale URL out of a hand-edited manifest — and would restyle the wrong
+    // picture without anything on screen saying so.
+    const request = buildRequest(
+      model('fal-ai/flux/dev/image-to-image'),
+      '16:9',
+      recipe({ params: { image_url: 'https://example.invalid/old.png' } })
+    )
+
+    expect(request.params).not.toHaveProperty('image_url')
+
+    const qwen = buildRequest(
+      model('fal-ai/qwen-image-2/edit'),
+      '16:9',
+      recipe({ params: { image_urls: 'https://example.invalid/old.png' } })
+    )
+
+    expect(qwen.params).not.toHaveProperty('image_urls')
+  })
+
   it('drops an extra field only the model that opted into it may send', () => {
     // `guidance_scale` is real on some endpoints and unknown on this one. A
     // shared whitelist would have let it through to a 422 at the paid step.

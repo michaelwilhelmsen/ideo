@@ -41,6 +41,7 @@ import {
   commands,
   type GenerationError,
   type GenerationProgress,
+  type ImageInput,
   type Job,
   type JsonValue,
   type JobSettled,
@@ -91,6 +92,17 @@ export interface GenerationRequest {
    */
   readonly modelId: string
   readonly params: Readonly<Record<string, unknown>>
+  /**
+   * Which generation's image this run consumes, and the field it goes in (#28).
+   *
+   * An id rather than the pixels: Rust reads the file out of the project folder
+   * and inlines it as base64, so a hero-size image never crosses the IPC
+   * boundary twice for no reason. `null` on a stage that takes no input image —
+   * and a *style* submit with `null` is refused by Rust before any paid call,
+   * because a missing source degrades silently to text-to-image on the models
+   * whose image field is optional.
+   */
+  readonly imageInput: ImageInput | null
 }
 
 /**
@@ -113,6 +125,7 @@ export function useSubmitGeneration() {
         prompt: request.prompt,
         modelId: request.modelId,
         params: request.params as unknown as JsonValue,
+        imageInput: request.imageInput,
       })
 
       if (result.status === 'error') {

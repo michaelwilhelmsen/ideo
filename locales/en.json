@@ -77,6 +77,8 @@
   "generate.error.emptyPrompt": "Enter a prompt first.",
   "generate.error.noApiKey": "No fal.ai API key saved. Add one in Settings before generating.",
   "generate.error.keyRejected": "fal.ai rejected your API key. Check it in Settings.",
+  "generate.error.inputImageUnusable": "There is no usable image to restyle. Pick a source first.",
+  "generate.error.inputImageUnusableBecause": "There is no usable image to restyle: {{detail}}",
   "generate.error.requestRejected": "fal.ai could not use this request.",
   "generate.error.requestRejectedBecause": "fal.ai could not use this request: {{detail}}",
   "generate.error.rateLimited": "fal.ai is rate limiting this key. Wait a moment and try again.",

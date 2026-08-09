@@ -121,6 +121,11 @@ vi.mock('@/lib/tauri-bindings', () => ({
       status: 'ok',
       data: { assetName: 'imported.png', width: 1920, height: 1080 },
     }),
+    // User presets (#28). Nobody's own library by default, for the same reason
+    // the project list is empty: a test that wants one says so.
+    userPresetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    userPresetSave: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    userPresetDelete: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   unwrapResult: vi.fn((result: { status: string; data?: unknown }) => {
     if (result.status === 'ok') return result.data

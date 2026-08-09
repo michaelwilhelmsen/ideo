@@ -12,5 +12,6 @@
 //! flight, so losing it costs a poll rather than a recipe.
 
 pub mod fal;
+pub mod image_input;
 pub mod runner;
 pub mod store;

@@ -13,6 +13,7 @@ import {
   aspectRequestFields,
   declaresParam,
   estimateCost,
+  imageParamShape,
   legalSizeFor,
   modelAvailability,
   reconcileParams,
@@ -122,6 +123,30 @@ describe('legalSizeFor', () => {
       expect(Math.min(size.width, size.height)).toBeGreaterThanOrEqual(256)
       expect(size.width * size.height).toBeLessThanOrEqual(4_194_304)
     }
+  })
+})
+
+/**
+ * #28 — the style stage splits three ways on how the image field is *shaped*,
+ * and the wrong primitive is a 422 at the one step that costs money.
+ */
+describe('imageParamShape', () => {
+  it('reads a single url from the singular name and an array from the plural', () => {
+    expect(imageParamShape(model({ imageParam: 'image_url' }))).toBe('url')
+    expect(imageParamShape(model({ imageParam: 'image_urls' }))).toBe(
+      'urlArray'
+    )
+  })
+
+  it('has nothing to say about a model that takes no image', () => {
+    expect(imageParamShape(model())).toBeNull()
+  })
+
+  it('refuses to guess at a name nobody has recorded', () => {
+    // `null` here is what `validateRegistry` turns into a startup crash.
+    expect(
+      imageParamShape(model({ imageParam: 'reference_images' }))
+    ).toBeNull()
   })
 })
 
@@ -460,6 +485,17 @@ describe('validateRegistry', () => {
     expect(() =>
       validateRegistry([model({ stage: 'style', imageParam: ' ' })])
     ).toThrow(/unnamed image parameter/)
+  })
+
+  it('refuses an image field whose shape nobody has recorded', () => {
+    // The name decides whether a string or an array goes on the wire (#28), so
+    // a model with a differently-named input is a crash that asks for its shape
+    // rather than a guess that ships and 422s at the paid step.
+    expect(() =>
+      validateRegistry([
+        model({ stage: 'style', imageParam: 'reference_images' }),
+      ])
+    ).toThrow(/whose shape is not recorded/)
   })
 
   it('counts the image field as one the model declares', () => {

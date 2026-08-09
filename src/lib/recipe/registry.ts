@@ -22,6 +22,36 @@ import type { AspectId, ParamValue, StageKind, StageParams } from './types'
 export type PromptStyle = 'prose' | 'tags'
 
 /**
+ * How a model's image field is shaped — the thing knowing its *name* does not
+ * tell you.
+ *
+ * The style stage splits on it: the FLUX family takes a single `image_url`
+ * string, Qwen and Nano Banana an `image_urls` **array**. Sending a string where
+ * an array is required is a 422 at the one step that costs money, with no visual
+ * signal that the parameter shape rather than the prompt was wrong (#28).
+ *
+ * Derived from the field name rather than declared per model, because on fal the
+ * name *is* the declaration — the plural is the array. `validateRegistry` refuses
+ * an image field whose name is not in the table below, so a model with a
+ * differently-named image input is a startup crash that asks for its shape
+ * rather than a guess that ships.
+ */
+export type ImageParamShape = 'url' | 'urlArray'
+
+const IMAGE_PARAM_SHAPES: Readonly<Record<string, ImageParamShape>> = {
+  image_url: 'url',
+  image_urls: 'urlArray',
+}
+
+/** How this model's image field is shaped, or `null` when it takes none. */
+export function imageParamShape(
+  model: ModelCapabilities
+): ImageParamShape | null {
+  if (model.imageParam === null) return null
+  return IMAGE_PARAM_SHAPES[model.imageParam] ?? null
+}
+
+/**
  * How a duration value has to be serialised.
  *
  * Three idioms across the surveyed field, and sending the wrong primitive is a
@@ -515,6 +545,13 @@ export function validateRegistry(
     }
     if (model.stage === 'source' && model.imageParam !== null) {
       fail('is a source model, which has no input image')
+    }
+    // Whether the field is a string or an array decides the request body, and a
+    // name nobody has recorded a shape for would be guessed at (#28).
+    if (model.imageParam !== null && imageParamShape(model) === null) {
+      fail(
+        `sends its image in "${model.imageParam}", whose shape is not recorded`
+      )
     }
 
     if ((model.durationParam === null) !== (model.durationFormat === null)) {

@@ -17,8 +17,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
+
+use crate::utils::atomic::write_atomically;
 
 /// The manifest file inside a project folder.
 const MANIFEST_FILE: &str = "project.json";
@@ -145,18 +146,66 @@ pub fn assets_dir(root: &Path, id: &str) -> Result<PathBuf, String> {
 ///
 /// The id is filtered rather than trusted: it reaches here from the webview.
 pub fn asset_file_name(generation_id: &str, extension: &str) -> String {
+    format!("{}.{extension}", asset_stem(generation_id))
+}
+
+/// The file name a generation's image carries, without its extension.
+///
+/// Separate from `asset_file_name` because reading an asset back has to find it
+/// without knowing which of the three formats it was saved in — a source may be
+/// a PNG the user dropped in or a JPEG fal produced, and the style stage has to
+/// send either one (#28).
+fn asset_stem(generation_id: &str) -> String {
     let stem: String = generation_id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect();
 
-    let stem = if stem.is_empty() {
+    if stem.is_empty() {
         "generation".to_string()
     } else {
         stem
+    }
+}
+
+/// The file one generation produced, whatever extension it ended up with.
+///
+/// `None` rather than an error when there is no such file: a generation with no
+/// asset is a normal state — a fixture-driven candidate, or one whose job has
+/// not landed — and the caller decides whether that is fatal. Matched on the
+/// stem rather than read out of the manifest so this answers for a project
+/// whose manifest the running build cannot parse, and so a style run does not
+/// depend on the schema Rust deliberately does not model.
+pub fn asset_path(
+    root: &Path,
+    project_id: &str,
+    generation_id: &str,
+) -> Result<Option<PathBuf>, String> {
+    let dir = assets_dir(root, project_id)?;
+    let wanted = asset_stem(generation_id);
+
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        // No assets folder is an empty one, not a failure.
+        Err(_) => return Ok(None),
     };
 
-    format!("{stem}.{extension}")
+    let mut found: Vec<PathBuf> = entries
+        .flatten()
+        .filter(|entry| entry.metadata().map(|m| m.is_file()).unwrap_or(false))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|stem| stem == wanted)
+        })
+        .collect();
+
+    // Stable, so a folder holding both a `.png` and a `.jpeg` for one
+    // generation does not send a different file on each run.
+    found.sort();
+
+    Ok(found.into_iter().next())
 }
 
 /// Reads a project, with the folder as the last word on its identity.
@@ -304,35 +353,6 @@ fn read_manifest(dir: &Path) -> Result<Value, String> {
 
     serde_json::from_str(&contents)
         .map_err(|e| format!("{} is not readable JSON: {e}", path.display()))
-}
-
-/// Temp file, flushed, then renamed. The flush matters: a rename that beats
-/// its own contents to the disk would leave an intact-looking manifest full of
-/// nothing.
-fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let temp = path.with_extension("json.tmp");
-
-    let write = || -> std::io::Result<()> {
-        let mut file = fs::File::create(&temp)?;
-        file.write_all(bytes)?;
-        file.sync_all()
-    };
-
-    if let Err(e) = write() {
-        let _ = fs::remove_file(&temp);
-        return Err(format!("Could not write {}: {e}", path.display()));
-    }
-
-    if let Err(e) = fs::rename(&temp, path) {
-        // Leaving the temp behind would make the folder look half-written to
-        // anyone reading it in Finder.
-        if let Err(remove) = fs::remove_file(&temp) {
-            log::warn!("Could not remove the temp manifest: {remove}");
-        }
-        return Err(format!("Could not finalise {}: {e}", path.display()));
-    }
-
-    Ok(())
 }
 
 /// Every asset name the manifest still points at.
@@ -611,6 +631,41 @@ mod tests {
         assert_eq!(
             load(root.path(), "atlas-copy").unwrap().manifest["id"],
             json!("atlas-copy")
+        );
+    }
+
+    #[test]
+    fn a_generations_file_is_found_whichever_format_it_was_saved_in() {
+        // The style stage has to send the source to fal, and the source may be
+        // a PNG the user dropped in or a JPEG fal produced (#28).
+        let root = TempDir::new().unwrap();
+        write_asset(root.path(), "atlas", "gen-1.png", 3);
+
+        let path = asset_path(root.path(), "atlas", "gen-1").unwrap();
+
+        assert_eq!(path.unwrap().file_name().unwrap(), "gen-1.png");
+    }
+
+    #[test]
+    fn a_generation_with_no_file_is_absent_rather_than_an_error() {
+        let root = TempDir::new().unwrap();
+        write_asset(root.path(), "atlas", "gen-1.png", 3);
+
+        assert_eq!(asset_path(root.path(), "atlas", "gen-2").unwrap(), None);
+        // A project with no assets folder at all answers the same way.
+        assert_eq!(asset_path(root.path(), "ledger", "gen-1").unwrap(), None);
+    }
+
+    #[test]
+    fn looking_up_an_asset_cannot_walk_out_of_the_project() {
+        let root = TempDir::new().unwrap();
+
+        assert!(asset_path(root.path(), "../../etc", "gen-1").is_err());
+        // A traversing generation id is filtered to a plain stem, so the worst
+        // it can do is fail to match anything.
+        assert_eq!(
+            asset_path(root.path(), "atlas", "../../../etc/passwd").unwrap(),
+            None
         );
     }
 

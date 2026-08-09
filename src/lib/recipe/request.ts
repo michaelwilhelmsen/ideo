@@ -74,8 +74,15 @@ export function buildRequest(
   // build with a different registry, or the model was swapped after the draft
   // was written. fal rejects unknown fields, so they are dropped here rather
   // than at the paid step.
+  //
+  // The image field is dropped too, whatever a draft says about it. What goes in
+  // it is a whole image (#28), read and encoded on the Rust side from the
+  // generation the recipe names — so a value here could only be a stale URL from
+  // a hand-edited manifest, and it would be silently restyling the wrong picture.
   for (const [key, value] of Object.entries(recipe.params)) {
-    if (declaresParam(model, key)) params[key] = value
+    if (declaresParam(model, key) && key !== model.imageParam) {
+      params[key] = value
+    }
   }
 
   if (model.durationParam !== null) {
