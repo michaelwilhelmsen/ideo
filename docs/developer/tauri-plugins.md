@@ -96,6 +96,13 @@ await showEditContextMenu()
 await showTextInputContextMenu()
 ```
 
+Right-clicking a text field is already wired up: `useTextInputContextMenu()`
+(`src/hooks/use-text-input-context-menu.ts`) puts a single delegated
+`contextmenu` listener on the document and shows the text input menu when the
+target is an `input` that takes text, a `textarea`, or a contenteditable
+element. It runs once per window — `App` for the main window, `QuickPaneApp`
+for the quick pane — so components need no context menu code of their own.
+
 ### Dialog
 
 Native file open/save dialogs and message boxes.

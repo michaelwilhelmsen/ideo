@@ -10,9 +10,11 @@ import { MainWindow } from './components/layout/MainWindow'
 import { ThemeProvider } from './components/ThemeProvider'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useSquareCornersEffect } from './hooks/useSquareCornersEffect'
+import { useTextInputContextMenu } from './hooks/use-text-input-context-menu'
 
 function App() {
   useSquareCornersEffect()
+  useTextInputContextMenu()
 
   // Initialize command system and cleanup on app startup
   useEffect(() => {

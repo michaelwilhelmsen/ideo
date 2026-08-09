@@ -3,6 +3,7 @@ import { emit, listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { commands } from '@/lib/tauri-bindings'
 import { logger } from '@/lib/logger'
+import { useTextInputContextMenu } from '@/hooks/use-text-input-context-menu'
 
 /** Dismiss the quick pane window, logging any errors */
 async function dismissQuickPane() {
@@ -42,6 +43,9 @@ function applyTheme() {
 export default function QuickPaneApp() {
   const [text, setText] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // The quick pane is its own window, so it needs its own right-click menu
+  useTextInputContextMenu()
 
   // Apply theme on mount and listen for theme changes from main window
   useEffect(() => {
