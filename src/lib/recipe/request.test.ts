@@ -113,14 +113,41 @@ describe('buildRequest — seeds', () => {
 })
 
 describe('buildRequest — durations', () => {
-  it('sends Kling a bare integer', () => {
+  it('sends Kling a string of digits, because its enum is one', () => {
+    // Re-read on 2026-08-09: Kling's `duration` is a *string* enum ("3".."10"),
+    // and a bare integer against a string enum is a 422 at the paid step. The
+    // registry said `integer` until #29 checked.
     const request = buildRequest(
       model('fal-ai/kling-video/o1/image-to-video'),
       '16:9',
       recipe({ params: { duration: '8' } })
     )
 
+    expect(request.params.duration).toBe('8')
+  })
+
+  it('sends LTX a bare integer, because its enum really is one', () => {
+    // The counterexample that keeps `durationFormat` honest: three idioms
+    // across eight video endpoints, and this one takes the number.
+    const request = buildRequest(
+      model('fal-ai/ltx-2.3/image-to-video'),
+      '16:9',
+      recipe({ params: { duration: '8' } })
+    )
+
     expect(request.params.duration).toBe(8)
+  })
+
+  it('strips the seconds suffix a draft may carry into a string enum', () => {
+    // A duration restored from a recipe written against Luma reads "9s"; on a
+    // string-enum model the value has to arrive as "9".
+    const request = buildRequest(
+      model('bytedance/seedance-2.5/image-to-video'),
+      '16:9',
+      recipe({ params: { duration: '30s' } })
+    )
+
+    expect(request.params.duration).toBe('30')
   })
 
   it('sends Luma a second-suffixed string', () => {
@@ -232,7 +259,7 @@ describe('buildRequest — defaults and unknown fields', () => {
     )
 
     expect(request.params.generate_audio).toBe(false)
-    expect(request.params.duration).toBe(5)
+    expect(request.params.duration).toBe('5')
   })
 
   it('names the model it built for, which is what Rust submits against', () => {

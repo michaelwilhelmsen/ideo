@@ -13,16 +13,17 @@ Technical documentation for building and extending this app. These docs describe
 
 ## Core Systems
 
-| Document                                      | Description                                     |
-| --------------------------------------------- | ----------------------------------------------- |
-| [Command System](./command-system.md)         | Unified action dispatch, command registration   |
-| [Keyboard Shortcuts](./keyboard-shortcuts.md) | Global shortcut handling, platform modifiers    |
-| [Menus](./menus.md)                           | Native menu building with i18n                  |
-| [Quick Panes](./quick-panes.md)               | Multi-window quick entry pattern                |
-| [Tauri Commands](./tauri-commands.md)         | Type-safe Rust-TypeScript bridge (tauri-specta) |
-| [Tauri Plugins](./tauri-plugins.md)           | Plugin usage and configuration                  |
-| [Model Registry](./model-registry.md)         | Model capabilities, aspect idioms, validation   |
-| [Style Presets](./style-presets.md)           | Seeding the form, prompt idioms, the fork flow  |
+| Document                                      | Description                                         |
+| --------------------------------------------- | --------------------------------------------------- |
+| [Command System](./command-system.md)         | Unified action dispatch, command registration       |
+| [Keyboard Shortcuts](./keyboard-shortcuts.md) | Global shortcut handling, platform modifiers        |
+| [Menus](./menus.md)                           | Native menu building with i18n                      |
+| [Quick Panes](./quick-panes.md)               | Multi-window quick entry pattern                    |
+| [Tauri Commands](./tauri-commands.md)         | Type-safe Rust-TypeScript bridge (tauri-specta)     |
+| [Tauri Plugins](./tauri-plugins.md)           | Plugin usage and configuration                      |
+| [Model Registry](./model-registry.md)         | Model capabilities, aspect idioms, validation       |
+| [Style Presets](./style-presets.md)           | Seeding the form, prompt idioms, the fork flow      |
+| [Motion Presets](./motion-presets.md)         | The second library — movement, kept apart from look |
 
 ## UI & UX
 

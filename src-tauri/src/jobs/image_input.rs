@@ -18,6 +18,10 @@
 //! fail — it would quietly succeed as text-to-image, charge for it, and hand back
 //! a picture of something else entirely. So a style submit with no resolvable
 //! input is rejected here, before the key is fetched and long before the charge.
+//!
+//! Since #29 the animate stage is under the same rule, and the argument only
+//! gets stronger: a video model handed no start frame produces a clip of
+//! whatever the motion prompt says, at up to $0.47 a second.
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -29,10 +33,18 @@ use super::fal::{GenerationError, GenerationErrorReason, InputImageProblem};
 use crate::projects::import::sniff_format;
 use crate::projects::store::asset_path;
 
-/// The stage that restyles somebody else's image, and therefore cannot run
-/// without one. Matched as a string because the stage crosses the boundary as
-/// one — the vocabulary is the frontend's (`StageKind`), not Rust's.
-const STYLE_STAGE: &str = "style";
+/// The stages that transform somebody else's image, and therefore cannot run
+/// without one: style restyles a source, animate moves a still.
+///
+/// Matched as strings because the stage crosses the boundary as one — the
+/// vocabulary is the frontend's (`StageKind`), not Rust's. Listed rather than
+/// inverted from `source` so that a stage added later has to be thought about
+/// once rather than inheriting a refusal nobody chose for it.
+const INPUT_STAGES: [&str; 2] = ["style", "animate"];
+
+fn requires_input(stage: &str) -> bool {
+    INPUT_STAGES.contains(&stage)
+}
 
 /// The ceiling on an inlined image.
 ///
@@ -84,10 +96,10 @@ pub fn prepare(
     params: &mut Value,
 ) -> Result<(), GenerationError> {
     let Some(input) = input else {
-        // Not "assume text-to-image": a style stage exists to transform an
-        // image, so having none is the failure and not a mode.
-        if stage == STYLE_STAGE {
-            log::error!("a style run for project {project_id} named no input image");
+        // Not "assume text-to-image": these stages exist to transform an image,
+        // so having none is the failure and not a mode.
+        if requires_input(stage) {
+            log::error!("a {stage} run for project {project_id} named no input image");
             return Err(unusable(InputImageProblem::NoneNamed));
         }
         return Ok(());
@@ -343,6 +355,49 @@ mod tests {
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
         assert_eq!(error.input_image, Some(InputImageProblem::NoneNamed));
         assert_eq!(params, json!({}));
+    }
+
+    #[test]
+    fn an_animate_run_with_no_still_is_refused_before_anything_is_spent() {
+        // #29 — the same refusal as style, and the money at stake is larger: a
+        // video model handed no start frame animates the motion prompt instead,
+        // at up to $0.47 a second.
+        let mut params = json!({ "duration": "5" });
+
+        let error = prepare(Path::new("/nowhere"), "atlas", "animate", None, &mut params)
+            .expect_err("an animate run needs a still to animate");
+
+        assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
+        assert_eq!(error.input_image, Some(InputImageProblem::NoneNamed));
+        assert_eq!(params, json!({ "duration": "5" }));
+    }
+
+    #[test]
+    fn the_still_reaches_a_video_model_under_whichever_name_it_uses() {
+        // Three spellings across the eight endpoints — `image_url`,
+        // `start_image_url`, `first_frame_url` — all single URLs, and the
+        // registry is the only thing that knows which is which.
+        for param in ["image_url", "start_image_url", "first_frame_url"] {
+            let root = project_with_source(&png(), "png");
+            let mut params = json!({ "duration": "5" });
+
+            prepare(
+                root.path(),
+                "atlas",
+                "animate",
+                Some(&input(param, ImageParamShape::Url)),
+                &mut params,
+            )
+            .unwrap();
+
+            assert!(
+                params[param]
+                    .as_str()
+                    .is_some_and(|uri| uri.starts_with("data:image/png;base64,")),
+                "{param}"
+            );
+            assert_eq!(params["duration"], json!("5"), "{param}");
+        }
     }
 
     #[test]

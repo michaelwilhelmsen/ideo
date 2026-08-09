@@ -208,11 +208,27 @@ pub struct PollState {
     pub queue_position: Option<u32>,
 }
 
+/// Which medium a finished job produced.
+///
+/// Not cosmetic: it decides the extension a result with no usable one in its
+/// URL is saved under, and an `.mp4` filed as `.jpeg` is a file nothing in the
+/// app can play and nothing on the desktop can open (#29).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultKind {
+    Image,
+    Video,
+}
+
 /// What the queue produced, before it becomes a file.
+///
+/// `asset_url` rather than `image_url` since #29: the animate stage returns a
+/// clip under `video.url`, and a field called `image_url` holding an `.mp4` is
+/// the kind of name that survives until somebody trusts it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct QueueResult {
-    pub image_url: String,
+    pub asset_url: String,
     pub seed: Option<u64>,
+    pub kind: ResultKind,
 }
 
 pub fn client(timeout: Duration) -> Result<reqwest::Client, GenerationError> {
@@ -367,21 +383,21 @@ pub async fn cancel(key: &str, cancel_url: &str) -> Result<bool, GenerationError
     Ok(false)
 }
 
-/// Downloads a finished image. No auth header — the media host doesn't need
-/// one, and the key has no business being sent there.
-pub async fn download(image_url: &str) -> Result<Vec<u8>, GenerationError> {
+/// Downloads a finished image or clip. No auth header — the media host doesn't
+/// need one, and the key has no business being sent there.
+pub async fn download(asset_url: &str) -> Result<Vec<u8>, GenerationError> {
     let bytes = client(DOWNLOAD_TIMEOUT)?
-        .get(image_url)
+        .get(asset_url)
         .send()
         .await
         .map_err(|e| {
-            log::warn!("Could not download the generated image: {e}");
+            log::warn!("Could not download the generated asset: {e}");
             GenerationError::new(GenerationErrorReason::CouldNotSave)
         })?
         .bytes()
         .await
         .map_err(|e| {
-            log::error!("Could not read the image bytes: {e}");
+            log::error!("Could not read the asset bytes: {e}");
             GenerationError::new(GenerationErrorReason::CouldNotSave)
         })?;
 
@@ -389,14 +405,22 @@ pub async fn download(image_url: &str) -> Result<Vec<u8>, GenerationError> {
 }
 
 /// The extension a saved file should carry, from the URL fal produced.
-pub fn extension_for(image_url: &str) -> &str {
-    image_url
+///
+/// The fallback is per medium since #29. A URL with no usable extension is rare
+/// but real — a signed or query-suffixed one, which the alphanumeric filter
+/// below rejects on purpose — and defaulting a clip to `jpeg` produces a file
+/// the `<video>` element will not play and Finder will not preview.
+pub fn extension_for(asset_url: &str, kind: ResultKind) -> &str {
+    asset_url
         .rsplit('/')
         .next()
         .and_then(|segment| segment.rsplit_once('.'))
         .map(|(_, ext)| ext)
         .filter(|ext| !ext.is_empty() && ext.chars().all(|c| c.is_ascii_alphanumeric()))
-        .unwrap_or("jpeg")
+        .unwrap_or(match kind {
+            ResultKind::Image => "jpeg",
+            ResultKind::Video => "mp4",
+        })
 }
 
 /// Maps fal's queue states. Anything unrecognised counts as still running: the
@@ -411,13 +435,36 @@ fn parse_queue_status(raw: &str) -> QueueStatus {
 }
 
 /// Pulls the parts of a result payload this slice needs.
+///
+/// Two shapes, because the two media are two shapes: an image endpoint answers
+/// with `images: [{url}]` and a video endpoint with `video: {url}` — a single
+/// object, not an array, since one call produces one clip. The video is read
+/// first so a payload carrying both (a model returning a preview still
+/// alongside its clip) files the clip, which is what was paid for.
 fn extract_result(payload: &Value) -> Result<QueueResult, GenerationError> {
+    let seed = payload.get("seed").and_then(Value::as_u64);
+
+    if let Some(video) = payload.get("video") {
+        let url = video.get("url").and_then(Value::as_str).ok_or_else(|| {
+            GenerationError::with_detail(GenerationErrorReason::JobFailed, "video had no URL")
+        })?;
+
+        return Ok(QueueResult {
+            asset_url: url.to_string(),
+            seed,
+            kind: ResultKind::Video,
+        });
+    }
+
     let image = payload
         .get("images")
         .and_then(Value::as_array)
         .and_then(|images| images.first())
         .ok_or_else(|| {
-            GenerationError::with_detail(GenerationErrorReason::JobFailed, "no image returned")
+            GenerationError::with_detail(
+                GenerationErrorReason::JobFailed,
+                "no image or video returned",
+            )
         })?;
 
     let image_url = image.get("url").and_then(Value::as_str).ok_or_else(|| {
@@ -425,8 +472,9 @@ fn extract_result(payload: &Value) -> Result<QueueResult, GenerationError> {
     })?;
 
     Ok(QueueResult {
-        image_url: image_url.to_string(),
-        seed: payload.get("seed").and_then(Value::as_u64),
+        asset_url: image_url.to_string(),
+        seed,
+        kind: ResultKind::Image,
     })
 }
 
@@ -523,8 +571,52 @@ mod tests {
 
         let result = extract_result(&payload).unwrap();
 
-        assert_eq!(result.image_url, "https://v3.fal.media/files/x/out.jpeg");
+        assert_eq!(result.asset_url, "https://v3.fal.media/files/x/out.jpeg");
         assert_eq!(result.seed, Some(1234567890));
+        assert_eq!(result.kind, ResultKind::Image);
+    }
+
+    #[test]
+    fn a_video_endpoint_answers_with_one_object_rather_than_an_array() {
+        // #29 — every image-to-video endpoint surveyed returns `video: {url}`,
+        // not `images: [...]`. Reading only the array would have reported every
+        // paid clip as a job that produced nothing.
+        let payload = json!({
+            "video": { "url": "https://v3.fal.media/files/x/out.mp4" },
+            "seed": 7_u64,
+        });
+
+        let result = extract_result(&payload).unwrap();
+
+        assert_eq!(result.asset_url, "https://v3.fal.media/files/x/out.mp4");
+        assert_eq!(result.seed, Some(7));
+        assert_eq!(result.kind, ResultKind::Video);
+    }
+
+    #[test]
+    fn a_payload_carrying_both_files_the_clip_that_was_paid_for() {
+        let payload = json!({
+            "video": { "url": "https://v3.fal.media/files/x/out.mp4" },
+            "images": [{ "url": "https://v3.fal.media/files/x/preview.jpeg" }],
+        });
+
+        assert_eq!(extract_result(&payload).unwrap().kind, ResultKind::Video);
+    }
+
+    #[test]
+    fn a_video_result_with_no_url_is_a_failure_and_not_a_fallback_to_the_still() {
+        // Falling through to a preview image here would file a still under the
+        // generation the user paid for a clip for, and nothing on screen would
+        // say which they had got.
+        let payload = json!({
+            "video": { "duration": 5 },
+            "images": [{ "url": "https://v3.fal.media/files/x/preview.jpeg" }],
+        });
+
+        assert_eq!(
+            extract_result(&payload).unwrap_err().reason,
+            GenerationErrorReason::JobFailed
+        );
     }
 
     #[test]
@@ -602,12 +694,40 @@ mod tests {
 
     #[test]
     fn saved_files_keep_the_extension_the_api_produced() {
-        assert_eq!(extension_for("https://v3.fal.media/files/x/out.png"), "png");
+        assert_eq!(
+            extension_for("https://v3.fal.media/files/x/out.png", ResultKind::Image),
+            "png"
+        );
+        assert_eq!(
+            extension_for("https://v3.fal.media/files/x/out.mp4", ResultKind::Video),
+            "mp4"
+        );
+        assert_eq!(
+            extension_for("https://v3.fal.media/files/x/out.webm", ResultKind::Video),
+            "webm"
+        );
     }
 
     #[test]
-    fn an_extensionless_url_falls_back_to_jpeg() {
-        assert_eq!(extension_for("https://v3.fal.media/files/x/out"), "jpeg");
+    fn an_extensionless_url_falls_back_to_the_medium_it_is() {
+        // A clip saved as `.jpeg` is a file the app will not play and the
+        // desktop will not preview (#29).
+        assert_eq!(
+            extension_for("https://v3.fal.media/files/x/out", ResultKind::Image),
+            "jpeg"
+        );
+        assert_eq!(
+            extension_for("https://v3.fal.media/files/x/out", ResultKind::Video),
+            "mp4"
+        );
+        // A query string is not an extension, so the fallback applies there too.
+        assert_eq!(
+            extension_for(
+                "https://v3.fal.media/files/x/out.mp4?token=abc",
+                ResultKind::Video
+            ),
+            "mp4"
+        );
     }
 
     #[test]

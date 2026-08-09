@@ -65,18 +65,59 @@ describe('StageParameters — model selection', () => {
     }
   })
 
-  it('does not change the model when a control is toggled', async () => {
-    const user = userEvent.setup()
+  it('does not change the model when a control is touched', () => {
     render(<StageParameters project={LEDGER} stage="animate" />)
 
     const picker = screen.getByLabelText<HTMLSelectElement>('Model')
     const before = picker.value
 
-    await user.click(
-      screen.getByRole('switch', { name: /forward, then reverse/i })
-    )
+    // Duration rather than a switch: loop and rewind are disabled until #30,
+    // so a click on either would prove nothing. The claim is the same one —
+    // touching a parameter never moves the user onto a different endpoint.
+    fireEvent.change(screen.getByLabelText('Duration'), {
+      target: { value: '9s' },
+    })
 
     expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe(before)
+  })
+})
+
+/**
+ * The two switches that promise something nothing sends yet (#30).
+ *
+ * `buildRequest` reads neither `options.loop` nor `options.rewind`, so an
+ * enabled toggle here is the worst kind of wrong: the user pays video prices
+ * for a clip they were told would loop, and nothing in the result says the
+ * setting was ignored. PRD §10.1 — on screen, switched off, reason attached.
+ */
+describe('StageParameters — looping is not live yet (#30)', () => {
+  it('shows the loop switch disabled, with the reason under it', () => {
+    // Luma has an `end_image_url`, so the registry's older refusal ("this model
+    // has no end frame") does not apply — the honest answer is that we do not
+    // build one yet.
+    render(<StageParameters project={LEDGER} stage="animate" />)
+
+    expect(
+      screen.getByRole('switch', { name: /return to the first frame/i })
+    ).toBeDisabled()
+    expect(screen.getByText(/looping is not built yet/i)).toBeVisible()
+  })
+
+  it('shows the rewind switch disabled, with its own reason', () => {
+    render(<StageParameters project={LEDGER} stage="animate" />)
+
+    expect(
+      screen.getByRole('switch', { name: /forward, then reverse/i })
+    ).toBeDisabled()
+    expect(screen.getByText(/rewind arrives with looping/i)).toBeVisible()
+  })
+
+  it('leaves the rest of the animate panel usable', () => {
+    // Disabling two switches is not the same as disabling the stage: a clip
+    // without a loop is still the thing #29 shipped.
+    render(<StageParameters project={LEDGER} stage="animate" />)
+
+    expect(screen.getByLabelText('Duration')).toBeEnabled()
   })
 })
 
@@ -218,5 +259,97 @@ describe('StageParameters — batch (#26)', () => {
     expect(
       screen.getByLabelText<HTMLInputElement>('Candidates per run').value
     ).toBe('4')
+  })
+})
+
+/**
+ * The duration control (#29) — the one lever on this stage that moves the bill
+ * by an order of magnitude.
+ *
+ * Seedance bills $0.473 a second and offers every whole second from 4 to 30, so
+ * the same click is under $2 or over $14 depending on one `<select>`. PRD §10.2
+ * asks for the estimate before the money; these are the assertions that it moves
+ * when the lever does.
+ */
+describe('StageParameters — duration as a cost lever', () => {
+  beforeEach(() => {
+    useEditorStore.getState().reset()
+  })
+
+  /** Ledger is 16:9 and its animate draft is on Luma; move it onto Seedance. */
+  function onSeedance() {
+    return {
+      ...LEDGER,
+      drafts: {
+        ...LEDGER.drafts,
+        animate: {
+          ...LEDGER.drafts.animate,
+          modelId: 'bytedance/seedance-2.5/image-to-video',
+          params: { duration: '5', resolution: '720p' },
+        },
+      },
+    }
+  }
+
+  function LiveAnimatePanel() {
+    const project = useEditorStore(store => store.state.project)
+    if (project === null) return null
+    return <StageParameters project={project} stage="animate" />
+  }
+
+  it('offers every second the endpoint does, and no "auto"', () => {
+    render(<StageParameters project={onSeedance()} stage="animate" />)
+
+    const options = within(screen.getByLabelText('Duration')).getAllByRole(
+      'option'
+    )
+
+    expect(options).toHaveLength(27)
+    expect(options.map(option => option.textContent).at(0)).toBe('4')
+    expect(options.map(option => option.textContent).at(-1)).toBe('30')
+    expect(screen.queryByRole('option', { name: 'auto' })).toBeNull()
+  })
+
+  it('moves the estimate when the length moves', () => {
+    useEditorStore.getState().dispatch({
+      type: 'openProject',
+      project: onSeedance(),
+      directory: '/tmp/ledger',
+    })
+    render(<LiveAnimatePanel />)
+
+    const short = screen.getByText(/approximate/i).textContent ?? ''
+
+    fireEvent.change(screen.getByLabelText('Duration'), {
+      target: { value: '30' },
+    })
+
+    const long = screen.getByText(/approximate/i).textContent ?? ''
+    expect(short).not.toBe(long)
+    // Rounded to the cent, 30 × $0.473 is $14.19 — the number the user is
+    // deciding about, in front of them before the click.
+    expect(long).toMatch(/14\.19/)
+  })
+
+  it('refuses to run a model that needs an end frame, and says why', () => {
+    // #29 — FLUX 3's first/last-frame endpoint will not run on a start frame
+    // alone, and looping is #30. Disabled with the reason attached rather than
+    // hidden (PRD §10.1): it is the model a seamless loop will want.
+    const project = {
+      ...LEDGER,
+      selection: { ...LEDGER.selection, style: 'gen-led-1' },
+      drafts: {
+        ...LEDGER.drafts,
+        animate: {
+          ...LEDGER.drafts.animate,
+          modelId: 'blackforestlabs/flux-3/first-last-frame-to-video',
+        },
+      },
+    }
+
+    render(<StageParameters project={project} stage="animate" />)
+
+    expect(screen.getByRole('button', { name: /generate/i })).toBeDisabled()
+    expect(screen.getByText(/will not run without an end frame/i)).toBeVisible()
   })
 })

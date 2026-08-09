@@ -22,6 +22,7 @@ import {
   userPresetFrom,
   type StylePreset,
 } from './presets'
+import { motionPresetById } from './motion'
 import { UPLOAD_MODEL_ID, isUploadRecipe, uploadFileName } from './upload'
 import {
   activeProject,
@@ -56,6 +57,16 @@ function presetOf(id: string): StylePreset {
 }
 
 /** Choosing a style preset as the panel does: the preset rides along. */
+/** The one animate model with a `negative_prompt` field to leave alone. */
+const VEO = 'fal-ai/veo3.1/image-to-video'
+
+/** Selecting a built-in motion preset, exactly as the picker dispatches it. */
+function chooseMotion(id: string): EditorAction {
+  const preset = motionPresetById(id)
+  if (preset === null) throw new Error(`no motion preset "${id}"`)
+  return { type: 'choosePreset', stage: 'animate', presetId: id, preset }
+}
+
 function choose(id: string): EditorAction {
   return {
     type: 'choosePreset',
@@ -340,10 +351,10 @@ describe('preset provenance', () => {
     expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
   })
 
-  it('claims nothing on the stages whose presets seed nothing', () => {
-    // Source and animate pick from fixture lists that compose no prompt and fill
+  it('claims nothing on the stage whose presets seed nothing', () => {
+    // Source still picks from a fixture list that composes no prompt and fills
     // no field (`preset: null` on every selection), so an edit there cannot have
-    // moved away from a seeding that never happened. #34 gives them libraries.
+    // moved away from a seeding that never happened. #34 gives it a library.
     const state = apply(
       fixtureEditorState(),
       { type: 'choosePreset', stage: 'source', presetId: 'wide', preset: null },
@@ -353,6 +364,95 @@ describe('preset provenance', () => {
 
     expect(openProjectOf(state).drafts.source.presetId).toBe('wide')
     expect(openProjectOf(state).drafts.source.presetModified).toBe(false)
+  })
+
+  it('records an edited motion prompt as having moved from its preset', () => {
+    // #29 — animate has a real library now, so the same provenance claim holds
+    // there: "which motion preset produced this" is only half an answer once the
+    // prompt has been rewritten.
+    const state = apply(fixtureEditorState(), chooseMotion('drifting-clouds'), {
+      type: 'setPrompt',
+      stage: 'animate',
+      prompt: 'clouds, but faster',
+    })
+
+    expect(openProjectOf(state).drafts.animate.presetModified).toBe(true)
+  })
+
+  it('does not count a video model’s negative prompt, which motion never seeds', () => {
+    // Veo has a `negative_prompt` and a motion preset writes the prompt and
+    // nothing else — so moving that field says nothing about which preset this
+    // started from, unlike the style stage where the same field *is* seeded.
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'chooseModel', stage: 'animate', modelId: VEO },
+      chooseMotion('drifting-clouds'),
+      {
+        type: 'setParam',
+        stage: 'animate',
+        key: 'negative_prompt',
+        value: 'blurry',
+      }
+    )
+
+    expect(openProjectOf(state).drafts.animate.presetModified).toBe(false)
+  })
+})
+
+/**
+ * The second library (#29) — motion presets seed, and seed one field.
+ *
+ * Worth asserting apart from the style cases because the schemas differ on
+ * purpose: there is no idiom to fail to speak, no strength and no negative, so
+ * the interesting question is what seeding *does not* touch.
+ */
+describe('seeding the form from a motion preset', () => {
+  const DRIFT = motionPresetById('drifting-clouds')
+  if (DRIFT === null) throw new Error('the built-in motion library lost one')
+
+  it('puts the whole motion prompt in the box, which is what gets sent', () => {
+    const state = apply(fixtureEditorState(), chooseMotion(DRIFT.id))
+    const draft = openProjectOf(state).drafts.animate
+
+    expect(draft.prompt).toBe(DRIFT.prompt)
+    expect(draft.presetId).toBe(DRIFT.id)
+    expect(draft.presetModified).toBe(false)
+  })
+
+  it('leaves duration, resolution and the rest exactly as they were', () => {
+    // Movement and length are different decisions, and a preset that reset the
+    // duration would silently change what the next click costs.
+    const before = openProjectOf(fixtureEditorState()).drafts.animate
+    const state = apply(fixtureEditorState(), chooseMotion(DRIFT.id))
+    const after = openProjectOf(state).drafts.animate
+
+    expect(after.params).toEqual(before.params)
+    expect(after.options).toEqual(before.options)
+    expect(after.seed).toEqual(before.seed)
+  })
+
+  it('never writes a negative, even on the one video model that has the field', () => {
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'chooseModel', stage: 'animate', modelId: VEO },
+      chooseMotion(DRIFT.id)
+    )
+
+    // Whatever the model's own default says, seeding did not touch it.
+    expect(openProjectOf(state).drafts.animate.params.negative_prompt).toBe('')
+  })
+
+  it('keeps the text and drops only the pointer when nothing is selected', () => {
+    const state = apply(fixtureEditorState(), chooseMotion(DRIFT.id), {
+      type: 'choosePreset',
+      stage: 'animate',
+      presetId: null,
+      preset: null,
+    })
+    const draft = openProjectOf(state).drafts.animate
+
+    expect(draft.presetId).toBeNull()
+    expect(draft.prompt).toBe(DRIFT.prompt)
   })
 })
 
@@ -587,7 +687,7 @@ describe('changing model (PRD §5, §6.3)', () => {
       {
         type: 'choosePreset',
         stage: 'animate',
-        presetId: 'slow-drift',
+        presetId: 'locked-camera-drift',
         preset: null,
       },
       { type: 'pinSeed', stage: 'animate', value: 7 },

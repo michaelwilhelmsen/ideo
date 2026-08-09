@@ -309,5 +309,14 @@
   "editor.preset.saved": "Saved {{name}}",
   "editor.preset.unreadable": "Some saved presets could not be read and were skipped.",
   "editor.error.savePreset": "Could not save the preset.",
-  "editor.error.deletePreset": "Could not delete the preset."
+  "editor.error.deletePreset": "Could not delete the preset.",
+  "editor.reason.needsEndFrame": "This model will not run without an end frame as well as a start one. Pick another model until looping arrives.",
+  "editor.reason.loopNotReady": "Looping is not built yet. It arrives in the next update.",
+  "editor.reason.rewindNotReady": "Rewind arrives with looping, in the next update.",
+  "editor.field.motionPreset": "Motion preset",
+  "editor.preset.motionHint": "Motion is a separate library from style, so any look can take any movement.",
+  "editor.preset.saveMotionDescription": "Saves the motion prompt exactly as it is now, as a preset of your own.",
+  "editor.error.saveMotionPreset": "Could not save the motion preset.",
+  "editor.error.deleteMotionPreset": "Could not delete the motion preset.",
+  "editor.preview.clip": "Generated clip"
 }

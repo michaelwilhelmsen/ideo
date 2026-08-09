@@ -44,13 +44,21 @@ const ASPECT_CLASS: Record<string, string> = {
 }
 
 /**
- * What a generation produced.
+ * What a generation produced — a still, or, since #29, a clip.
  *
- * A real file when the stage has a model behind it — the source stage does
- * (#22/#23) — and the deterministic stand-in otherwise, until #28 and #29 give
- * style and animate real calls. The stand-in is not decoration: composition
- * tracks the seed and colour tracks the style fragment, so the pinned-seed
- * claim of PRD §4.3 stays visible on stages that cannot yet demonstrate it.
+ * One component rather than two, and used everywhere a candidate appears: the
+ * strip, the run grid, the seed comparison. An animate candidate is a candidate
+ * like any other, so a tile that could not play one would make the last stage
+ * the only one whose results you cannot see where you chose them.
+ *
+ * Muted, looping and autoplaying because that is what a hero loop *is* — the
+ * artefact this app makes is a background that runs on a page, and the closest
+ * honest preview of it is one that runs here too. `controls` for the case where
+ * it is the thing being examined rather than glanced at; `playsInline` because
+ * without it a webview may take the clip fullscreen on its own.
+ *
+ * The deterministic stand-in remains for a candidate with no file — a paid
+ * result that has not landed, or one whose job never did.
  */
 export function Preview({
   generation,
@@ -61,6 +69,7 @@ export function Preview({
   aspect: string
   className?: string
 }) {
+  const { t } = useTranslation()
   const directory = useEditorStore(store => store.state.directory)
   const source = assetSource(directory, generation.asset)
   const art = previewArt(generation)
@@ -75,6 +84,23 @@ export function Preview({
     return <div className={shape} style={{ background: art.background }} />
   }
 
+  if (isVideoAsset(generation.asset)) {
+    return (
+      <video
+        src={source}
+        aria-label={t('editor.preview.clip')}
+        autoPlay
+        loop
+        muted
+        playsInline
+        controls
+        // Same `object-cover` argument as the still below: the box holds the
+        // project's locked ratio and the clip covers it rather than stretching.
+        className={cn(shape, 'object-cover')}
+      />
+    )
+  }
+
   return (
     <img
       src={source}
@@ -85,6 +111,24 @@ export function Preview({
       className={cn(shape, 'object-cover')}
     />
   )
+}
+
+/**
+ * Whether this asset is a clip, from its extension.
+ *
+ * The extension rather than the stage, deliberately. The manifest records a file
+ * name and the stage is a separate field, so asking the file what it is means an
+ * animate candidate saved before this shipped, or a project whose stages someone
+ * has been editing by hand, still renders as whatever it actually holds.
+ *
+ * The list is the two containers `extension_for` can produce on the Rust side.
+ */
+const VIDEO_EXTENSIONS: readonly string[] = ['mp4', 'webm']
+
+function isVideoAsset(asset: string | null): boolean {
+  if (asset === null) return false
+  const extension = asset.split('.').at(-1)?.toLowerCase() ?? ''
+  return VIDEO_EXTENSIONS.includes(extension)
 }
 
 /**

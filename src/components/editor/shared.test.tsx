@@ -147,6 +147,65 @@ describe('pinning a seed from the candidate that has it', () => {
   })
 })
 
+describe('what a candidate’s preview renders (#29)', () => {
+  /** One animate candidate, with whatever file the runner filed for it. */
+  function clip(asset: string | null): Generation {
+    return {
+      id: 'gen-ani-9',
+      stage: 'animate',
+      recipe: ATLAS.drafts.animate,
+      seed: null,
+      verdict: 'unrated',
+      createdAt: 1,
+      ordinal: 1,
+      asset,
+      runId: null,
+    }
+  }
+
+  function tileFor(generation: Generation) {
+    open(ATLAS)
+    return render(
+      <GenerationTile
+        project={ATLAS}
+        generation={generation}
+        selected={false}
+      />
+    ).container
+  }
+
+  it('plays a clip where a still would be shown, muted and looping', () => {
+    // The artefact is a background that runs on a page, so the closest honest
+    // preview of it is one that runs here. Muted and looping rather than a
+    // poster frame, and in the tile rather than only in a detail view: animate
+    // is chosen from the same strip every other stage is.
+    const container = tileFor(clip('gen-ani-9.mp4'))
+
+    const video = container.querySelector('video')
+    expect(video).not.toBeNull()
+    expect(video?.getAttribute('src')).toContain('gen-ani-9.mp4')
+    expect(video?.muted || video?.hasAttribute('muted')).toBe(true)
+    expect(video?.loop).toBe(true)
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('reads the file rather than the stage, so a still on animate is a still', () => {
+    // The manifest records a file name; asking the file what it is means a
+    // candidate saved by an older build still renders as whatever it holds.
+    const container = tileFor(clip('gen-ani-9.png'))
+
+    expect(container.querySelector('video')).toBeNull()
+    expect(container.querySelector('img')).not.toBeNull()
+  })
+
+  it('falls back to the stand-in for a candidate whose file has not landed', () => {
+    const container = tileFor(clip(null))
+
+    expect(container.querySelector('video')).toBeNull()
+    expect(container.querySelector('img')).toBeNull()
+  })
+})
+
 describe('the strip says which click produced which candidate', () => {
   it('labels each run, and leaves earlier candidates unlabelled', () => {
     open(ATLAS)

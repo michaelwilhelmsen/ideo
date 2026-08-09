@@ -17,8 +17,10 @@ import {
   composePreset,
   MODEL_REGISTRY,
   modelById,
+  motionPresetById,
   stylePresetById,
   userPresetFrom,
+  writeUserMotionPreset,
   writeUserPreset,
   type PromptStyle,
   type StageRecipe,
@@ -513,6 +515,146 @@ describe('a saved preset that cannot be read', () => {
     expect(picker().querySelectorAll('optgroup')).toHaveLength(1)
     expect(
       within(picker()).getByRole('option', { name: 'Glass caustics' })
+    ).toBeInTheDocument()
+  })
+})
+
+/**
+ * The second library (#29) — the same control over a simpler schema.
+ *
+ * The seam is the same one the style cases exercise, so what is worth asserting
+ * here is the part that differs: a motion preset seeds the prompt and nothing
+ * else, it is never disabled because there are no idioms, and a fork of one
+ * lands in its own library rather than shadowing a style preset of the same id.
+ */
+describe('picking a movement', () => {
+  const DRIFT = motionPresetById('drifting-clouds')
+  if (DRIFT === null) throw new Error('the built-in motion library lost one')
+
+  function LiveMotionField() {
+    const project = useEditorStore(store => store.state.project)
+    if (project === null) return null
+    return <PresetField project={project} stage="animate" />
+  }
+
+  function animateDraft(): StageRecipe {
+    const project = useEditorStore.getState().state.project
+    if (project === null) throw new Error('nothing is open')
+    return project.drafts.animate
+  }
+
+  function motionPicker(): HTMLSelectElement {
+    return screen.getByLabelText<HTMLSelectElement>('Motion preset')
+  }
+
+  function withSavedMotion(...documents: unknown[]): void {
+    mockCommands.motionPresetsList.mockResolvedValue({
+      status: 'ok',
+      data: documents as never,
+    })
+  }
+
+  it('seeds the prompt box with the whole motion prompt', async () => {
+    open()
+    render(<LiveMotionField />)
+
+    fireEvent.change(motionPicker(), { target: { value: DRIFT.id } })
+
+    await waitFor(() => expect(animateDraft().prompt).toBe(DRIFT.prompt))
+    expect(animateDraft().presetId).toBe(DRIFT.id)
+    expect(animateDraft().presetModified).toBe(false)
+  })
+
+  it('offers every built-in movement, none of them disabled', async () => {
+    // There is one prompt idiom across the eight video endpoints, so unlike the
+    // style picker nothing here can fail to speak to the selected model.
+    open()
+    render(<LiveMotionField />)
+
+    const options = within(motionPicker())
+      .getAllByRole('option')
+      .filter(option => (option as HTMLOptionElement).value !== '')
+
+    expect(options.length).toBeGreaterThanOrEqual(6)
+    for (const option of options) expect(option).toBeEnabled()
+  })
+
+  it('writes a fork into the motion library, not the style one', async () => {
+    // Two libraries, two folders: a movement called "Warm" and a look called
+    // "Warm" are different things and must not clobber each other.
+    open()
+    render(<LiveMotionField />)
+
+    const user = userEvent.setup()
+    fireEvent.change(motionPicker(), { target: { value: DRIFT.id } })
+    await waitFor(() => expect(animateDraft().prompt).toBe(DRIFT.prompt))
+
+    await user.click(screen.getByRole('button', { name: /save as new/i }))
+    await user.clear(screen.getByLabelText('Name'))
+    await user.type(screen.getByLabelText('Name'), 'My drift')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() =>
+      expect(mockCommands.motionPresetSave).toHaveBeenCalled()
+    )
+    expect(mockCommands.userPresetSave).not.toHaveBeenCalled()
+
+    const [id, document] = mockCommands.motionPresetSave.mock.calls[0] as [
+      string,
+      { prompt: string },
+    ]
+    // Slugged from the name, because the id becomes a file name in app data.
+    expect(id).toBe('my-drift')
+    expect(document.prompt).toBe(DRIFT.prompt)
+    await waitFor(() => expect(animateDraft().presetId).toBe('my-drift'))
+  })
+
+  it('offers a re-seed once the prompt has been edited, rather than forcing one', async () => {
+    open()
+    render(<LiveMotionField />)
+
+    fireEvent.change(motionPicker(), { target: { value: DRIFT.id } })
+    await waitFor(() => expect(animateDraft().prompt).toBe(DRIFT.prompt))
+
+    useEditorStore.getState().dispatch({
+      type: 'setPrompt',
+      stage: 'animate',
+      prompt: 'clouds, but faster',
+    })
+
+    const reseed = await screen.findByRole('button', { name: /seed again/i })
+    expect(animateDraft().prompt).toBe('clouds, but faster')
+
+    await userEvent.setup().click(reseed)
+    await waitFor(() => expect(animateDraft().prompt).toBe(DRIFT.prompt))
+  })
+
+  it('gives a built-in movement no edit or delete affordance at all', async () => {
+    open()
+    render(<LiveMotionField />)
+
+    fireEvent.change(motionPicker(), { target: { value: DRIFT.id } })
+    await waitFor(() => expect(animateDraft().presetId).toBe(DRIFT.id))
+
+    expect(
+      screen.queryByRole('button', { name: /update this preset/i })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /delete preset/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('skips an unreadable fork out loud, keeping the rest of the library', async () => {
+    withSavedMotion(
+      writeUserMotionPreset({ id: 'mine', name: 'Mine', prompt: 'a drift' }),
+      { version: 1, id: 'broken' }
+    )
+    open()
+    render(<LiveMotionField />)
+
+    expect(await screen.findByText(/could not be read/i)).toBeVisible()
+    expect(
+      within(motionPicker()).getByRole('option', { name: 'Mine' })
     ).toBeInTheDocument()
   })
 })

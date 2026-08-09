@@ -1,18 +1,18 @@
 /**
- * The impure half of a run: ids, seeds, the clock — and, for the stages that
- * have a model behind them, putting the job on the queue.
+ * The impure half of a run: ids, seeds, the clock, and putting the job on the
+ * queue.
  *
- * The reducer stays pure by taking finished facts. For a fixture stage those
- * are rolled here and dispatched immediately. For a paid stage they are not
- * facts yet: the job may take a minute, and since #24 it may outlive the
- * session entirely, so running it dispatches nothing. The candidate appears
- * when `services/jobs` collects the finished job — from an event, or from the
- * store on the next launch.
+ * The reducer stays pure by taking finished facts, and a paid run has none to
+ * give it: the job may take a minute, and since #24 it may outlive the session
+ * entirely, so running one dispatches nothing. The candidate appears when
+ * `services/jobs` collects the finished job — from an event, or from the store
+ * on the next launch.
  *
- * Source and style are both paid now (#28). They share every line below, which
- * is the point: a restyle is a model call like any other, and the one thing it
- * needs that a source does not — an input image — is named here and read on the
- * Rust side, so no pixels cross the IPC boundary to get to fal.
+ * All three stages are paid now (#28, #29), and they share every line below.
+ * That is the point rather than a coincidence: a restyle and an animation are
+ * model calls like a source is, and the one thing they need that a source does
+ * not — an input image — is named here and read on the Rust side, so no pixels
+ * cross the IPC boundary to get to fal.
  */
 
 import { useState } from 'react'
@@ -30,7 +30,6 @@ import {
   planBatch,
   sentRecipe,
   MODEL_REGISTRY,
-  type EditorAction,
   type ModelCapabilities,
   type Project,
   type StageKind,
@@ -40,47 +39,6 @@ import { useSubmitGeneration } from '@/services/jobs'
 import type { GenerationError, ImageInput } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { generationErrorMessage } from './errors'
-
-/**
- * The two actions a fixture run dispatches, in order (#29 will make animate
- * real; style stopped being a fixture in #28).
- *
- * A run is a run whichever stage it is on: the candidates arrive in the same
- * instant here rather than a minute later, but they are still four answers to
- * one question, and they are still chosen from the grid. Beginning the run
- * before recording it is what puts the grid up — the candidates land into a
- * run that is already open, exactly as a paid batch does.
- */
-export function fixtureRunActions(
-  project: Project,
-  stage: StageKind,
-  count: number
-): readonly EditorAction[] {
-  const batch = planBatch(count)
-  const at = Date.now()
-
-  return [
-    {
-      type: 'beginRun',
-      runId: batch.runId,
-      projectId: project.id,
-      stage,
-      generationIds: batch.generationIds,
-      at,
-    },
-    {
-      type: 'runStage',
-      stage,
-      runs: batch.generationIds.map(id => ({
-        id,
-        seed: rollSeed(),
-        asset: null,
-        runId: batch.runId,
-      })),
-      at,
-    },
-  ]
-}
 
 /** A candidate fal.ai never took, and why. */
 interface RefusedSubmit {
@@ -159,11 +117,13 @@ function imageInputFor(
 }
 
 /**
- * Running a stage, whether or not there is a model behind it yet.
+ * Running a stage.
  *
- * Source and style submit jobs. Animate is still a fixture (#29), so it mints a
- * candidate with no file — which is exactly the `asset: null` case the manifest
- * and the cleanup pass already understand, rather than a special state.
+ * All three submit jobs since #29, and every line below is stage-agnostic — the
+ * registry says what goes on the wire, `freezeRecipe` says what the stage is
+ * working from, and `imageInputFor` says which file to send and under what name.
+ * The animate branch that used to mint a fixture candidate here is gone rather
+ * than generalised: it was the last place a stage needed a special case.
  */
 export function useRunStage(
   project: Project,
@@ -178,17 +138,6 @@ export function useRunStage(
   // Tracked here rather than read off the mutation, because a batch is several
   // mutations on one observer and the observer only remembers the last.
   const [submitting, setSubmitting] = useState(false)
-
-  if (stage === 'animate') {
-    return {
-      run: () => {
-        for (const action of fixtureRunActions(project, stage, batch)) {
-          dispatch(action)
-        }
-      },
-      isRunning: false,
-    }
-  }
 
   return {
     // Only while the submits themselves are on the wire. Jobs already in

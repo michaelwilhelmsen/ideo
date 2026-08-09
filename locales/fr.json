@@ -219,5 +219,14 @@
   "editor.preset.saved": "{{name}} enregistré",
   "editor.preset.unreadable": "Certains préréglages enregistrés n'ont pas pu être lus et ont été ignorés.",
   "editor.error.savePreset": "Impossible d'enregistrer le préréglage.",
-  "editor.error.deletePreset": "Impossible de supprimer le préréglage."
+  "editor.error.deletePreset": "Impossible de supprimer le préréglage.",
+  "editor.reason.needsEndFrame": "Ce modèle ne fonctionne pas sans une image de fin en plus de l'image de début. Choisissez un autre modèle en attendant la mise en boucle.",
+  "editor.reason.loopNotReady": "La mise en boucle n'est pas encore disponible. Elle arrive dans la prochaine mise à jour.",
+  "editor.reason.rewindNotReady": "La lecture inversée arrivera en même temps que la mise en boucle, dans la prochaine mise à jour.",
+  "editor.field.motionPreset": "Préréglage de mouvement",
+  "editor.preset.motionHint": "Le mouvement est une bibliothèque distincte du style : n'importe quel rendu accepte n'importe quel mouvement.",
+  "editor.preset.saveMotionDescription": "Enregistre l'invite de mouvement telle quelle, comme un préréglage à vous.",
+  "editor.error.saveMotionPreset": "Impossible d'enregistrer le préréglage de mouvement.",
+  "editor.error.deleteMotionPreset": "Impossible de supprimer le préréglage de mouvement.",
+  "editor.preview.clip": "Clip généré"
 }

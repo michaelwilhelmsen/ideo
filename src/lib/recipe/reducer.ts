@@ -10,6 +10,7 @@
  * because it is repo-committed data (PRD §5) that no action can change.
  */
 
+import { isMotionPreset, type MotionPreset } from './motion'
 import { composePreset, type StylePreset } from './presets'
 import { modelById, reconcileParams, type ModelCapabilities } from './registry'
 import { clampBatchSize, upstreamOf } from './selectors'
@@ -113,16 +114,20 @@ export type EditorAction =
       readonly prompt: string
     }
   /**
-   * A preset was picked — which, for the style stage, *seeds the form* (#28).
+   * A preset was picked — which, for style and animate, *seeds the form*
+   * (#28, #29).
    *
    * The preset itself rides on the action rather than being looked up here, for
-   * the reason nothing else is minted here either: half the library lives in
+   * the reason nothing else is minted here either: half of each library lives in
    * app data and is loaded by TanStack Query, so the reducer would have to
    * either know about the disk or work from a stale copy of it. `null` is the
-   * honest answer for the stages whose libraries are still fixtures — a source
-   * or motion preset has no composed prompt to seed with — and for a
-   * deselection, which records that nothing is selected and leaves the form
-   * exactly as the user left it.
+   * honest answer for the source stage, whose library is still a fixture with no
+   * composed prompt to seed with, and for a deselection, which records that
+   * nothing is selected and leaves the form exactly as the user left it.
+   *
+   * Two libraries can arrive here and they are told apart by their own shape
+   * rather than by the stage (`isMotionPreset`): the stage says which control
+   * you clicked, and what to seed is a question about the value.
    *
    * Re-seeding after a model switch is this same action with the same preset:
    * seeding is idempotent and always starts the provenance flag clean, which is
@@ -132,7 +137,7 @@ export type EditorAction =
       readonly type: 'choosePreset'
       readonly stage: StageKind
       readonly presetId: string | null
-      readonly preset: StylePreset | null
+      readonly preset: StylePreset | MotionPreset | null
     }
   | {
       readonly type: 'chooseModel'
@@ -315,7 +320,7 @@ export function createEditorReducer(
           presetModified: modifiedByEdit(
             action.stage,
             draft,
-            isSeededParam(registry, draft, action.key)
+            isSeededParam(registry, action.stage, draft, action.key)
           ),
         }))
 
@@ -496,15 +501,23 @@ export function createEditorReducer(
  * user's text. The picker disables that combination with its reason attached,
  * so this is the belt to that braces — and the alternative, seeding the other
  * idiom, is the cross-send the schema exists to prevent (PRD §6.2).
+ *
+ * A **motion** preset seeds one field and no others (#29): the whole preset is
+ * a prompt, there is no idiom to fail to speak, and neither strength nor a
+ * negative is anything a video model's registry row offers. That is the simpler
+ * schema paying off rather than a special case — the branch below is the entire
+ * difference between the two libraries at this seam.
  */
 function seedFromPreset(
   registry: readonly ModelCapabilities[],
   draft: StageRecipe,
   presetId: string | null,
-  preset: StylePreset | null
+  preset: StylePreset | MotionPreset | null
 ): StageRecipe {
   const chosen: StageRecipe = { ...draft, presetId, presetModified: false }
   if (preset === null) return chosen
+
+  if (isMotionPreset(preset)) return { ...chosen, prompt: preset.prompt }
 
   const model = modelById(registry, draft.modelId)
   const composed = composePreset(preset, model)
@@ -528,11 +541,11 @@ function seedFromPreset(
  * Three narrowings, each one straight out of what {@link seedFromPreset}
  * actually writes:
  *
- * - **The style stage only.** Source and animate pick from fixture lists that
- *   compose nothing and seed nothing (`preset: null` on every selection), so a
- *   flag saying their form has drifted from a preset would be describing a
- *   seeding that never happened. #34 gives them libraries, and this is where
- *   they join.
+ * - **The stages with a real library.** Style since #28, animate since #29.
+ *   Source still picks from a fixture list that composes nothing and seeds
+ *   nothing (`preset: null` on every selection), so a flag saying its form has
+ *   drifted from a preset would be describing a seeding that never happened.
+ *   #34 gives it a library, and this is where it joins.
  * - **A selected preset only.** With none there is no provenance to lose, which
  *   is what `false` means where `presetId` is null (see {@link StageRecipe}).
  * - **A seeded field only** — the caller's `seeded`, since which parameter names
@@ -546,16 +559,26 @@ function modifiedByEdit(
   draft: StageRecipe,
   seeded: boolean
 ): boolean {
-  if (stage !== 'style' || draft.presetId === null) return false
+  if (stage === 'source' || draft.presetId === null) return false
   return draft.presetModified || seeded
 }
 
-/** Whether this parameter is one seeding would have written. */
+/**
+ * Whether this parameter is one seeding would have written.
+ *
+ * Stage-aware because the two libraries seed different things: a motion preset
+ * writes the prompt and nothing else, so moving Veo's `negative_prompt` on the
+ * animate stage says nothing at all about which motion preset this started from
+ * — where on the style stage the same field is seeded and moving it does.
+ */
 function isSeededParam(
   registry: readonly ModelCapabilities[],
+  stage: StageKind,
   draft: StageRecipe,
   key: string
 ): boolean {
+  if (stage !== 'style') return false
+
   const model = modelById(registry, draft.modelId)
   return key === model.strengthParam || key === model.negativePromptParam
 }

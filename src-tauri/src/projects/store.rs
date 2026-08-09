@@ -647,6 +647,18 @@ mod tests {
     }
 
     #[test]
+    fn a_clip_is_found_by_the_same_lookup_that_finds_a_still() {
+        // #29 — the animate stage files an `.mp4` under the generation id, and
+        // matching on the stem meant the whole video path needed nothing here.
+        let root = TempDir::new().unwrap();
+        write_asset(root.path(), "atlas", "gen-ani-1.mp4", 3);
+
+        let path = asset_path(root.path(), "atlas", "gen-ani-1").unwrap();
+
+        assert_eq!(path.unwrap().file_name().unwrap(), "gen-ani-1.mp4");
+    }
+
+    #[test]
     fn a_generation_with_no_file_is_absent_rather_than_an_error() {
         let root = TempDir::new().unwrap();
         write_asset(root.path(), "atlas", "gen-1.png", 3);

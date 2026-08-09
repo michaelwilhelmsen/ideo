@@ -51,6 +51,32 @@ const MAX_POLL_INTERVAL: Duration = Duration::from_secs(8);
 /// off.
 const MAX_WAIT: Duration = Duration::from_secs(600);
 
+/// And how long a video job gets (#29).
+///
+/// Half an hour rather than ten minutes, because the two media are not the same
+/// wait: a 30-second Seedance clip is minutes of rendering on fal's side and the
+/// image ceiling would abandon it routinely — which is the worst outcome
+/// available, since the clip is charged for either way and abandoning it only
+/// means collecting it on the next launch.
+///
+/// Still bounded, and still per stage rather than raised for everything: a stuck
+/// image job holding a concurrency slot for half an hour would be this ceiling
+/// solving the video problem at the stills' expense.
+const MAX_WAIT_ANIMATE: Duration = Duration::from_secs(1800);
+
+/// The stage whose jobs get the longer wait. A string because that is how the
+/// stage crosses the boundary — the vocabulary is the frontend's `StageKind`.
+const ANIMATE_STAGE: &str = "animate";
+
+/// How long to watch a job of this stage before letting go.
+fn max_wait(stage: &str) -> Duration {
+    if stage == ANIMATE_STAGE {
+        MAX_WAIT_ANIMATE
+    } else {
+        MAX_WAIT
+    }
+}
+
 /// Progress, so a 30-second job isn't a freeze.
 const PROGRESS_EVENT: &str = "generation-progress";
 /// One job stopped mattering, whichever way.
@@ -194,6 +220,7 @@ pub async fn start(app: AppHandle, request: StartRequest) -> Result<SubmittedJob
         request_id: submitted.request_id.clone(),
         project_id: request.project_id.clone(),
         generation_id: request.generation_id.clone(),
+        stage: request.stage.clone(),
         status_url: submitted.status_url.clone(),
         response_url: submitted.response_url.clone(),
         cancel_url: submitted.cancel_url.clone(),
@@ -374,6 +401,9 @@ async fn poll_until_done(
     let client = fal::client(fal::POLL_TIMEOUT)?;
     let started = Instant::now();
     let mut attempt = 0u32;
+    // Per stage (#29): a clip renders for minutes, and one ceiling for both
+    // media would either abandon every video or hold a slot on every stuck still.
+    let ceiling = max_wait(&target.stage);
 
     // One connection for the whole loop rather than one per pass. Cancellation
     // arrives through this file, and a reader sees another connection's commits
@@ -391,7 +421,7 @@ async fn poll_until_done(
             // A blip is not an answer about the job. The money is spent either
             // way, so a dropped connection or a rate limit is worth waiting out
             // rather than handing back — the ceiling below still applies.
-            Err(error) if is_transient(&error) && started.elapsed() <= MAX_WAIT => {
+            Err(error) if is_transient(&error) && started.elapsed() <= ceiling => {
                 log::warn!("Retrying job {}: {error:?}", target.request_id);
                 tokio::time::sleep(poll_delay(attempt)).await;
                 attempt += 1;
@@ -418,7 +448,7 @@ async fn poll_until_done(
                 .map(Some);
         }
 
-        if started.elapsed() > MAX_WAIT {
+        if started.elapsed() > ceiling {
             return Err(GenerationError::new(GenerationErrorReason::GaveUpWaiting));
         }
 
@@ -427,9 +457,9 @@ async fn poll_until_done(
     }
 }
 
-/// Files the image and marks the job collectable.
+/// Files the result and marks the job collectable.
 async fn collect(app: &AppHandle, target: &JobTarget, result: QueueResult) {
-    let asset = match save_image(app, target, &result.image_url).await {
+    let asset = match save_asset(app, target, &result).await {
         Ok(asset) => asset,
         Err(error) => {
             // The result exists and is paid for; a disk that would not take it
@@ -461,18 +491,21 @@ async fn collect(app: &AppHandle, target: &JobTarget, result: QueueResult) {
     settle(app, target, JobOutcome::Completed, None);
 }
 
-/// Writes the image into the project's assets folder, named after the
+/// Writes the image or clip into the project's assets folder, named after the
 /// generation.
 ///
 /// Named after the generation rather than fal's request id, because the
 /// manifest refers to candidates by generation id — a file named anything else
-/// would be an orphan the moment cleanup looked at it.
-async fn save_image(
+/// would be an orphan the moment cleanup looked at it. The extension is
+/// whatever the medium calls for and nothing else changes: `asset_path` finds a
+/// generation's file by its *stem*, so an `.mp4` is found by the same lookup
+/// that finds a `.png` (#29).
+async fn save_asset(
     app: &AppHandle,
     target: &JobTarget,
-    image_url: &str,
+    result: &QueueResult,
 ) -> Result<String, GenerationError> {
-    let bytes = fal::download(image_url).await?;
+    let bytes = fal::download(&result.asset_url).await?;
 
     let root = projects_root(app)?;
 
@@ -488,10 +521,13 @@ async fn save_image(
         GenerationError::new(GenerationErrorReason::CouldNotSave)
     })?;
 
-    let name = asset_file_name(&target.generation_id, fal::extension_for(image_url));
+    let name = asset_file_name(
+        &target.generation_id,
+        fal::extension_for(&result.asset_url, result.kind),
+    );
 
     std::fs::write(dir.join(&name), &bytes).map_err(|e| {
-        log::error!("Could not write the generated image: {e}");
+        log::error!("Could not write the generated asset: {e}");
         GenerationError::new(GenerationErrorReason::CouldNotSave)
     })?;
 
@@ -648,6 +684,35 @@ mod tests {
         assert!(!keeps_watching_later(&GenerationError::new(
             GenerationErrorReason::KeyRejected
         )));
+    }
+
+    #[test]
+    fn a_clip_gets_longer_than_a_still_before_we_stop_watching() {
+        // #29 — a 30-second Seedance render routinely outlives the ten minutes
+        // an image job gets, and abandoning a clip that has already been charged
+        // for costs a relaunch to collect it.
+        assert_eq!(max_wait("animate"), MAX_WAIT_ANIMATE);
+        assert!(max_wait("animate") > max_wait("style"));
+    }
+
+    #[test]
+    fn every_other_stage_keeps_the_ceiling_it_had() {
+        // Raising it for stills too would let three stuck image jobs hold every
+        // concurrency slot for half an hour.
+        assert_eq!(max_wait("source"), MAX_WAIT);
+        assert_eq!(max_wait("style"), MAX_WAIT);
+        // Including a stage name this build has never heard of.
+        assert_eq!(max_wait("something-new"), MAX_WAIT);
+    }
+
+    #[test]
+    fn a_clip_is_filed_under_the_generation_exactly_as_a_still_is() {
+        // `projects::store::asset_path` matches on the stem, so the whole video
+        // path needed nothing but the right extension.
+        assert_eq!(
+            asset_file_name("9f1c8e4a-1111-2222-3333-444455556666", "mp4"),
+            "9f1c8e4a-1111-2222-3333-444455556666.mp4"
+        );
     }
 
     #[test]

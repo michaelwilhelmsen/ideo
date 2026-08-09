@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "locked-camera-drift",
+      "name": "Locked camera drift",
+      "prompt": "Static locked camera. One slow, continuous drift somewhere in the scene and nothing else — every other element stays perfectly still. Seamless loop, no visible cut. No pan, no zoom, no dolly, no camera shake."
+    },
+    {
+      "id": "gentle-pulse",
+      "name": "Gentle pulse",
+      "prompt": "Gentle ambient motion: a subtle undulation moving through the frame at an even, unhurried pace, calm and hypnotic. Seamless loop, no visible cut. No pan, no zoom, no dolly, no camera shake."
+    },
+    {
+      "id": "drifting-clouds",
+      "name": "Drifting clouds",
+      "prompt": "Slow drifting clouds crossing an even sky in soft daylight, everything below them still. Seamless loop, no visible cut. Locked wide shot: no pan, no zoom, no dolly, no camera shake."
+    },
+    {
+      "id": "rippling-water",
+      "name": "Rippling water",
+      "prompt": "A rippling water surface with a slow, even rhythm, reflections sliding gently across it. Seamless loop, no visible cut. Locked wide shot: no pan, no zoom, no dolly, no camera shake."
+    },
+    {
+      "id": "soft-sway",
+      "name": "Soft sway",
+      "prompt": "Soft continuous sway at low amplitude, steady enough that any moment of the clip looks like any other. Seamless loop, no visible cut. No pan, no zoom, no dolly, no camera shake."
+    },
+    {
+      "id": "parallax-drift",
+      "name": "Parallax drift",
+      "prompt": "Subtle parallax drift only: the foreground and the background slide at slightly different speeds while the camera itself stays locked. Seamless loop, no visible cut. No pan, no zoom, no dolly, no camera shake."
+    },
+    {
+      "id": "breathing",
+      "name": "Breathing",
+      "prompt": "A barely perceptible breathing motion, minimal displacement, photorealistic and continuous throughout. Seamless loop, no visible cut. No pan, no zoom, no dolly, no camera shake."
+    },
+    {
+      "id": "rising-mist",
+      "name": "Rising mist",
+      "prompt": "Slow rising mist and steam, even and continuous, with the rest of the scene otherwise static. Seamless loop, no visible cut. Locked camera: no pan, no zoom, no dolly, no camera shake."
+    }
+  ]
+}

@@ -10,7 +10,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_MODEL_IDS, MODEL_REGISTRY } from './models'
-import { modelAvailability, modelById, modelsForStage } from './registry'
+import {
+  durationSeconds,
+  estimateCost,
+  imageParamShape,
+  modelAvailability,
+  modelById,
+  modelsForStage,
+} from './registry'
 import { STAGE_ORDER } from './types'
 
 describe('MODEL_REGISTRY', () => {
@@ -82,6 +89,59 @@ describe('MODEL_REGISTRY', () => {
     // an `image_urls` array.
     for (const model of modelsForStage(MODEL_REGISTRY, 'style')) {
       expect(model.imageParam, model.id).toMatch(/^image_urls?$/)
+    }
+  })
+
+  it('gives every animate model somewhere to put the still', () => {
+    // #29 — the still is the whole input to an animate run, and the endpoints
+    // disagree about what to call it: `image_url` on five, `start_image_url` on
+    // two, `first_frame_url` on one. All three are a single URL.
+    for (const model of modelsForStage(MODEL_REGISTRY, 'animate')) {
+      expect(model.imageParam, model.id).toMatch(
+        /^(image_url|start_image_url|first_frame_url)$/
+      )
+      expect(imageParamShape(model), model.id).toBe('url')
+    }
+  })
+
+  it('marks exactly the two endpoints that will not run without an end frame', () => {
+    // Both refuse a submit naming only a start frame, and looping is #30 — so
+    // until then they are disabled with a reason rather than quietly 422ing.
+    const required = MODEL_REGISTRY.filter(model => model.endFrameRequired)
+
+    expect(required.map(model => model.id)).toEqual([
+      'blackforestlabs/flux-3/first-last-frame-to-video',
+      'fal-ai/veo3.1/first-last-frame-to-video',
+    ])
+  })
+
+  it('offers Seedance every second from 4 to 30, and never "auto"', () => {
+    // The cost lever, made real: 30s is roughly $14 at $0.473/s. `auto` is in
+    // the schema and deliberately not here — it hands the length back to the
+    // provider (PRD §6.3) and makes the estimate uncomputable (PRD §10.2).
+    const seedance = modelById(
+      MODEL_REGISTRY,
+      'bytedance/seedance-2.5/image-to-video'
+    )
+
+    expect(seedance.durations).toHaveLength(27)
+    expect(seedance.durations.at(0)).toBe('4')
+    expect(seedance.durations.at(-1)).toBe('30')
+    expect(seedance.durations).not.toContain('auto')
+    expect(
+      estimateCost(seedance, { aspect: '16:9', batch: 1, duration: '30' })
+    ).toBeCloseTo(14.19)
+  })
+
+  it('never lists a duration it cannot turn into seconds', () => {
+    // `validateRegistry` enforces this, which is also what keeps "auto" out:
+    // an unparseable duration would defeat both the estimate and the wire form.
+    for (const model of MODEL_REGISTRY) {
+      for (const duration of model.durations) {
+        expect(durationSeconds(duration), `${model.id} ${duration}`).not.toBe(
+          null
+        )
+      }
     }
   })
 

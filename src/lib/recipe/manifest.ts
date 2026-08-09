@@ -19,6 +19,7 @@
  */
 
 import { isAspectId } from './aspects'
+import { isRecord } from './json'
 import { clampBatchSize, DEFAULT_BATCH_SIZES } from './selectors'
 import type {
   Generation,
@@ -332,10 +333,6 @@ export function isStageKind(value: unknown): value is StageKind {
 
 function isVerdict(value: unknown): value is Verdict {
   return VERDICTS.some(verdict => verdict === value)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function asRecord(value: unknown, field: string): Record<string, unknown> {

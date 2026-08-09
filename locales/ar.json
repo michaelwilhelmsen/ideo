@@ -219,5 +219,14 @@
   "editor.preset.saved": "تم حفظ {{name}}",
   "editor.preset.unreadable": "تعذّرت قراءة بعض الإعدادات المحفوظة، فتم تخطّيها.",
   "editor.error.savePreset": "تعذّر حفظ الإعداد.",
-  "editor.error.deletePreset": "تعذّر حذف الإعداد."
+  "editor.error.deletePreset": "تعذّر حذف الإعداد.",
+  "editor.reason.needsEndFrame": "لا يعمل هذا النموذج دون إطار نهاية إضافةً إلى إطار البداية. اختر نموذجًا آخر إلى أن تتوفّر الحلقة المتكرّرة.",
+  "editor.reason.loopNotReady": "الحلقة المتكرّرة غير متاحة بعد. ستتوفّر في التحديث القادم.",
+  "editor.reason.rewindNotReady": "التشغيل العكسي سيتوفّر مع الحلقة المتكرّرة في التحديث القادم.",
+  "editor.field.motionPreset": "إعداد الحركة",
+  "editor.preset.motionHint": "الحركة مكتبة منفصلة عن النمط، لذا يقبل أي مظهر أي حركة.",
+  "editor.preset.saveMotionDescription": "يحفظ موجّه الحركة كما هو الآن، كإعداد خاص بك.",
+  "editor.error.saveMotionPreset": "تعذّر حفظ إعداد الحركة.",
+  "editor.error.deleteMotionPreset": "تعذّر حذف إعداد الحركة.",
+  "editor.preview.clip": "مقطع مُولَّد"
 }

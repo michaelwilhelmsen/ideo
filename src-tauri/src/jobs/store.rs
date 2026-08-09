@@ -118,6 +118,12 @@ pub struct JobTarget {
     pub request_id: String,
     pub project_id: String,
     pub generation_id: String,
+    /// Which stage submitted it. Carried here as well as on `Job` because the
+    /// watcher decides how long to wait from it (#29): a 30-second clip takes
+    /// far longer to render than any still, and one ceiling for both would
+    /// either abandon every video or leave a stuck image job holding a
+    /// concurrency slot for half an hour.
+    pub stage: String,
     pub status_url: String,
     pub response_url: String,
     pub cancel_url: Option<String>,
@@ -269,7 +275,7 @@ pub fn for_project(
 pub fn unfinished(connection: &Connection) -> Result<Vec<JobTarget>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT request_id, project_id, generation_id, status_url, response_url, cancel_url
+            "SELECT request_id, project_id, generation_id, stage, status_url, response_url, cancel_url
              FROM jobs WHERE status IN (?1, ?2) ORDER BY submitted_at ASC",
         )
         .map_err(|e| format!("Could not read the job store: {e}"))?;
@@ -322,7 +328,7 @@ pub fn set_watching(
 pub fn target(connection: &Connection, request_id: &str) -> Result<Option<JobTarget>, String> {
     connection
         .query_row(
-            "SELECT request_id, project_id, generation_id, status_url, response_url, cancel_url
+            "SELECT request_id, project_id, generation_id, stage, status_url, response_url, cancel_url
              FROM jobs WHERE request_id = ?1",
             params![request_id],
             read_target,
@@ -356,9 +362,10 @@ fn read_target(row: &Row) -> rusqlite::Result<JobTarget> {
         request_id: row.get(0)?,
         project_id: row.get(1)?,
         generation_id: row.get(2)?,
-        status_url: row.get(3)?,
-        response_url: row.get(4)?,
-        cancel_url: row.get(5)?,
+        stage: row.get(3)?,
+        status_url: row.get(4)?,
+        response_url: row.get(5)?,
+        cancel_url: row.get(6)?,
     })
 }
 

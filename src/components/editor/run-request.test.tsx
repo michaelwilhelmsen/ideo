@@ -529,7 +529,13 @@ describe('restyling the source', () => {
     expect(said).toMatch(/10 MB/)
   })
 
-  it('leaves animate on fixtures, which spend nothing', async () => {
+  it('submits animate against the styled still, under that model’s own field', async () => {
+    // #29 — animate was the last fixture stage, and it now takes the same path
+    // as the other two. The two things worth asserting are the two that cost
+    // money if they are wrong: *which* image it animates (the style stage's
+    // selection, resolved by `freezeRecipe`) and what the endpoint calls the
+    // field it goes in — `start_image_url` on Kling O1, `image_url` on most of
+    // its neighbours.
     function AnimateProbe() {
       const { run } = useRunStage(ATLAS, 'animate', 1)
       return <button onClick={run}>run</button>
@@ -538,6 +544,41 @@ describe('restyling the source', () => {
     render(<AnimateProbe />)
     await userEvent.setup().click(screen.getByRole('button', { name: 'run' }))
 
+    await waitFor(() => expect(mockCommands.generateImage).toHaveBeenCalled())
+
+    const submitted = mockCommands.generateImage.mock.calls[0]?.[0] as {
+      stage: string
+      modelId: string
+      imageInput: { generationId: string; param: string; shape: string } | null
+    }
+
+    expect(submitted.stage).toBe('animate')
+    expect(submitted.modelId).toBe('fal-ai/kling-video/o1/image-to-video')
+    expect(submitted.imageInput).toEqual({
+      generationId: ATLAS.selection.style,
+      param: 'start_image_url',
+      shape: 'url',
+    })
+  })
+
+  it('refuses an animate run with no styled still, before anything is spent', async () => {
+    // The same refusal style makes, one stage later: nothing to animate is a
+    // failure rather than a mode, because a video model handed no start frame
+    // renders the motion prompt instead — at video prices.
+    const noStyle = {
+      ...ATLAS,
+      selection: { ...ATLAS.selection, style: null },
+    }
+
+    function AnimateProbe() {
+      const { run } = useRunStage(noStyle, 'animate', 1)
+      return <button onClick={run}>run</button>
+    }
+
+    render(<AnimateProbe />)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'run' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
     expect(mockCommands.generateImage).not.toHaveBeenCalled()
   })
 })

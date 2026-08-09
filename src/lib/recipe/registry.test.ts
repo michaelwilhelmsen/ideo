@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   aspectRequestFields,
+  controlAvailability,
   declaresParam,
   estimateCost,
   imageParamShape,
@@ -37,6 +38,7 @@ function model(overrides: Partial<ModelCapabilities> = {}): ModelCapabilities {
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -140,6 +142,15 @@ describe('imageParamShape', () => {
 
   it('has nothing to say about a model that takes no image', () => {
     expect(imageParamShape(model())).toBeNull()
+  })
+
+  it('knows all three spellings the video endpoints use for a start frame', () => {
+    // #29 — the still to animate goes in `image_url` on five of the eight
+    // endpoints, `start_image_url` on two and `first_frame_url` on one. All
+    // three are a single URL; a name missing from the table is a startup crash.
+    for (const param of ['image_url', 'start_image_url', 'first_frame_url']) {
+      expect(imageParamShape(model({ imageParam: param })), param).toBe('url')
+    }
   })
 
   it('refuses to guess at a name nobody has recorded', () => {
@@ -374,10 +385,94 @@ describe('estimateCost', () => {
     )
   })
 
+  it('moves with the duration, which is what makes the length a cost lever', () => {
+    // #29 — Seedance's widened enum is the reason the control is worth having:
+    // the two ends of it are $1.89 and $14.19, and the estimate has to say so
+    // before the click (PRD §10.2).
+    const seedance = model({
+      stage: 'animate',
+      imageParam: 'image_url',
+      durationParam: 'duration',
+      durations: ['4', '30'],
+      durationFormat: 'string',
+      defaults: { duration: '4' },
+      price: { amount: 0.473, unit: 'second', verifiedOn: '2026-08-09' },
+    })
+
+    expect(
+      estimateCost(seedance, { aspect: '16:9', batch: 1, duration: '4' })
+    ).toBeCloseTo(1.892)
+    expect(
+      estimateCost(seedance, { aspect: '16:9', batch: 1, duration: '30' })
+    ).toBeCloseTo(14.19)
+  })
+
   it('says nothing rather than guessing when the model has no price', () => {
     // gpt-image-2 is token-priced; a made-up per-image figure would be worse
     // than silence (PRD §10.2).
     expect(estimateCost(model(), { aspect: '16:9', batch: 1 })).toBeNull()
+  })
+})
+
+/**
+ * PRD §10.1's three states, on the two controls that promise something the
+ * request builder does not send yet (#30).
+ *
+ * These are the assertions that stop a switch selling a feature: `buildRequest`
+ * never reads `options.loop` or `options.rewind`, so an available loop toggle
+ * would take money for a clip that ends where it ends. When #30 lands, the two
+ * "not ready" cases below are the ones that change.
+ */
+describe('controlAvailability — loop and rewind (#30)', () => {
+  it('disables looping on a model that has an end frame, and says why', () => {
+    const availability = controlAvailability(
+      model({ endFrameParam: 'end_image_url' }),
+      'loop'
+    )
+
+    expect(availability).toEqual({
+      state: 'disabled',
+      reasonKey: 'editor.reason.loopNotReady',
+    })
+  })
+
+  it('still blames the missing field on a model that has none', () => {
+    // Two different refusals, and the model-shaped one stays the truer answer:
+    // #30 will not make a loop possible on a model with nowhere to put the
+    // second frame.
+    expect(controlAvailability(model(), 'loop')).toEqual({
+      state: 'disabled',
+      reasonKey: 'editor.reason.noEndFrame',
+    })
+  })
+
+  it('disables rewind everywhere, end frame or not', () => {
+    // Rewind is an ffmpeg pass rather than a registry column (PRD §4.5), so it
+    // is not the model that is missing anything — the pass ships with #30.
+    for (const endFrameParam of [null, 'end_image_url']) {
+      expect(controlAvailability(model({ endFrameParam }), 'rewind')).toEqual({
+        state: 'disabled',
+        reasonKey: 'editor.reason.rewindNotReady',
+      })
+    }
+  })
+
+  it('leaves the controls it does not gate alone', () => {
+    // The guard above is about two switches, not about the panel: a regression
+    // that disabled everything would otherwise pass the three tests above.
+    expect(controlAvailability(model(), 'seed')).toEqual({
+      state: 'available',
+    })
+    expect(
+      controlAvailability(
+        model({
+          durationParam: 'duration',
+          durations: ['5'],
+          durationFormat: 'string',
+        }),
+        'duration'
+      )
+    ).toEqual({ state: 'available' })
   })
 })
 
@@ -473,6 +568,27 @@ describe('validateRegistry', () => {
     expect(() =>
       validateRegistry([model({ stage: 'style', imageParam: null })])
     ).toThrow(/no image parameter/)
+  })
+
+  it('refuses an animate model with nowhere to put the still', () => {
+    // #29 — the same rule one stage later. A video model that never receives
+    // the still would bill for a text-to-video of the motion prompt.
+    expect(() =>
+      validateRegistry([model({ stage: 'animate', imageParam: null })])
+    ).toThrow(/no image parameter/)
+  })
+
+  it('refuses a model that requires an end frame it has no field for', () => {
+    expect(() =>
+      validateRegistry([
+        model({
+          stage: 'animate',
+          imageParam: 'image_url',
+          endFrameParam: null,
+          endFrameRequired: true,
+        }),
+      ])
+    ).toThrow(/names no field to put one in/)
   })
 
   it('refuses a source model claiming an input image', () => {

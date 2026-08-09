@@ -280,10 +280,35 @@ in the project's `assets` folder, sniffs its media type from the magic bytes, en
 and writes it into the params under that name — a string for `image_url`, a one-element
 array for `image_urls` — before `fal::submit` posts anything.
 
-That module also holds a refusal worth copying: a `style` submit with no resolvable input
-fails there, before the key is fetched and before a concurrency slot is taken. The reason
-is specific — the Nano Banana edit endpoints do not _require_ their image field, so a
-missing source would have succeeded as a text-to-image and been charged for.
+That module also holds a refusal worth copying: a `style` or `animate` submit with no
+resolvable input fails there, before the key is fetched and before a concurrency slot is
+taken. The reason is specific — the Nano Banana edit endpoints do not _require_ their image
+field, so a missing source would have succeeded as a text-to-image and been charged for,
+and an animate run with no start frame would have rendered the motion prompt as
+text-to-video at up to $0.47 a second.
+
+### Reading the result
+
+Two payload shapes, because the two media are two shapes: an image endpoint answers with
+`images: [{url}]` and a video endpoint with `video: {url}` — one object, not an array,
+since one call produces one clip. `fal::extract_result` reads the video first, so a payload
+carrying both files the clip that was paid for, and returns a `QueueResult { asset_url,
+seed, kind }`.
+
+`kind` is not cosmetic: it decides the extension when the URL has no usable one (a signed
+or query-suffixed URL), and a clip filed as `.jpeg` is a file the app will not play and the
+desktop will not preview. Beyond that nothing about the video path is special —
+`projects::store::asset_path` finds a generation's file by its **stem**, so an `.mp4` is
+found by the same lookup that finds a `.png`.
+
+The wait ceiling _is_ per stage. A 30-second render routinely outlives the ten minutes a
+still gets, so `runner::max_wait` gives `animate` thirty minutes and everything else ten —
+raising it for all of them would let three stuck image jobs hold every concurrency slot.
+And playing the result needs `media-src 'self' asset: http://asset.localhost` in the CSP;
+without it the `<video>` element is blocked and shows nothing. `blob:` was in that list and
+is not any more — every clip is played from the asset protocol off disk, nothing here ever
+calls `createObjectURL`, and a source nothing loads from is a source only an injected
+script can use.
 
 Every one of those refusals crosses as a code, not a sentence: `GenerationError.inputImage`
 is an `InputImageProblem` — `noneNamed`, `notOnDisk`, `unreadable`, `unsupportedFormat`,

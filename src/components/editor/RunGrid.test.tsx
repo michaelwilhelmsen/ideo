@@ -13,14 +13,62 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { render, screen, within } from '@/test/test-utils'
-import { LEDGER, type Generation, type Project } from '@/lib/recipe'
+import {
+  LEDGER,
+  planBatch,
+  type EditorAction,
+  type Generation,
+  type Project,
+  type StageKind,
+} from '@/lib/recipe'
 import { commands } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
-import { fixtureRunActions } from './run-request'
+import { rollSeed } from './run-request'
 import { StageEditor } from './StageEditor'
 
 const RUN = 'run-under-test'
 const CANDIDATES = ['gen-a', 'gen-b', 'gen-c', 'gen-d']
+
+/**
+ * The two actions a run dispatches, in order, with the results already in hand.
+ *
+ * Test-only, and here rather than beside `useRunStage` because no stage takes
+ * this path any more — all three are paid (#28, #29), and a production export
+ * nothing in production calls is a path that rots. What it is good for is
+ * putting a *finished* run in front of the grid without a job store: the same
+ * `beginRun` then `runStage` pair a paid batch produces over a minute, in one
+ * synchronous go.
+ */
+function fixtureRunActions(
+  project: Project,
+  stage: StageKind,
+  count: number
+): readonly EditorAction[] {
+  const batch = planBatch(count)
+  const at = Date.now()
+
+  return [
+    {
+      type: 'beginRun',
+      runId: batch.runId,
+      projectId: project.id,
+      stage,
+      generationIds: batch.generationIds,
+      at,
+    },
+    {
+      type: 'runStage',
+      stage,
+      runs: batch.generationIds.map(id => ({
+        id,
+        seed: rollSeed(),
+        asset: null,
+        runId: batch.runId,
+      })),
+      at,
+    },
+  ]
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -217,11 +265,12 @@ describe('answering the run', () => {
   })
 })
 
-describe('a run on a stage with no model behind it yet', () => {
-  it('is chosen from the same way, even though it arrives at once', async () => {
-    // Style and animate are still fixtures (#28, #29): their candidates land
-    // in the same instant rather than a minute later, but they are still four
-    // answers to one question, and the grid is how a run is answered.
+describe('a run whose candidates all arrive at once', () => {
+  it('is chosen from the same way as one that trickles in', async () => {
+    // Every stage is paid now (#28, #29), so this is no longer any stage's
+    // normal path — but the grid must not depend on the delay to work. Four
+    // candidates landing in the same instant are still four answers to one
+    // question, and the grid is how a run is answered.
     const project: Project = { ...LEDGER, generations: [...LEDGER.generations] }
     const { dispatch } = useEditorStore.getState()
     dispatch({ type: 'openProject', project, directory: `/tmp/${project.id}` })

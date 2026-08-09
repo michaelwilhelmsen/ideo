@@ -243,7 +243,7 @@ async importSourceImage(projectId: string, generationId: string, sourcePath: str
 }
 },
 /**
- * Every preset the user has saved, in a stable order.
+ * Every style preset the user has saved, in a stable order.
  * 
  * Whether each document *is* a preset is not asked here — the frontend runs it
  * through `readPresetLibrary`, which fails loudly on a malformed one (PRD §6).
@@ -257,8 +257,9 @@ async userPresetsList() : Promise<Result<JsonValue[], string>> {
 }
 },
 /**
- * Writes one preset, by id — creating it, or updating one of the user's own in
- * place. Atomically, so an interrupted save cannot leave a half-written fork.
+ * Writes one style preset, by id — creating it, or updating one of the user's
+ * own in place. Atomically, so an interrupted save cannot leave a half-written
+ * fork.
  */
 async userPresetSave(id: string, document: JsonValue) : Promise<Result<null, string>> {
     try {
@@ -269,11 +270,48 @@ async userPresetSave(id: string, document: JsonValue) : Promise<Result<null, str
 }
 },
 /**
- * Removes one preset. Deleting one that is already gone is not an error.
+ * Removes one style preset. Deleting one that is already gone is not an error.
  */
 async userPresetDelete(id: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("user_preset_delete", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Every motion preset the user has saved, in a stable order.
+ * 
+ * A second library, independent of the style one (#29): look and movement are
+ * orthogonal, so the same id may exist in both and mean two different things.
+ */
+async motionPresetsList() : Promise<Result<JsonValue[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("motion_presets_list") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Writes one motion preset, by id — creating it, or updating one of the user's
+ * own in place.
+ */
+async motionPresetSave(id: string, document: JsonValue) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("motion_preset_save", { id, document }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Removes one motion preset. Deleting one that is already gone is not an error.
+ */
+async motionPresetDelete(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("motion_preset_delete", { id }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

@@ -142,6 +142,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -172,6 +173,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -199,6 +201,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -225,6 +228,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -252,6 +256,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -279,6 +284,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -306,6 +312,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -333,6 +340,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -360,6 +368,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -388,6 +397,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -417,6 +427,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -462,6 +473,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -489,6 +501,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -515,6 +528,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -542,6 +556,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -570,6 +585,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -597,6 +613,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -619,6 +636,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: 'strength',
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -644,6 +662,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: null,
     durations: [],
     durationFormat: null,
@@ -659,6 +678,19 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
 
 // ── Animate ─────────────────────────────────────────────────────────────────
 
+/**
+ * Seedance's whole-second enum, written out rather than typed by hand.
+ *
+ * Twenty-seven values, and the point of the widest range in the registry is
+ * that the cost lever is visible: at $0.473 a second, 30 seconds is roughly $14
+ * and 4 is under $2, which is the difference the duration control exists to put
+ * in front of someone before they click (PRD §10.2).
+ */
+const DURATIONS_4_TO_30: readonly string[] = Array.from(
+  { length: 27 },
+  (_, index) => String(index + 4)
+)
+
 const ANIMATE_MODELS: readonly ModelCapabilities[] = [
   {
     // PRD §9's provisional animate default. Chosen for the end frame, which is
@@ -670,19 +702,24 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     stage: 'animate',
     promptStyle: 'prose',
     aspects: { kind: 'inheritsFromSource' },
+    imageParam: 'image_url',
     // No seed. PRD §4.3's premise does not hold on this model, so the control
     // is disabled with a reason rather than hidden (§10.1).
-    imageParam: null,
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: 'end_image_url',
+    endFrameRequired: false,
     durationParam: 'duration',
-    // Narrowed deliberately. PRD §9 records only that the enum stops at 16 and
-    // that the model's own prose contradicts it; 5 is the one value nothing
-    // disputes. Widen this when the enum is re-read, not before.
-    durations: ['5'],
-    durationFormat: 'integer',
+    // The enum as it was re-read on 2026-08-09: `auto` and every whole second
+    // from 4 to 30. `auto` is deliberately not offered — it hands the length
+    // back to the provider, which is both PRD §6.3's "never inherit a provider
+    // default" and, at $0.473 a second, an estimate that cannot be computed
+    // before the money is spent (PRD §10.2).
+    durations: DURATIONS_4_TO_30,
+    // Strings of integers on the wire, not integers: the schema's enum is
+    // `"4"`…`"30"`, and an integer where a string enum is declared is a 422.
+    durationFormat: 'string',
     resolutionParam: 'resolution',
     resolutions: ['480p', '720p'],
     // PRD §9 — the one field outside the registry's columns this model has.
@@ -696,7 +733,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     },
     price: { amount: 0.473, unit: 'second', verifiedOn: VERIFIED_ON },
     notes:
-      'PRD §9 — provisional default. The most expensive animate option surveyed, caps at 720p, and has no seed.',
+      'PRD §9 — provisional default. The most expensive animate option surveyed, caps at 720p, and has no seed. The schema also offers an "auto" duration, which is not, because the estimate has to be computable before the click. Audio is on by default upstream and is switched off here.',
   },
   {
     id: 'fal-ai/kling-video/o1/image-to-video',
@@ -705,21 +742,23 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     stage: 'animate',
     promptStyle: 'prose',
     aspects: { kind: 'inheritsFromSource' },
-    imageParam: null,
+    // The odd one out of the three start-frame spellings, and required here.
+    imageParam: 'start_image_url',
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: 'end_image_url',
+    endFrameRequired: false,
     durationParam: 'duration',
     durations: ['3', '4', '5', '6', '7', '8', '9', '10'],
-    durationFormat: 'integer',
+    durationFormat: 'string',
     resolutionParam: null,
     resolutions: [],
     extraParams: [],
     defaults: { duration: '5' },
     price: { amount: 0.112, unit: 'second', verifiedOn: VERIFIED_ON },
     notes:
-      'The cheapest end-frame model surveyed. Whole input is prompt, start image, end image and duration — no aspect, resolution or seed.',
+      'The cheapest end-frame model surveyed. Whole input is prompt, start image, end image and duration — no aspect, resolution or seed. The start frame is spelled start_image_url here and image_url on most of its neighbours. Live schema re-fetch 2026-08-09: the duration wire type is a string of digits, not an integer — an earlier note said integer, and the wrong primitive is a 422 at the paid step.',
   },
   {
     id: 'fal-ai/kling-video/o3/pro/image-to-video',
@@ -728,11 +767,12 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     stage: 'animate',
     promptStyle: 'prose',
     aspects: { kind: 'inheritsFromSource' },
-    imageParam: null,
+    imageParam: 'image_url',
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: 'end_image_url',
+    endFrameRequired: false,
     durationParam: 'duration',
     durations: [
       '3',
@@ -749,14 +789,14 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       '14',
       '15',
     ],
-    durationFormat: 'integer',
+    durationFormat: 'string',
     resolutionParam: null,
     resolutions: [],
     extraParams: [],
     defaults: { duration: '5' },
     price: { amount: 0.112, unit: 'second', verifiedOn: VERIFIED_ON },
     notes:
-      'Kling O1’s schema with a longer duration enum. $0.14/s rather than $0.112/s if audio is enabled, which we never do.',
+      'Kling O1’s schema with a longer duration enum and the commoner start-frame spelling. $0.14/s rather than $0.112/s if audio is enabled, which we never do. Live schema re-fetch 2026-08-09: the duration wire type is a string of digits, not an integer — an earlier note said integer, and the wrong primitive is a 422 at the paid step.',
   },
   {
     id: 'fal-ai/luma-dream-machine/ray-2/image-to-video',
@@ -769,11 +809,12 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: { '16:9': '16:9', '21:9': '21:9' },
     },
-    imageParam: null,
+    imageParam: 'image_url',
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: 'end_image_url',
+    endFrameRequired: false,
     durationParam: 'duration',
     durations: ['5s', '9s'],
     durationFormat: 'secondsSuffixed',
@@ -798,11 +839,14 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: { '16:9': '16:9', '21:9': '21:9', '2:1': '2:1', '1:1': '1:1' },
     },
-    imageParam: null,
+    imageParam: 'start_image_url',
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: 'end_image_url',
+    // Required upstream, so this row cannot serve a non-looping animate — the
+    // run button says so rather than the 422 doing (#29, #30).
+    endFrameRequired: true,
     durationParam: 'duration',
     durations: [
       '5',
@@ -842,15 +886,18 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: SIXTEEN_NINE_ONLY,
     },
+    // Spelled `first_frame_url` here, `start_image_url` on Kling O1 and FLUX 3,
+    // and `image_url` on the rest — PRD §9.1's case for the registry, twice over.
+    imageParam: 'first_frame_url',
     // The only end-frame model surveyed with a seed, which makes it the only
     // one on which the animate stage is reproducible at all (PRD §9.1).
-    imageParam: null,
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
-    // Spelled `last_frame_url` here and `end_image_url` on every other model —
-    // PRD §9.1's empirical case for the registry existing.
+    // Spelled `last_frame_url` here and `end_image_url` on every other model.
     endFrameParam: 'last_frame_url',
+    // And required, so this row waits for #30 like its FLUX 3 neighbour.
+    endFrameRequired: true,
     durationParam: 'duration',
     durations: ['4s', '6s', '8s'],
     durationFormat: 'secondsSuffixed',
@@ -873,13 +920,14 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: SIXTEEN_NINE_ONLY,
     },
-    imageParam: null,
+    imageParam: 'image_url',
     supportsSeed: true,
     strengthParam: null,
     negativePromptParam: 'negative_prompt',
     // No end frame on this variant, so looping greys out with a reason rather
     // than disappearing (PRD §10.1).
     endFrameParam: null,
+    endFrameRequired: false,
     durationParam: 'duration',
     durations: ['4s', '6s', '8s'],
     durationFormat: 'secondsSuffixed',
@@ -902,11 +950,12 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       param: 'aspect_ratio',
       values: SIXTEEN_NINE_ONLY,
     },
-    imageParam: null,
+    imageParam: 'image_url',
     supportsSeed: false,
     strengthParam: null,
     negativePromptParam: null,
     endFrameParam: 'end_image_url',
+    endFrameRequired: false,
     durationParam: 'duration',
     durations: ['6', '8', '10'],
     durationFormat: 'integer',

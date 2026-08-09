@@ -55,6 +55,13 @@ export type { ImageParamShape }
 const IMAGE_PARAM_SHAPES: Readonly<Record<string, ImageParamShape>> = {
   image_url: 'url',
   image_urls: 'urlArray',
+  // The animate stage's start frame (#29). Three names for one idea across the
+  // eight video endpoints surveyed — `image_url` on Seedance, Kling O3, Luma,
+  // Veo's image-to-video and LTX; `start_image_url` on Kling O1 and FLUX 3;
+  // `first_frame_url` on Veo's first/last-frame variant — and all three take a
+  // single URL. That disagreement is the registry's whole case (PRD §9.1).
+  start_image_url: 'url',
+  first_frame_url: 'url',
 }
 
 /** How this model's image field is shaped, or `null` when it takes none. */
@@ -163,9 +170,10 @@ export interface ModelCapabilities {
    * at the paid step, and there is no visual signal that it was the parameter
    * name and not the prompt.
    *
-   * Null on the source stage, where there is no input image at all. Null is also
-   * what an animate row says today — those models take a start frame under a
-   * name of their own, and recording it belongs to the slice that sends it.
+   * Null on the source stage, where there is no input image at all, and never
+   * null anywhere else: an animate row's start frame is the still being animated
+   * (#29), and a video model with nowhere to put it would generate a clip of
+   * whatever the prompt said instead — at video prices.
    */
   readonly imageParam: string | null
   /** PRD §4.3 — gates seed recording *and* pinning. */
@@ -175,6 +183,22 @@ export interface ModelCapabilities {
   readonly negativePromptParam: string | null
   /** PRD §4.5 — the presence of this field is what makes looping offerable. */
   readonly endFrameParam: string | null
+  /**
+   * Whether the schema makes that end frame **mandatory** (#29).
+   *
+   * A separate answer from having the field, and the two are not the same
+   * capability: `blackforestlabs/flux-3/first-last-frame-to-video` and
+   * `fal-ai/veo3.1/first-last-frame-to-video` both refuse a submit that names
+   * only a start frame. Until looping lands (#30) there is no second frame to
+   * send, so those rows cannot serve an animate run at all — and that is a
+   * disabled button with a reason on it (PRD §10.1), not a hidden row: the
+   * models are real, they are the ones a seamless loop will want, and pretending
+   * they do not exist would be the wrong half of the story.
+   *
+   * `false` on every row with no end frame at all, which `validateRegistry`
+   * enforces — "requires the field it does not have" is not a state.
+   */
+  readonly endFrameRequired: boolean
   readonly durationParam: string | null
   /** Verbatim from the schema enum, as strings. See `durationFormat`. */
   readonly durations: readonly string[]
@@ -242,13 +266,27 @@ export function controlAvailability(
         : { state: 'disabled', reasonKey: 'editor.reason.noSeed' }
 
     case 'loop':
-      return model.endFrameParam === null
-        ? { state: 'disabled', reasonKey: 'editor.reason.noEndFrame' }
-        : AVAILABLE
+      if (model.endFrameParam === null) {
+        return { state: 'disabled', reasonKey: 'editor.reason.noEndFrame' }
+      }
+      // #30 — the model has somewhere to put an end frame, but nothing builds
+      // one yet: `buildRequest` never reads `options.loop`, so an enabled
+      // switch here would sell a loop the request does not ask for, at video
+      // prices. Disabled with a reason rather than hidden (PRD §10.1) — the
+      // capability is real and one slice away.
+      //
+      // #30 REMOVES THIS BRANCH: when the request builder sends the end frame,
+      // this returns AVAILABLE again and the branch above is the only refusal.
+      return { state: 'disabled', reasonKey: 'editor.reason.loopNotReady' }
 
-    // Rewind is ffmpeg, not the model — it is always on offer (PRD §4.5).
+    // Rewind is ffmpeg, not the model (PRD §4.5), so no registry column gates
+    // it — but the ffmpeg pass ships with looping in #30 and `buildRequest`
+    // ignores `options.rewind` today. Same rule as above: visible, disabled,
+    // and honest about why.
+    //
+    // #30 REMOVES THIS: rewind goes back to being unconditionally AVAILABLE.
     case 'rewind':
-      return AVAILABLE
+      return { state: 'disabled', reasonKey: 'editor.reason.rewindNotReady' }
 
     case 'duration':
       return model.durations.length === 0
@@ -551,6 +589,12 @@ export function validateRegistry(
     if (model.stage === 'style' && model.imageParam === null) {
       fail('is a style model with no image parameter to send the source in')
     }
+    // Same rule, same reason, one stage later (#29): the still is the whole
+    // input to an animate run, and a video model that never received it would
+    // bill for a text-to-video of the motion prompt.
+    if (model.stage === 'animate' && model.imageParam === null) {
+      fail('is an animate model with no image parameter to send the still in')
+    }
     if (model.stage === 'source' && model.imageParam !== null) {
       fail('is a source model, which has no input image')
     }
@@ -560,6 +604,12 @@ export function validateRegistry(
       fail(
         `sends its image in "${model.imageParam}", whose shape is not recorded`
       )
+    }
+
+    // "Requires an end frame it has no field for" is not a state a model can be
+    // in, so a row claiming it is a typo rather than a capability.
+    if (model.endFrameRequired && model.endFrameParam === null) {
+      fail('requires an end frame but names no field to put one in')
     }
 
     if ((model.durationParam === null) !== (model.durationFormat === null)) {

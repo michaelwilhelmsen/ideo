@@ -80,7 +80,7 @@ export function StageParameters({
   const blocked =
     usable.state === 'disabled'
       ? usable.reasonKey
-      : blockedReasonKey(project, stage)
+      : blockedReasonKey(MODEL_REGISTRY, project, stage)
 
   const availabilityOf = (control: ControlId): ControlAvailability =>
     controlAvailability(model, control)
@@ -289,6 +289,9 @@ export function StageParameters({
             {disabled => (
               <NativeSelect
                 className="w-full"
+                // Named for assistive tech as well: `Gated`, like `Field`,
+                // renders a label beside the control rather than bound to it.
+                aria-label={t('editor.field.duration')}
                 disabled={disabled}
                 value={String(
                   draft.params[model.durationParam ?? 'duration'] ?? ''
@@ -315,6 +318,7 @@ export function StageParameters({
             <Field label={t('editor.field.resolution')}>
               <NativeSelect
                 className="w-full"
+                aria-label={t('editor.field.resolution')}
                 value={String(draft.params[model.resolutionParam] ?? '')}
                 onChange={event =>
                   dispatch({
@@ -334,6 +338,11 @@ export function StageParameters({
             </Field>
           )}
 
+          {/* Loop and rewind are on screen and switched off (#30). Both write
+              an option `buildRequest` does not read yet, so an enabled switch
+              would take money for a clip that will not loop — the registry
+              disables them with the reason attached (PRD §10.1) and this
+              renders whatever it says, here as everywhere else. */}
           <Gated
             availability={availabilityOf('loop')}
             label={t('editor.field.loop')}

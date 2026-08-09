@@ -212,6 +212,29 @@ Integer enum `3,4,5,6,7,8,9,10`, default `5` — closing #11's "three contradict
 models: Veo uses `4s`/`6s`/`8s`, Luma `5s`/`9s`, `minimax/h3` has no enum (integer 5–15). `durations` cannot assume
 one format.
 
+> **Correction, 2026-08-09 — the values were right, the wire type was not.**
+>
+> Re-fetched live and unauthenticated from `https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=…`. The
+> paragraph above says "integer enum" for Kling O1; the schema declares
+> `duration: { type: string, enum: ['3' … '10'] }`. The **numbers** are unchanged and every enum member is a string of
+> digits, so only the primitive was wrong — and the wrong primitive is a 422 at the paid step, which is the whole
+> reason `durationFormat` exists.
+>
+> The re-fetch covered the field, not just the one row:
+>
+> | Endpoint                                           | Wire type                           | Enum                   |
+> | -------------------------------------------------- | ----------------------------------- | ---------------------- |
+> | `fal-ai/kling-video/o1/image-to-video`             | **string of digits**                | `'3'` … `'10'`         |
+> | `fal-ai/kling-video/o3/pro/image-to-video`         | **string of digits**                | `'3'` … `'15'`         |
+> | `bytedance/seedance-2.5/image-to-video`            | **string of digits**                | `'auto'`, `'4'`…`'30'` |
+> | `blackforestlabs/flux-3/first-last-frame-to-video` | integer (unchanged)                 | true integers          |
+> | `fal-ai/ltx-2.3/image-to-video`                    | integer (unchanged)                 | true integers          |
+> | Veo, Luma                                          | seconds-suffixed string (unchanged) | `'4s'`, `'5s'`, …      |
+>
+> `MODEL_REGISTRY` carries `durationFormat: 'string'` on the three string rows, `'integer'` on flux-3 and ltx-2.3,
+> and `'secondsSuffixed'` on Veo and Luma, which matches the table. Seedance's `'auto'` is offered by the schema and
+> deliberately not by us (PRD §6.3, §10.2).
+
 ### 6. There is almost nothing to measure for `strength`
 
 One endpoint of 33 exposes a strength field: `fal-ai/flux/dev/image-to-image`, schema default **0.95**, confirming

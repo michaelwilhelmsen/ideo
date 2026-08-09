@@ -5,6 +5,10 @@ loader, compose), `src/lib/recipe/presets.json` (the committed built-ins),
 `src/services/presets.ts` (the user's own library) and
 `src/components/editor/PresetField.tsx` (the control).
 
+There is a **second, independent library** for movement — see
+[motion-presets.md](./motion-presets.md). A recipe picks one of each, and neither knows the
+other exists.
+
 ## A preset is a seed, not a filter
 
 Choosing one **pre-fills editable fields**, and what is in the prompt box is exactly what

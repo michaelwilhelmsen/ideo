@@ -33,6 +33,7 @@
  * a prompt that quietly says less than it meant to.
  */
 
+import { asRecord, isRecord } from './json'
 import LIBRARY_DOCUMENT from './presets.json'
 import type { ModelCapabilities, PromptStyle } from './registry'
 
@@ -619,13 +620,4 @@ function slugify(name: string): string {
   // A name in a script this slug cannot represent is still a valid name — it
   // just cannot be the file name, and the name is what is shown anyway.
   return slug === '' ? 'preset' : slug
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function asRecord(value: unknown, what: string): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`Malformed ${what}`)
-  return value
 }

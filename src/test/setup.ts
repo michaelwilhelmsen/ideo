@@ -126,6 +126,11 @@ vi.mock('@/lib/tauri-bindings', () => ({
     userPresetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     userPresetSave: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     userPresetDelete: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // Motion presets (#29) — the second library, empty by default for the same
+    // reason the first one is.
+    motionPresetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    motionPresetSave: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    motionPresetDelete: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   unwrapResult: vi.fn((result: { status: string; data?: unknown }) => {
     if (result.status === 'ok') return result.data

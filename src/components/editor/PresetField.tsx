@@ -19,8 +19,14 @@
  *   no edit or delete affordance at all — they come from the repo and a repo
  *   update must never be able to touch yours.
  *
- * Source and animate still pick from fixture lists with nothing to compose
- * (#34 gives them libraries of their own), so they get the plain control.
+ * Animate has the same control over a second, independent library (#29) — look
+ * and movement are orthogonal, so a recipe picks one of each. It is the simpler
+ * of the two by exactly as much as its schema is: one field is seeded, no preset
+ * is ever unsupported because there are no idioms, and an update cannot destroy
+ * an idiom it was not saved from.
+ *
+ * Source still picks from a fixture list with nothing to compose (#34 gives it a
+ * library of its own), so it gets the plain control.
  */
 
 import { useState } from 'react'
@@ -53,21 +59,31 @@ import {
   NativeSelectOption,
 } from '@/components/ui/native-select'
 import {
+  BUILT_IN_MOTION_PRESETS,
   BUILT_IN_STYLE_PRESETS,
   MODEL_REGISTRY,
   modelById,
+  motionPresetFrom,
+  motionSeedState,
   presetIdFrom,
   presetSeedState,
   presetsForStage,
   presetSupportsModel,
   userPresetFrom,
   type ModelCapabilities,
+  type MotionPreset,
   type PresetCapture,
   type Project,
   type StageKind,
   type StageRecipe,
   type StylePreset,
 } from '@/lib/recipe'
+import {
+  EMPTY_MOTION_PRESETS,
+  useDeleteMotionPreset,
+  useMotionPresets,
+  useSaveMotionPreset,
+} from '@/services/motion'
 import {
   EMPTY_USER_PRESETS,
   useDeleteUserPreset,
@@ -83,11 +99,14 @@ export function PresetField({
   project: Project
   stage: StageKind
 }) {
-  return stage === 'style' ? (
-    <StylePresetField project={project} />
-  ) : (
-    <FixturePresetField project={project} stage={stage} />
-  )
+  switch (stage) {
+    case 'style':
+      return <StylePresetField project={project} />
+    case 'animate':
+      return <MotionPresetField project={project} />
+    case 'source':
+      return <FixturePresetField project={project} stage={stage} />
+  }
 }
 
 /**
@@ -281,114 +300,304 @@ function StylePresetField({ project }: { project: Project }) {
         )}
       </div>
 
-      {unreadable > 0 && (
-        <p className="text-xs text-destructive">
-          {t('editor.preset.unreadable')}
-        </p>
-      )}
+      <UnreadableNotice count={unreadable} />
 
       {savingAs && (
-        <SavePresetDialog
-          draft={draft}
-          model={model}
+        <NamePresetDialog
+          description={t('editor.preset.saveDescription', {
+            idiom: idiomOf(t, model),
+          })}
           suggestion={selected?.name ?? ''}
-          taken={library.map(preset => preset.id)}
+          pending={save.isPending}
           onClose={() => setSavingAs(false)}
+          onSubmit={name => {
+            save.mutate(
+              userPresetFrom({
+                ...captureOf(draft, model),
+                id: presetIdFrom(
+                  name,
+                  library.map(preset => preset.id)
+                ),
+                name,
+              }),
+              {
+                onSuccess: preset => {
+                  // Selected, but deliberately not re-seeded: the form already
+                  // says exactly this, and re-seeding would put the preset's
+                  // clamped strength back over the number the user just chose.
+                  point(preset.id)
+                  toast.success(t('editor.preset.saved', { name: preset.name }))
+                  setSavingAs(false)
+                },
+              }
+            )
+          }}
         />
       )}
 
-      <AlertDialog
-        open={deleting !== null}
-        onOpenChange={open => {
-          if (!open) setDeleting(null)
+      <DeletePresetDialog
+        preset={deleting}
+        onClose={() => setDeleting(null)}
+        onDelete={doomed => {
+          remove.mutate(doomed.id, {
+            onSuccess: () => {
+              // The text stays; only the pointer to a preset that no longer
+              // exists goes.
+              if (draft.presetId === doomed.id) point(null)
+            },
+          })
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('editor.preset.deleteTitle', { name: deleting?.name ?? '' })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('editor.preset.deleteDescription')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('editor.action.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const doomed = deleting
-                if (doomed === null) return
-                remove.mutate(doomed.id, {
-                  onSuccess: () => {
-                    // The text stays; only the pointer to a preset that no
-                    // longer exists goes.
-                    if (draft.presetId === doomed.id) point(null)
-                  },
-                })
-              }}
-            >
-              {t('editor.preset.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      />
     </div>
   )
 }
 
 /**
- * Naming a fork.
+ * The motion library: ours and the user's, over the same fork flow.
+ *
+ * Shorter than its style counterpart by exactly the amount `motion.ts` is
+ * shorter than `presets.ts`, and every missing piece is missing for a reason
+ * rather than unfinished. There is no idiom, so no preset is ever disabled and
+ * no save can put words in a fork's mouth; there is no strength and no negative,
+ * so seeding writes the prompt and stops. What is left is the part that
+ * matters — the prompt box is pre-filled and stays editable, and what is in it
+ * is exactly what is sent.
+ */
+function MotionPresetField({ project }: { project: Project }) {
+  const { t } = useTranslation()
+  const dispatch = useEditorStore(store => store.dispatch)
+  const { data } = useMotionPresets()
+  const { presets: userPresets, unreadable } = data ?? EMPTY_MOTION_PRESETS
+
+  const draft = project.drafts.animate
+
+  /** Everything selectable, in picker order — ours first, then theirs. */
+  const library = [...BUILT_IN_MOTION_PRESETS, ...userPresets]
+
+  const selected = library.find(preset => preset.id === draft.presetId) ?? null
+  /** Only your own can be updated in place or deleted. */
+  const yours = userPresets.some(preset => preset.id === draft.presetId)
+  const seed = motionSeedState(draft.prompt, selected)
+
+  const [savingAs, setSavingAs] = useState(false)
+  const [deleting, setDeleting] = useState<MotionPreset | null>(null)
+
+  const save = useSaveMotionPreset()
+  const remove = useDeleteMotionPreset()
+
+  const choose = (preset: MotionPreset | null): void => {
+    dispatch({
+      type: 'choosePreset',
+      stage: 'animate',
+      presetId: preset?.id ?? null,
+      preset,
+    })
+  }
+
+  /** The pointer only — used after a save, when the form already agrees. */
+  const point = (presetId: string | null): void => {
+    dispatch({ type: 'choosePreset', stage: 'animate', presetId, preset: null })
+  }
+
+  // A preset with an empty prompt is not a preset — the loader refuses one on
+  // the way back in.
+  const savable = draft.prompt.trim() !== '' && !save.isPending
+
+  return (
+    <div className="space-y-2">
+      <Label>{t('editor.field.motionPreset')}</Label>
+
+      <NativeSelect
+        className="w-full"
+        aria-label={t('editor.field.motionPreset')}
+        value={draft.presetId ?? ''}
+        onChange={event => {
+          const id = event.target.value
+          choose(
+            id === ''
+              ? null
+              : (library.find(preset => preset.id === id) ?? null)
+          )
+        }}
+      >
+        <NativeSelectOption value="">
+          {t('editor.preset.none')}
+        </NativeSelectOption>
+        <NativeSelectOptGroup label={t('editor.preset.builtIn')}>
+          {BUILT_IN_MOTION_PRESETS.map(preset => (
+            /* A name is user data, whoever wrote it (PRD §6) — no `t()` near
+               it. And nothing here is ever disabled: a motion preset speaks to
+               every video model, because there is only one idiom. */
+            <NativeSelectOption key={preset.id} value={preset.id}>
+              {preset.name}
+            </NativeSelectOption>
+          ))}
+        </NativeSelectOptGroup>
+        {userPresets.length > 0 && (
+          <NativeSelectOptGroup label={t('editor.preset.yours')}>
+            {userPresets.map(preset => (
+              <NativeSelectOption key={preset.id} value={preset.id}>
+                {preset.name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelectOptGroup>
+        )}
+      </NativeSelect>
+
+      <p className="text-xs text-muted-foreground">
+        {t('editor.preset.motionHint')}
+      </p>
+
+      {/* Offered, never forced: the text in the box may be the user's own by
+          now, and re-seeding would spend their edit for them. */}
+      {seed === 'stale' && (
+        <div className="space-y-1">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => choose(selected)}
+          >
+            {t('editor.preset.reseed')}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {t('editor.preset.staleEdited')}
+          </p>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={!savable}
+          onClick={() => setSavingAs(true)}
+        >
+          {t('editor.preset.saveAsNew')}
+        </Button>
+
+        {/* Absent rather than disabled on a built-in: read-only is not a
+            failure state, and offering the button would imply ours are yours. */}
+        {yours && selected !== null && (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!savable}
+              onClick={() => {
+                save.mutate(
+                  motionPresetFrom({
+                    id: selected.id,
+                    name: selected.name,
+                    prompt: draft.prompt,
+                  }),
+                  {
+                    onSuccess: preset => {
+                      // The form *is* the preset now, so the provenance flag
+                      // goes back to clean and nothing is re-seeded.
+                      point(preset.id)
+                      toast.success(
+                        t('editor.preset.saved', { name: preset.name })
+                      )
+                    },
+                  }
+                )
+              }}
+            >
+              {t('editor.preset.update')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={remove.isPending}
+              onClick={() => setDeleting(selected)}
+            >
+              {t('editor.preset.delete')}
+            </Button>
+          </>
+        )}
+      </div>
+
+      <UnreadableNotice count={unreadable} />
+
+      {savingAs && (
+        <NamePresetDialog
+          description={t('editor.preset.saveMotionDescription')}
+          suggestion={selected?.name ?? ''}
+          pending={save.isPending}
+          onClose={() => setSavingAs(false)}
+          onSubmit={name => {
+            save.mutate(
+              motionPresetFrom({
+                id: presetIdFrom(
+                  name,
+                  library.map(preset => preset.id)
+                ),
+                name,
+                prompt: draft.prompt,
+              }),
+              {
+                onSuccess: preset => {
+                  point(preset.id)
+                  toast.success(t('editor.preset.saved', { name: preset.name }))
+                  setSavingAs(false)
+                },
+              }
+            )
+          }}
+        />
+      )}
+
+      <DeletePresetDialog
+        preset={deleting}
+        onClose={() => setDeleting(null)}
+        onDelete={doomed => {
+          remove.mutate(doomed.id, {
+            onSuccess: () => {
+              // The text stays; only the pointer to a preset that no longer
+              // exists goes.
+              if (draft.presetId === doomed.id) point(null)
+            },
+          })
+        }}
+      />
+    </div>
+  )
+}
+
+/**
+ * Naming a fork — the one dialog both libraries use.
  *
  * The name is the only thing asked for, because everything else is already on
- * screen — that is what "the form is the preset" means. The id is derived from
- * the name rather than typed: it is a file name in app data, and a collision
- * takes a suffix instead of overwriting somebody's earlier fork.
+ * screen: that is what "the form is the preset" means, and it is equally true of
+ * a style fork with three seeded fields and a motion fork with one. What differs
+ * between them is what gets written, which is the caller's `onSubmit` and
+ * nothing here.
+ *
+ * The id is derived from the name rather than typed — it becomes a file name in
+ * app data, and a collision takes a suffix instead of overwriting somebody's
+ * earlier fork.
  */
-function SavePresetDialog({
-  draft,
-  model,
+function NamePresetDialog({
+  description,
   suggestion,
-  taken,
+  pending,
+  onSubmit,
   onClose,
 }: {
-  draft: StageRecipe
-  model: ModelCapabilities
+  description: string
   suggestion: string
-  taken: readonly string[]
+  pending: boolean
+  onSubmit: (name: string) => void
   onClose: () => void
 }) {
   const { t } = useTranslation()
-  const dispatch = useEditorStore(store => store.dispatch)
-  const save = useSaveUserPreset()
   const [name, setName] = useState(suggestion)
 
   const trimmed = name.trim()
 
   const submit = (): void => {
     if (trimmed === '') return
-
-    save.mutate(
-      userPresetFrom({
-        ...captureOf(draft, model),
-        id: presetIdFrom(trimmed, taken),
-        name: trimmed,
-      }),
-      {
-        onSuccess: preset => {
-          // Selected, but deliberately not re-seeded: the form already says
-          // exactly this, and re-seeding would put the preset's clamped
-          // strength back over the number the user just chose.
-          dispatch({
-            type: 'choosePreset',
-            stage: 'style',
-            presetId: preset.id,
-            preset: null,
-          })
-          toast.success(t('editor.preset.saved', { name: preset.name }))
-          onClose()
-        },
-      }
-    )
+    onSubmit(trimmed)
   }
 
   return (
@@ -401,9 +610,7 @@ function SavePresetDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('editor.preset.saveTitle')}</DialogTitle>
-          <DialogDescription>
-            {t('editor.preset.saveDescription', { idiom: idiomOf(t, model) })}
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2">
@@ -424,7 +631,7 @@ function SavePresetDialog({
           <Button variant="ghost" onClick={onClose}>
             {t('editor.action.cancel')}
           </Button>
-          <Button disabled={trimmed === '' || save.isPending} onClick={submit}>
+          <Button disabled={trimmed === '' || pending} onClick={submit}>
             {t('editor.preset.save')}
           </Button>
         </DialogFooter>
@@ -433,7 +640,94 @@ function SavePresetDialog({
   )
 }
 
-/** Source and animate: a fixture list, and nothing to compose from it yet. */
+/**
+ * What deleting needs to know about a preset: which file, and what to call it.
+ *
+ * Structural rather than `StylePreset | MotionPreset` because the confirmation
+ * genuinely does not care which library it is emptying — widening it to the
+ * union would be claiming a difference the dialog does not have.
+ */
+interface DeletablePreset {
+  readonly id: string
+  readonly name: string
+}
+
+/**
+ * Confirming a delete — the second dialog both libraries use.
+ *
+ * Extracted for the same reason `NamePresetDialog` was: what differs between a
+ * style fork and a motion fork is *which* mutation runs and what the pointer
+ * does afterwards, which is the caller's `onDelete`. The wording, the shape and
+ * the fact that this is destructive-and-confirmed are the same question asked
+ * about the same kind of thing, and two copies of it is two places for the
+ * confirmation to quietly go missing from one library.
+ *
+ * `null` renders nothing at all rather than a hidden dialog: "which preset is
+ * doomed" and "is the dialog open" are one fact, and keeping them as one is what
+ * stops a confirmation from firing at a preset that is no longer selected.
+ */
+function DeletePresetDialog({
+  preset,
+  onClose,
+  onDelete,
+}: {
+  preset: DeletablePreset | null
+  onClose: () => void
+  onDelete: (preset: DeletablePreset) => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <AlertDialog
+      open={preset !== null}
+      onOpenChange={open => {
+        if (!open) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {/* A name is user data (PRD §6); the sentence around it is ours. */}
+            {t('editor.preset.deleteTitle', { name: preset?.name ?? '' })}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('editor.preset.deleteDescription')}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('editor.action.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              if (preset === null) return
+              onDelete(preset)
+            }}
+          >
+            {t('editor.preset.delete')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
+ * Files in the library folder that could not be read back.
+ *
+ * Said rather than swallowed: the picker showing fewer forks than the user saved
+ * looks like data loss, and one line saying some files could not be read is the
+ * difference between a bug report and a hand-edit somebody can go and fix.
+ */
+function UnreadableNotice({ count }: { count: number }) {
+  const { t } = useTranslation()
+
+  if (count === 0) return null
+
+  return (
+    <p className="text-xs text-destructive">{t('editor.preset.unreadable')}</p>
+  )
+}
+
+/** Source: a fixture list, and nothing to compose from it yet (#34). */
 function FixturePresetField({
   project,
   stage,
