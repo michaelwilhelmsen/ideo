@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { MODEL_REGISTRY } from './models'
 import { modelById } from './registry'
-import { buildRequest } from './request'
+import { buildRequest, sentRecipe } from './request'
 import type { SeedSetting, StageParams, StageRecipe } from './types'
 
 function recipe(
@@ -239,5 +239,65 @@ describe('buildRequest — defaults and unknown fields', () => {
     const request = buildRequest(model('fal-ai/flux/schnell'), '16:9', recipe())
 
     expect(request.modelId).toBe('fal-ai/flux/schnell')
+  })
+})
+
+/**
+ * AC10 — the persisted recipe has to be the one that ran.
+ *
+ * The draft is not it: three things are decided between the form and the wire,
+ * and a recipe missing them says "21:9 somehow, seed unknown" about a generation
+ * whose request said `{width: 1344, height: 576}` and `seed: 42`. Re-runnability
+ * is the premise the whole recipe model rests on (PRD §1), so this is asserted on
+ * the values rather than on "it copied something".
+ */
+describe('sentRecipe', () => {
+  const flux = model('fal-ai/flux/schnell')
+
+  it('records the geometry the request resolved, not the ratio the form knew', () => {
+    const draft = recipe()
+    const sent = sentRecipe(draft, buildRequest(flux, '21:9', draft))
+
+    const size = sent.params.image_size as { width: number; height: number }
+    expect(size.width / size.height).toBe(21 / 9)
+    expect(draft.params.image_size).toBeUndefined()
+  })
+
+  it('records the seed that went out', () => {
+    const draft = recipe({ seed: { mode: 'pinned', value: 42 } })
+    const sent = sentRecipe(draft, buildRequest(flux, '16:9', draft))
+
+    expect(sent.params.seed).toBe(42)
+  })
+
+  it('records our defaults, since the form never showed them', () => {
+    const i2i = model('fal-ai/flux/dev/image-to-image')
+    const draft = recipe()
+    const sent = sentRecipe(draft, buildRequest(i2i, '16:9', draft))
+
+    // PRD §6.3 — ours is 0.7 where fal's own is 0.95, and which one produced the
+    // image is exactly what a recipe is for.
+    expect(sent.params.strength).toBe(0.7)
+  })
+
+  it('leaves everything else about the recipe alone', () => {
+    const draft = recipe({ params: { num_inference_steps: 8 } })
+    const sent = sentRecipe(draft, buildRequest(flux, '16:9', draft))
+
+    expect(sent.prompt).toBe(draft.prompt)
+    expect(sent.seed).toEqual(draft.seed)
+    expect(sent.presetId).toBe(draft.presetId)
+    expect(sent.params.num_inference_steps).toBe(8)
+  })
+
+  it('does not let a recorded seed outlive being unpinned', () => {
+    // A recipe restored into the form (`restoreRecipe`) brings the seed it was
+    // sent with along in its parameters. Carried through, it would keep pinning
+    // the seed after the user had unpinned it — the pin would be unremovable.
+    const pinned = recipe({ seed: { mode: 'pinned', value: 42 } })
+    const restored = sentRecipe(pinned, buildRequest(flux, '16:9', pinned))
+    const unpinned: StageRecipe = { ...restored, seed: { mode: 'roll' } }
+
+    expect(buildRequest(flux, '16:9', unpinned).params.seed).toBeUndefined()
   })
 })

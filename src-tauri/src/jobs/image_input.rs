@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 use specta::Type;
 use std::path::Path;
 
-use super::fal::{GenerationError, GenerationErrorReason};
+use super::fal::{GenerationError, GenerationErrorReason, InputImageProblem};
 use crate::projects::import::sniff_format;
 use crate::projects::store::asset_path;
 
@@ -87,7 +87,8 @@ pub fn prepare(
         // Not "assume text-to-image": a style stage exists to transform an
         // image, so having none is the failure and not a mode.
         if stage == STYLE_STAGE {
-            return Err(unusable("this run has no input image to restyle"));
+            log::error!("a style run for project {project_id} named no input image");
+            return Err(unusable(InputImageProblem::NoneNamed));
         }
         return Ok(());
     };
@@ -103,22 +104,39 @@ fn read_image(
     generation_id: &str,
 ) -> Result<Vec<u8>, GenerationError> {
     let path = asset_path(root, project_id, generation_id)
-        .map_err(|e| unusable(format!("could not look for the input image: {e}")))?
-        .ok_or_else(|| unusable(format!("generation {generation_id} has no image on disk")))?;
+        .map_err(|e| {
+            log::error!("Could not look for the input image of {generation_id}: {e}");
+            unusable(InputImageProblem::Unreadable)
+        })?
+        .ok_or_else(|| {
+            log::error!("Generation {generation_id} has no image on disk");
+            unusable(InputImageProblem::NotOnDisk)
+        })?;
 
     // Before the read, not after: the point of a ceiling is that the oversized
     // file is never held in memory.
     let size = std::fs::metadata(&path)
-        .map_err(|e| unusable(format!("could not read the input image: {e}")))?
+        .map_err(|e| {
+            log::error!("Could not measure the input image {}: {e}", path.display());
+            unusable(InputImageProblem::Unreadable)
+        })?
         .len();
 
     if size > MAX_INLINE_BYTES {
-        return Err(unusable(format!(
-            "the input image is {size} bytes, over the {MAX_INLINE_BYTES} an inlined image may be"
-        )));
+        log::error!(
+            "The input image {} is {size} bytes, over the {MAX_INLINE_BYTES} an inlined image may be",
+            path.display()
+        );
+        return Err(unusable(InputImageProblem::TooLarge {
+            bytes: size as f64,
+            limit: MAX_INLINE_BYTES as f64,
+        }));
     }
 
-    std::fs::read(&path).map_err(|e| unusable(format!("could not read the input image: {e}")))
+    std::fs::read(&path).map_err(|e| {
+        log::error!("Could not read the input image {}: {e}", path.display());
+        unusable(InputImageProblem::Unreadable)
+    })
 }
 
 /// A `data:<mime>;base64,…` URI, with the media type read from the bytes.
@@ -128,11 +146,14 @@ fn read_image(
 /// not, which is a 4xx on a body we chose.
 fn data_uri(bytes: &[u8]) -> Result<String, GenerationError> {
     if bytes.is_empty() {
-        return Err(unusable("the input image file is empty"));
+        log::error!("The input image file holds no bytes");
+        return Err(unusable(InputImageProblem::Unreadable));
     }
 
-    let format = sniff_format(bytes)
-        .ok_or_else(|| unusable("the input image is not a PNG, JPEG or WebP"))?;
+    let format = sniff_format(bytes).ok_or_else(|| {
+        log::error!("The input image is not a PNG, JPEG or WebP");
+        unusable(InputImageProblem::UnsupportedFormat)
+    })?;
 
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
 
@@ -142,7 +163,8 @@ fn data_uri(bytes: &[u8]) -> Result<String, GenerationError> {
 /// Writes the URI into the body under the model's own field name and shape.
 fn inject(params: &mut Value, input: &ImageInput, uri: &str) -> Result<(), GenerationError> {
     if input.param.trim().is_empty() {
-        return Err(unusable("the model named no field to put the image in"));
+        log::error!("The model named no field to put the image in");
+        return Err(unusable(InputImageProblem::NoField));
     }
 
     let Value::Object(fields) = params else {
@@ -164,8 +186,13 @@ fn inject(params: &mut Value, input: &ImageInput, uri: &str) -> Result<(), Gener
     Ok(())
 }
 
-fn unusable(detail: impl Into<String>) -> GenerationError {
-    GenerationError::with_detail(GenerationErrorReason::InputImageUnusable, detail)
+/// The refusal, as a code the frontend can put into the user's own language.
+///
+/// The particulars are logged at each call site rather than attached: a path or
+/// an `io::Error` is for whoever reads the log, and putting it in front of the
+/// user would be an English sentence no locale file can reach (PRD §10.4).
+fn unusable(problem: InputImageProblem) -> GenerationError {
+    GenerationError::unusable_input(problem)
 }
 
 #[cfg(test)]
@@ -225,13 +252,20 @@ mod tests {
 
     #[test]
     fn something_that_is_not_an_image_is_refused_rather_than_encoded() {
+        // A code rather than a sentence, so the frontend can say it in the
+        // user's language — and a *different* code per cause, or the message
+        // could only ever be the vaguest of the three.
+        let refused = data_uri(b"%PDF-1.4").unwrap_err();
+        assert_eq!(refused.reason, GenerationErrorReason::InputImageUnusable);
         assert_eq!(
-            data_uri(b"%PDF-1.4").unwrap_err().reason,
-            GenerationErrorReason::InputImageUnusable
+            refused.input_image,
+            Some(InputImageProblem::UnsupportedFormat)
         );
+        assert_eq!(refused.detail, None, "no English crosses the boundary");
+
         assert_eq!(
-            data_uri(b"").unwrap_err().reason,
-            GenerationErrorReason::InputImageUnusable
+            data_uri(b"").unwrap_err().input_image,
+            Some(InputImageProblem::Unreadable)
         );
     }
 
@@ -307,6 +341,7 @@ mod tests {
             .expect_err("a style run needs an input image");
 
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
+        assert_eq!(error.input_image, Some(InputImageProblem::NoneNamed));
         assert_eq!(params, json!({}));
     }
 
@@ -336,6 +371,7 @@ mod tests {
         .expect_err("there is no file to send");
 
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
+        assert_eq!(error.input_image, Some(InputImageProblem::NotOnDisk));
         assert!(!params.as_object().unwrap().contains_key("image_url"));
     }
 
@@ -358,6 +394,16 @@ mod tests {
         .expect_err("too large to inline");
 
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
+        // The numbers travel too: "too large" is only actionable with the
+        // ceiling next to it, and the frontend must not keep its own copy of a
+        // limit this side enforces.
+        assert_eq!(
+            error.input_image,
+            Some(InputImageProblem::TooLarge {
+                bytes: (MAX_INLINE_BYTES + 1) as f64,
+                limit: MAX_INLINE_BYTES as f64,
+            })
+        );
     }
 
     #[test]
@@ -365,17 +411,16 @@ mod tests {
         let root = project_with_source(&png(), "png");
         let mut params = json!({});
 
-        assert_eq!(
-            prepare(
-                root.path(),
-                "atlas",
-                "style",
-                Some(&input("  ", ImageParamShape::Url)),
-                &mut params
-            )
-            .unwrap_err()
-            .reason,
-            GenerationErrorReason::InputImageUnusable
-        );
+        let error = prepare(
+            root.path(),
+            "atlas",
+            "style",
+            Some(&input("  ", ImageParamShape::Url)),
+            &mut params,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
+        assert_eq!(error.input_image, Some(InputImageProblem::NoField));
     }
 }

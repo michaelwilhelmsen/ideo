@@ -206,6 +206,14 @@ asset names. Two consequences worth keeping:
 - Fields this build does not model survive a round trip, so an older build cannot
   silently downgrade a project it opens.
 
+**A generation's recipe is what was sent, not what the form said.** `freezeRecipe` copies
+the draft; `sentRecipe` (`src/lib/recipe/request.ts`) then replaces its parameters with the
+ones `buildRequest` produced, which is where our defaults, the project's locked ratio as
+this model's geometry field, and a pinned seed are resolved. That copy is what travels with
+the job and lands in the manifest, because a recipe missing those is not one anybody could
+re-run. The draft keeps its own parameters: it is the form, and the form shows what the
+user set rather than what we resolved for them.
+
 **Where each half of the state lives.** TanStack Query holds the project _list_ and the
 on-disk facts about it; Zustand holds the _open_ project, because that is a live
 document edited many times a second. `useProjectLibrary` in `src/services/projects.ts`

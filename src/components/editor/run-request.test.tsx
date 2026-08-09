@@ -167,6 +167,52 @@ describe('one click, several candidates', () => {
     for (const recipe of recipes) expect(recipe).toEqual(recipes[0])
   })
 
+  /**
+   * AC10 — what is written down is what was sent.
+   *
+   * The recipe on the request is the copy Rust stores with the job and hands
+   * back when it lands (#24), which is the copy that ends up in the manifest. So
+   * anything the request resolved after the form was frozen has to be in it, or
+   * the persisted recipe describes a generation nobody can reproduce.
+   */
+  it('records the geometry and the seed that actually went to fal', async () => {
+    // Ledger's source model takes explicit pixels, and this run pins its seed.
+    const pinned: Project = {
+      ...LEDGER,
+      drafts: {
+        ...LEDGER.drafts,
+        source: {
+          ...LEDGER.drafts.source,
+          seed: { mode: 'pinned', value: 4242 },
+        },
+      },
+    }
+
+    function PinnedProbe() {
+      const { run } = useRunStage(pinned, 'source', 1)
+      return <button onClick={run}>run</button>
+    }
+
+    render(<PinnedProbe />)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'run' }))
+
+    await waitFor(() => expect(submitted()).toHaveLength(1))
+    const request = mockCommands.generateImage.mock
+      .calls[0]?.[0] as unknown as {
+      params: Record<string, unknown>
+      recipe: StageRecipe
+    }
+
+    expect(request.recipe.params.seed).toBe(4242)
+    expect(request.recipe.params.image_size).toEqual(request.params.image_size)
+    expect(request.recipe.params.image_size).toMatchObject({
+      width: expect.any(Number),
+      height: expect.any(Number),
+    })
+    // The draft the form is still showing is untouched — it never held either.
+    expect(LEDGER.drafts.source.params.image_size).toBeUndefined()
+  })
+
   it('mints a fresh run for the next click', async () => {
     const user = userEvent.setup()
     render(<BatchProbe batch={2} />)
@@ -206,7 +252,12 @@ describe('one click, several candidates', () => {
   it('says a failed batch failed once, not once per candidate', async () => {
     mockCommands.generateImage.mockResolvedValue({
       status: 'error',
-      error: { reason: 'offline', detail: null, status: null },
+      error: {
+        reason: 'offline',
+        detail: null,
+        status: null,
+        inputImage: null,
+      },
     })
 
     render(<BatchProbe batch={4} />)
@@ -227,11 +278,21 @@ describe('one click, several candidates', () => {
     mockCommands.generateImage
       .mockResolvedValueOnce({
         status: 'error',
-        error: { reason: 'rateLimited', detail: null, status: null },
+        error: {
+          reason: 'rateLimited',
+          detail: null,
+          status: null,
+          inputImage: null,
+        },
       })
       .mockResolvedValueOnce({
         status: 'error',
-        error: { reason: 'rateLimited', detail: null, status: null },
+        error: {
+          reason: 'rateLimited',
+          detail: null,
+          status: null,
+          inputImage: null,
+        },
       })
       .mockResolvedValue({
         status: 'ok',
@@ -254,7 +315,12 @@ describe('one click, several candidates', () => {
     mockCommands.generateImage
       .mockResolvedValueOnce({
         status: 'error',
-        error: { reason: 'rateLimited', detail: null, status: null },
+        error: {
+          reason: 'rateLimited',
+          detail: null,
+          status: null,
+          inputImage: null,
+        },
       })
       .mockResolvedValue({
         status: 'ok',
@@ -435,6 +501,32 @@ describe('restyling the source', () => {
     expect(String(vi.mocked(toast.error).mock.calls[0]?.[0])).toMatch(
       /restyle/i
     )
+  })
+
+  it('says what was wrong with the input image in the user’s own words', async () => {
+    // Rust refuses this one itself, before fal ever sees it — so there is no
+    // supplied sentence to quote, only a code and its numbers. The words and the
+    // megabytes are the frontend's (PRD §10.4).
+    mockCommands.generateImage.mockResolvedValue({
+      status: 'error',
+      error: {
+        reason: 'inputImageUnusable',
+        detail: null,
+        status: null,
+        inputImage: {
+          code: 'tooLarge',
+          bytes: 12 * 1024 * 1024,
+          limit: 10 * 1024 * 1024,
+        },
+      },
+    })
+
+    await clickRun(ATLAS)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    const said = String(vi.mocked(toast.error).mock.calls[0]?.[0])
+    expect(said).toMatch(/too large/i)
+    expect(said).toMatch(/10 MB/)
   })
 
   it('leaves animate on fixtures, which spend nothing', async () => {

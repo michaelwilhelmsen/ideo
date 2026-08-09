@@ -11,7 +11,13 @@
  */
 
 import { aspectById, ASPECTS, isAspectId } from './aspects'
-import type { AspectId, ParamValue, StageKind, StageParams } from './types'
+import type {
+  AspectId,
+  ParamValue,
+  PixelSize,
+  StageKind,
+  StageParams,
+} from './types'
 
 /**
  * Which preset variant a model wants (PRD §5, §6).
@@ -35,8 +41,16 @@ export type PromptStyle = 'prose' | 'tags'
  * an image field whose name is not in the table below, so a model with a
  * differently-named image input is a startup crash that asks for its shape
  * rather than a guess that ships.
+ *
+ * Taken from the generated bindings rather than declared here, exactly as
+ * `ProjectSummary` is (`docs/developer/tauri-commands.md`: "no manual sync
+ * between Rust and TypeScript"). The shape travels to Rust on every image-to-
+ * image submit, so Rust's `ImageParamShape` is the wire form and a second
+ * hand-written copy of it is a rename away from a 422 nobody can see coming.
  */
-export type ImageParamShape = 'url' | 'urlArray'
+import type { ImageParamShape } from '@/lib/tauri-bindings'
+
+export type { ImageParamShape }
 
 const IMAGE_PARAM_SHAPES: Readonly<Record<string, ImageParamShape>> = {
   image_url: 'url',
@@ -249,12 +263,6 @@ export function controlAvailability(
     case 'resolution':
       return model.resolutionParam === null ? HIDDEN : AVAILABLE
   }
-}
-
-/** An explicit output size, in pixels. */
-export interface PixelSize {
-  readonly width: number
-  readonly height: number
 }
 
 /**

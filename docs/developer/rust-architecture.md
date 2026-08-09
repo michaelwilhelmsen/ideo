@@ -18,6 +18,8 @@ src-tauri/src/
 │   └── recovery.rs
 └── utils/           # Utility modules
     ├── mod.rs
+    ├── atomic.rs    # Write a file without leaving half of one behind
+    ├── paths.rs     # `app_data(app)` — the one place that folder is resolved
     └── platform.rs  # Platform-specific helpers
 ```
 

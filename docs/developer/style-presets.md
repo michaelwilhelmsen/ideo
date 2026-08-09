@@ -15,7 +15,9 @@ with two consequences worth stating:
   string has to be readable by the person about to spend money on it.
 - Provenance is not enough on its own. `StageRecipe` records `presetId` **and**
   `presetModified` — at 0.78 strength with two clauses rewritten, the preset is where the
-  recipe started, not what it is.
+  recipe started, not what it is. It flips only for the fields seeding actually writes
+  (see below), on the style stage, with a preset selected: a step count is the model's
+  business and moving it says nothing about provenance.
 
 Seeding happens in the reducer (`choosePreset` → `seedFromPreset`), never in a component,
 and the preset itself rides on the action: half the library lives in app data behind
@@ -71,9 +73,16 @@ Being app-level rather than per-project is the point: a repo update that rewrite
 built-in cannot touch a fork. The two halves are shown grouped in one picker (`optgroup`),
 never merged — one is read-only and the other is not.
 
-Saving captures the form as it stands (`userPresetFrom`) with a variant for the current
-model's idiom **only**, the other explicitly `null`: a save can speak for the model in
-front of it and no other. The prompt is stored whole with a `{transform}`-only template,
+Saving captures the form as it stands (`userPresetFrom`) and writes a variant for the
+current model's idiom **only**: a save can speak for the model in front of it and no
+other. What happens to the other idiom depends on which save it is — `null` for a new
+fork, and for an update **the existing variant, verbatim**, which is why
+`userPresetFrom` takes the preset being updated as its second argument. A fork that
+speaks both idioms is two saves' work, and updating it from one of them must not throw
+the other away. Update is refused outright where `presetSeedState` says `unsupported`:
+the box then holds text this fork never seeded, so writing it in as the missing idiom
+would be putting words in the preset's mouth. The prompt is stored whole with a
+`{transform}`-only template,
 so a fork is self-contained and carries the preserve wording it was saved with rather than
 tracking ours. Ids are slugified from the name and suffixed on collision, because the id
 becomes a file name and Rust rejects anything outside `[A-Za-z0-9_-]{1,64}` — see

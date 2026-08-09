@@ -535,17 +535,27 @@ export interface PresetCapture {
 /**
  * A fork of what is on screen right now.
  *
- * One idiom, and the other explicitly `null`: a save can only speak for the
- * model in front of it, and inventing the other idiom's wording is exactly the
- * cross-send this schema exists to prevent. So a fork seeds the models that
- * read prompts the way this one did, and is honestly disabled for the rest.
+ * One idiom is *written*: a save can only speak for the model in front of it,
+ * and inventing the other idiom's wording is exactly the cross-send this schema
+ * exists to prevent. So a fork seeds the models that read prompts the way this
+ * one did, and is honestly disabled for the rest.
+ *
+ * The other idiom comes from `base` — the preset being updated in place, when
+ * there is one — and is copied **verbatim**. Without it, updating a fork that
+ * speaks both idioms from a prose model would silently delete its tags variant:
+ * a save is a claim about the form in front of you, never a claim that the other
+ * idiom has stopped existing. `null` for a brand-new fork, which has no other
+ * idiom to keep.
  *
  * The prompt is stored whole, as `transform` with a `{transform}`-only
  * template. There is no preserve block to re-apply because the box already
  * contains one — the composed prompt is what was captured — and re-composing
  * would say it twice.
  */
-export function userPresetFrom(capture: PresetCapture): StylePreset {
+export function userPresetFrom(
+  capture: PresetCapture,
+  base: StylePreset | null = null
+): StylePreset {
   const negative = capture.negative?.trim() ?? ''
   const strength = capture.strength
 
@@ -564,8 +574,14 @@ export function userPresetFrom(capture: PresetCapture): StylePreset {
     name: capture.name.trim(),
     family: USER_PRESET_FAMILY,
     variants: {
-      prose: capture.promptStyle === 'prose' ? variant : null,
-      tags: capture.promptStyle === 'tags' ? variant : null,
+      prose:
+        capture.promptStyle === 'prose'
+          ? variant
+          : (base?.variants.prose ?? null),
+      tags:
+        capture.promptStyle === 'tags'
+          ? variant
+          : (base?.variants.tags ?? null),
     },
   }
 }

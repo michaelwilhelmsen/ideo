@@ -23,6 +23,7 @@ import { clampBatchSize, DEFAULT_BATCH_SIZES } from './selectors'
 import type {
   Generation,
   ParamValue,
+  PixelSize,
   Project,
   SeedSetting,
   StageKind,
@@ -254,6 +255,10 @@ function readSeed(value: unknown): SeedSetting | null {
  * Parameters are a bag keyed by each model's own field names (PRD §5), so
  * there is nothing to check them against beyond the types a request body can
  * carry. Anything else is dropped rather than sent to an API.
+ *
+ * A `{width, height}` pair is one of those types: a recipe records the geometry
+ * it was actually sent (AC10), and dropping it here would mean a manifest that
+ * read back less re-runnable than it was written.
  */
 function readParams(value: unknown): StageParams {
   if (!isRecord(value)) return {}
@@ -266,9 +271,20 @@ function readParams(value: unknown): StageParams {
       typeof entry === 'boolean'
     ) {
       params[key] = entry
+      continue
     }
+    const size = readPixelSize(entry)
+    if (size !== null) params[key] = size
   }
   return params
+}
+
+/** An explicit output size, if that is what this is. */
+function readPixelSize(value: unknown): PixelSize | null {
+  if (!isRecord(value)) return null
+  const { width, height } = value
+  if (typeof width !== 'number' || typeof height !== 'number') return null
+  return { width, height }
 }
 
 /**

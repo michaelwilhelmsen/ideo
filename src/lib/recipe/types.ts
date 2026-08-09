@@ -35,6 +35,12 @@ export type SeedSetting =
   | { readonly mode: 'roll' }
   | { readonly mode: 'pinned'; readonly value: number }
 
+/** An explicit output size, in pixels — the one non-scalar a request carries. */
+export interface PixelSize {
+  readonly width: number
+  readonly height: number
+}
+
 /**
  * Model parameters, kept as a bag rather than named fields.
  *
@@ -42,8 +48,13 @@ export type SeedSetting =
  * `resolution` — but PRD §5 is explicit that those are per-model and named
  * differently across models. The registry says which keys are legal; the
  * recipe just carries whatever was sent.
+ *
+ * {@link PixelSize} is in the union because it is a value that goes on the wire:
+ * the largest group of image models is told its geometry as an explicit
+ * `{width, height}`, and a recipe that could not hold one could not record what
+ * was actually sent (AC10). Every other field is a scalar.
  */
-export type ParamValue = string | number | boolean
+export type ParamValue = string | number | boolean | PixelSize
 export type StageParams = Readonly<Record<string, ParamValue>>
 
 /**

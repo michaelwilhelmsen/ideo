@@ -9,7 +9,11 @@
  */
 
 import type { TFunction } from 'i18next'
-import type { GenerationError, ImportError } from '@/lib/tauri-bindings'
+import type {
+  GenerationError,
+  ImportError,
+  InputImageProblem,
+} from '@/lib/tauri-bindings'
 
 export function generationErrorMessage(
   t: TFunction,
@@ -21,11 +25,7 @@ export function generationErrorMessage(
     case 'noApiKey':
       return t('generate.error.noApiKey')
     case 'inputImageUnusable':
-      return error.detail === null
-        ? t('generate.error.inputImageUnusable')
-        : t('generate.error.inputImageUnusableBecause', {
-            detail: error.detail,
-          })
+      return inputImageMessage(t, error.inputImage)
     case 'keyRejected':
       return t('generate.error.keyRejected')
     case 'requestRejected':
@@ -48,6 +48,41 @@ export function generationErrorMessage(
       return error.status === null
         ? t('generate.error.unexpected')
         : t('generate.error.unexpectedStatus', { status: error.status })
+  }
+}
+
+/**
+ * Why the image a run was going to restyle could not be used (#28).
+ *
+ * This refusal never reached fal — it happens before the key is even fetched —
+ * so there is no supplied text to append and nothing to quote. Rust names a
+ * code and, where the number is the point, the number; every word is chosen
+ * here. `null` is a refusal from a build that only had the reason, which reads
+ * as the general sentence rather than as a missing one.
+ */
+function inputImageMessage(
+  t: TFunction,
+  problem: InputImageProblem | null
+): string {
+  if (problem === null) return t('generate.error.inputImageUnusable')
+
+  switch (problem.code) {
+    case 'noneNamed':
+      return t('generate.error.inputImageNoneNamed')
+    case 'notOnDisk':
+      return t('generate.error.inputImageNotOnDisk')
+    case 'unreadable':
+      return t('generate.error.inputImageUnreadable')
+    case 'unsupportedFormat':
+      return t('generate.error.inputImageUnsupportedFormat')
+    case 'tooLarge':
+      // The ceiling, not the overshoot: "under 10 MB" is actionable and "13.4
+      // MB" is only a complaint.
+      return t('generate.error.inputImageTooLarge', {
+        limit: formatMegabytes(problem.limit),
+      })
+    case 'noField':
+      return t('generate.error.inputImageNoField')
   }
 }
 

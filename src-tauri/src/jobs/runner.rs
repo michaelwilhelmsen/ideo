@@ -15,7 +15,7 @@ use serde_json::Value;
 use specta::Type;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 use super::fal::{
@@ -25,6 +25,7 @@ use super::image_input::{self, ImageInput};
 use super::store::{self, Job, JobStatus, JobTarget, NewJob};
 use crate::commands::api_key::stored_key;
 use crate::projects::store::{asset_file_name, assets_dir, validate_id};
+use crate::utils::paths::app_data;
 
 /// PRD §3.3 — a 4-up batch is already four concurrent calls, and each one is
 /// charged. The cap is on jobs rather than requests because a job holds its
@@ -132,12 +133,6 @@ pub struct JobSettled {
 
 pub fn open_store(app: &AppHandle) -> Result<rusqlite::Connection, String> {
     store::open(&app_data(app)?.join(JOBS_FILE))
-}
-
-fn app_data(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|e| format!("Could not locate the app data directory: {e}"))
 }
 
 /// Where project folders live. Needed both to file a finished image and to read

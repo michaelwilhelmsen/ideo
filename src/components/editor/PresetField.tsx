@@ -13,9 +13,11 @@
  *   looks like a broken picker.
  * - Switching models keeps whatever the user has written and **offers** a
  *   re-seed. Never forces one: the text may be theirs by now.
- * - Saving is the fork flow. Save-as-new always works, updating one of your own
- *   works, and built-ins have no edit or delete affordance at all — they come
- *   from the repo and a repo update must never be able to touch yours.
+ * - Saving is the fork flow. Save-as-new always works; updating one of your own
+ *   rewrites the current idiom and keeps the other verbatim, and is refused
+ *   outright where the model reads an idiom this fork never spoke. Built-ins have
+ *   no edit or delete affordance at all — they come from the repo and a repo
+ *   update must never be able to touch yours.
  *
  * Source and animate still pick from fixture lists with nothing to compose
  * (#34 gives them libraries of their own), so they get the plain control.
@@ -105,10 +107,10 @@ function StylePresetField({ project }: { project: Project }) {
   const draft = project.drafts.style
   const model = modelById(MODEL_REGISTRY, draft.modelId)
 
-  const selected =
-    [...BUILT_IN_STYLE_PRESETS, ...userPresets].find(
-      preset => preset.id === draft.presetId
-    ) ?? null
+  /** Everything selectable, in picker order — ours first, then theirs. */
+  const library = [...BUILT_IN_STYLE_PRESETS, ...userPresets]
+
+  const selected = library.find(preset => preset.id === draft.presetId) ?? null
   /** Only your own can be updated in place or deleted. */
   const yours = userPresets.some(preset => preset.id === draft.presetId)
   const seed = presetSeedState(draft.prompt, selected, model)
@@ -147,15 +149,40 @@ function StylePresetField({ project }: { project: Project }) {
     )
   }
 
+  // A preset with an empty prompt is not a preset — it would read back as a
+  // variant with nothing in it, which the loader refuses on the way in.
+  const savable = draft.prompt.trim() !== '' && !save.isPending
+
+  /**
+   * Updating needs a preset this model's idiom can actually be read back into.
+   *
+   * On `unsupported` the form was never seeded from this fork — the model reads
+   * an idiom it does not speak — so what is in the box is unrelated text, and
+   * writing it in as this fork's missing idiom would be putting words in the
+   * preset's mouth. Disabled with the reason already on screen (PRD §10.1)
+   * rather than hidden: it is still yours, and "Save as new" is right there.
+   */
+  const updatable = savable && seed.state !== 'unsupported'
+
+  /**
+   * Update in place — the current idiom from the form, the other one kept.
+   *
+   * `selected` goes in as the base so a fork that speaks both idioms survives
+   * being updated from a model that reads one of them: a save says what the form
+   * in front of you says, and nothing at all about the other idiom.
+   */
   const update = (): void => {
-    if (selected === null || !yours) return
+    if (selected === null || !yours || !updatable) return
 
     save.mutate(
-      userPresetFrom({
-        ...captureOf(draft, model),
-        id: selected.id,
-        name: selected.name,
-      }),
+      userPresetFrom(
+        {
+          ...captureOf(draft, model),
+          id: selected.id,
+          name: selected.name,
+        },
+        selected
+      ),
       {
         onSuccess: preset => {
           // The form *is* the preset now, so the provenance flag goes back to
@@ -166,10 +193,6 @@ function StylePresetField({ project }: { project: Project }) {
       }
     )
   }
-
-  // A preset with an empty prompt is not a preset — it would read back as a
-  // variant with nothing in it, which the loader refuses on the way in.
-  const savable = draft.prompt.trim() !== '' && !save.isPending
 
   return (
     <div className="space-y-2">
@@ -184,9 +207,7 @@ function StylePresetField({ project }: { project: Project }) {
           choose(
             id === ''
               ? null
-              : ([...BUILT_IN_STYLE_PRESETS, ...userPresets].find(
-                  preset => preset.id === id
-                ) ?? null)
+              : (library.find(preset => preset.id === id) ?? null)
           )
         }}
       >
@@ -243,7 +264,7 @@ function StylePresetField({ project }: { project: Project }) {
             <Button
               size="sm"
               variant="ghost"
-              disabled={!savable}
+              disabled={!updatable}
               onClick={update}
             >
               {t('editor.preset.update')}
@@ -271,9 +292,7 @@ function StylePresetField({ project }: { project: Project }) {
           draft={draft}
           model={model}
           suggestion={selected?.name ?? ''}
-          taken={[...BUILT_IN_STYLE_PRESETS, ...userPresets].map(
-            preset => preset.id
-          )}
+          taken={library.map(preset => preset.id)}
           onClose={() => setSavingAs(false)}
         />
       )}
@@ -461,7 +480,9 @@ function FixturePresetField({
  * names *this* model gives them.
  *
  * Only the current model's idiom is claimed. A save can speak for the model in
- * front of it and no other, which is why the other variant comes out `null`.
+ * front of it and no other — so `userPresetFrom` writes this one variant and
+ * takes the other from the preset being updated, if there is one, rather than
+ * inventing or discarding it.
  */
 function captureOf(
   draft: StageRecipe,

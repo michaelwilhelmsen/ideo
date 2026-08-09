@@ -13,22 +13,17 @@
 
 use serde_json::Value;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::projects::import::{self, ImportError, ImportedImage};
 use crate::projects::index;
 use crate::projects::store::{self, CleanupOutcome, ProjectRecord, ProjectSummary, ProjectUsage};
+use crate::utils::paths::app_data;
 
 /// Under `app_data_dir`, so it lands where the platform expects app data and
 /// nowhere a path can be talked into.
 const PROJECTS_DIR: &str = "projects";
 const INDEX_FILE: &str = "index.sqlite";
-
-fn app_data(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|e| format!("Could not locate the app data directory: {e}"))
-}
 
 fn projects_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data(app)?.join(PROJECTS_DIR))

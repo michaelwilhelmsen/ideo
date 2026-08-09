@@ -5,16 +5,10 @@
 //! it (`src/lib/recipe/presets.ts`). See `presets::store` for the rest.
 
 use serde_json::Value;
-use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::presets::store;
-
-fn app_data(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|e| format!("Could not locate the app data directory: {e}"))
-}
+use crate::utils::paths::app_data;
 
 /// Every preset the user has saved, in a stable order.
 ///

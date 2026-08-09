@@ -285,6 +285,14 @@ fails there, before the key is fetched and before a concurrency slot is taken. T
 is specific — the Nano Banana edit endpoints do not _require_ their image field, so a
 missing source would have succeeded as a text-to-image and been charged for.
 
+Every one of those refusals crosses as a code, not a sentence: `GenerationError.inputImage`
+is an `InputImageProblem` — `noneNamed`, `notOnDisk`, `unreadable`, `unsupportedFormat`,
+`tooLarge { bytes, limit }`, `noField` — which `components/editor/errors.ts` maps to a key
+in `locales/`. Unlike `detail`, which quotes what fal said, this failure is ours and there
+is nobody to quote, so an English sentence built in Rust would be one no locale file could
+ever reach (PRD §10.4). The path, the `io::Error` and the byte count are logged Rust-side
+instead — see [error-handling.md](./error-handling.md).
+
 Progress crosses as an emitted event rather than a return value, because the interesting
 part happens while the command is still running — see
 [tauri-commands.md](./tauri-commands.md) for registering an event payload type with

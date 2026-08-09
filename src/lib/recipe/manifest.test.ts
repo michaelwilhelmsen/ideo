@@ -75,6 +75,55 @@ describe('a manifest that is not what we expect', () => {
   })
 })
 
+/**
+ * A recipe records what was sent (AC10), and one of the things sent is an
+ * explicit `{width, height}` — the idiom the largest group of image models uses
+ * for its geometry. A reader that dropped it would make every manifest read back
+ * less re-runnable than it was written.
+ */
+describe('parameters', () => {
+  const sized: Generation = {
+    ...(ATLAS.generations[0] as Generation),
+    recipe: {
+      ...(ATLAS.generations[0] as Generation).recipe,
+      params: { image_size: { width: 1344, height: 576 }, seed: 4242 },
+    },
+  }
+
+  it('round-trips an explicit output size, through JSON as it travels', () => {
+    const manifest = writeManifest({ ...ATLAS, generations: [sized] }, 1)
+    const project = readManifest(JSON.parse(JSON.stringify(manifest)))
+
+    expect(project.generations[0]?.recipe.params).toEqual({
+      image_size: { width: 1344, height: 576 },
+      seed: 4242,
+    })
+  })
+
+  it('drops a parameter no request body could carry', () => {
+    const manifest = writeManifest(ATLAS, 1)
+    const project = readManifest({
+      ...manifest,
+      generations: [
+        {
+          ...manifest.generations[0],
+          recipe: {
+            ...(ATLAS.generations[0] as Generation).recipe,
+            params: {
+              image_size: { width: '1344', height: null },
+              tags: ['not', 'a', 'value'],
+              strength: 0.7,
+            },
+          },
+        },
+      ],
+    })
+
+    // The candidate survives; only the two claims a body could not hold go.
+    expect(project.generations[0]?.recipe.params).toEqual({ strength: 0.7 })
+  })
+})
+
 describe('assets', () => {
   it('keeps the asset as a bare file name, never a path', () => {
     const first = ATLAS.generations[0]

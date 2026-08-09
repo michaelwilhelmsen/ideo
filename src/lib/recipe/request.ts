@@ -24,14 +24,7 @@ import {
   serializeDuration,
   type ModelCapabilities,
 } from './registry'
-import type { AspectId, StageRecipe } from './types'
-
-/** A JSON value as a fal request body holds one. */
-export type RequestValue =
-  | string
-  | number
-  | boolean
-  | { readonly width: number; readonly height: number }
+import type { AspectId, ParamValue, StageParams, StageRecipe } from './types'
 
 /** One submission, as far as anything before the HTTP call is concerned. */
 export interface ModelRequest {
@@ -43,7 +36,7 @@ export interface ModelRequest {
    * shares and the one Rust refuses on its own account — an empty prompt is a
    * paid call for nothing.
    */
-  readonly params: Readonly<Record<string, RequestValue>>
+  readonly params: StageParams
 }
 
 /**
@@ -64,7 +57,7 @@ export function buildRequest(
   aspect: AspectId,
   recipe: StageRecipe
 ): ModelRequest {
-  const params: Record<string, RequestValue> = {}
+  const params: Record<string, ParamValue> = {}
 
   for (const [key, value] of Object.entries(model.defaults)) {
     params[key] = value
@@ -79,8 +72,13 @@ export function buildRequest(
   // it is a whole image (#28), read and encoded on the Rust side from the
   // generation the recipe names — so a value here could only be a stale URL from
   // a hand-edited manifest, and it would be silently restyling the wrong picture.
+  //
+  // And `seed`, for the same reason from the other direction: a recipe records
+  // the seed it was sent with (see `sentRecipe`), so restoring one puts that
+  // number in `params` — where, carried through, it would keep pinning the seed
+  // after the user had unpinned it. `recipe.seed` is the only thing that decides.
   for (const [key, value] of Object.entries(recipe.params)) {
-    if (declaresParam(model, key) && key !== model.imageParam) {
+    if (declaresParam(model, key) && key !== model.imageParam && key !== SEED) {
       params[key] = value
     }
   }
@@ -96,11 +94,36 @@ export function buildRequest(
   // rather than a re-roll. On a model with no seed field there is nothing to
   // pin, and sending one would be a 422.
   if (model.supportsSeed && recipe.seed.mode === 'pinned') {
-    params.seed = recipe.seed.value
+    params[SEED] = recipe.seed.value
   }
 
   return {
     modelId: model.id,
     params: { ...params, ...aspectRequestFields(model, aspect) },
   }
+}
+
+/** Not a registry field: every model that takes one spells it this way. */
+const SEED = 'seed'
+
+/**
+ * The recipe as it was actually submitted — what gets persisted (AC10).
+ *
+ * The frozen draft is not that recipe on its own. Three things are decided
+ * between freezing it and the HTTP call, all of them here rather than in the
+ * form: our defaults for fields the user never touched, the project's locked
+ * ratio as this model's own geometry field, and the seed where one was pinned.
+ * A recipe missing them is not re-runnable — it says "16:9 somehow" where the
+ * request said `{width: 1344, height: 768}` — and re-runnability is the premise
+ * the whole recipe model rests on (PRD §1).
+ *
+ * The draft keeps its own parameters, untouched: it is the form, and the form
+ * shows what the user set rather than what we resolved on their behalf. This is
+ * the copy that travels with the job and comes back on arrival (#24).
+ */
+export function sentRecipe(
+  recipe: StageRecipe,
+  request: ModelRequest
+): StageRecipe {
+  return { ...recipe, params: request.params }
 }

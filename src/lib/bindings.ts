@@ -452,7 +452,11 @@ detail: string | null;
 /**
  * HTTP status, for `Unexpected`.
  */
-status: number | null }
+status: number | null; 
+/**
+ * Which input-image problem it was, when `reason` is `InputImageUnusable`.
+ */
+inputImage: InputImageProblem | null }
 /**
  * Why a generation did not produce an image.
  * 
@@ -468,7 +472,7 @@ export type GenerationErrorReason =
 "emptyPrompt" | 
 /**
  * The stage had no usable input image (#28) — none was named, the file is
- * not on disk, or it is too large to inline. `detail` says which.
+ * not on disk, or it is too large to inline. `input_image` says which.
  * 
  * A reason of its own rather than a `RequestRejected`, because fal never
  * saw this one: it is refused here, before the key is fetched and before
@@ -604,6 +608,41 @@ export type ImportedImage = {
  * generated asset is — never a path.
  */
 assetName: string; width: number; height: number }
+/**
+ * What was wrong with a stage's input image (#28).
+ * 
+ * A code, plus the numbers the sentence needs, rather than the sentence: this
+ * refusal is ours rather than fal's — it happens before the request exists — so
+ * unlike `detail` there is nobody to quote, and an English sentence built here
+ * is one the user's locale can never translate (PRD §10.4). The frontend maps
+ * each code to a key in `locales/`. Technical particulars stay on this side, in
+ * the log, per `docs/developer/error-handling.md`.
+ */
+export type InputImageProblem = 
+/**
+ * No input generation was named at all — a restyle with nothing to restyle.
+ */
+{ code: "noneNamed" } | 
+/**
+ * The generation is named but has no file in the project's assets folder.
+ */
+{ code: "notOnDisk" } | 
+/**
+ * The file is there and could not be read, or holds nothing.
+ */
+{ code: "unreadable" } | 
+/**
+ * Not a PNG, JPEG or WebP, whatever its extension claims.
+ */
+{ code: "unsupportedFormat" } | 
+/**
+ * Over the ceiling on an inlined image, in bytes.
+ */
+{ code: "tooLarge"; bytes: number; limit: number } | 
+/**
+ * The registry named no field to put the image in.
+ */
+{ code: "noField" }
 /**
  * A job as the frontend sees it: enough to show it, enough to record it in
  * the manifest once it finishes. The queue URLs stay in this module — they

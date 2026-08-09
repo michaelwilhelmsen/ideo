@@ -98,7 +98,7 @@ pub enum GenerationErrorReason {
     /// Nothing was typed.
     EmptyPrompt,
     /// The stage had no usable input image (#28) — none was named, the file is
-    /// not on disk, or it is too large to inline. `detail` says which.
+    /// not on disk, or it is too large to inline. `input_image` says which.
     ///
     /// A reason of its own rather than a `RequestRejected`, because fal never
     /// saw this one: it is refused here, before the key is fetched and before
@@ -125,14 +125,42 @@ pub enum GenerationErrorReason {
     Unexpected,
 }
 
+/// What was wrong with a stage's input image (#28).
+///
+/// A code, plus the numbers the sentence needs, rather than the sentence: this
+/// refusal is ours rather than fal's — it happens before the request exists — so
+/// unlike `detail` there is nobody to quote, and an English sentence built here
+/// is one the user's locale can never translate (PRD §10.4). The frontend maps
+/// each code to a key in `locales/`. Technical particulars stay on this side, in
+/// the log, per `docs/developer/error-handling.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "code", rename_all = "camelCase")]
+pub enum InputImageProblem {
+    /// No input generation was named at all — a restyle with nothing to restyle.
+    NoneNamed,
+    /// The generation is named but has no file in the project's assets folder.
+    NotOnDisk,
+    /// The file is there and could not be read, or holds nothing.
+    Unreadable,
+    /// Not a PNG, JPEG or WebP, whatever its extension claims.
+    UnsupportedFormat,
+    /// Over the ceiling on an inlined image, in bytes.
+    TooLarge { bytes: f64, limit: f64 },
+    /// The registry named no field to put the image in.
+    NoField,
+}
+
 /// A failure, as it crosses to the frontend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct GenerationError {
     pub reason: GenerationErrorReason,
     /// Text fal supplied about this specific failure, when there was any.
     pub detail: Option<String>,
     /// HTTP status, for `Unexpected`.
     pub status: Option<u16>,
+    /// Which input-image problem it was, when `reason` is `InputImageUnusable`.
+    pub input_image: Option<InputImageProblem>,
 }
 
 impl GenerationError {
@@ -141,6 +169,7 @@ impl GenerationError {
             reason,
             detail: None,
             status: None,
+            input_image: None,
         }
     }
 
@@ -148,6 +177,14 @@ impl GenerationError {
         Self {
             detail: Some(detail.into()),
             ..Self::new(reason)
+        }
+    }
+
+    /// The one refusal fal never sees, and therefore never supplies words for.
+    pub fn unusable_input(problem: InputImageProblem) -> Self {
+        Self {
+            input_image: Some(problem),
+            ..Self::new(GenerationErrorReason::InputImageUnusable)
         }
     }
 }

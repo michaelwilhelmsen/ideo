@@ -540,6 +540,61 @@ describe('a saved fork', () => {
     expect(composePreset(fork, QWEN)?.strength).toBeNull()
   })
 
+  /**
+   * Updating one in place. The fork on disk may speak both idioms — it was saved
+   * once from a prose model and once from a tags one — and a save is a claim
+   * about the form in front of you, never a claim that the other idiom has
+   * stopped existing.
+   */
+  describe('updated in place', () => {
+    /** A fork that has been taught both idioms, as the file holds it. */
+    const both: StylePreset = {
+      ...userPresetFrom(capture),
+      variants: {
+        tags: userPresetFrom(capture).variants.tags,
+        prose: {
+          transform: 'Grade it towards a warm dusk.',
+          compose: '{transform}',
+          negative: 'cold light',
+          strength: 0.7,
+        },
+      },
+    }
+
+    it('rewrites the current idiom and keeps the other verbatim', () => {
+      const updated = userPresetFrom(
+        { ...capture, prompt: 'same composition, warmer dusk grade' },
+        both
+      )
+
+      expect(updated.variants.tags?.transform).toBe(
+        'same composition, warmer dusk grade'
+      )
+      expect(updated.variants.prose).toEqual(both.variants.prose)
+    })
+
+    it('teaches a one-idiom fork the other rather than replacing it', () => {
+      const prose = modelById(MODEL_REGISTRY, 'fal-ai/flux/dev/image-to-image')
+      const taught = userPresetFrom(
+        {
+          ...capture,
+          promptStyle: prose.promptStyle,
+          prompt: 'Grade it towards a warm dusk.',
+        },
+        userPresetFrom(capture)
+      )
+
+      expect(taught.variants.tags?.transform).toBe(capture.prompt)
+      expect(composePreset(taught, prose)?.prompt).toBe(
+        'Grade it towards a warm dusk.'
+      )
+    })
+
+    it('claims one idiom only when there is no fork to update', () => {
+      expect(userPresetFrom(capture).variants.prose).toBeNull()
+    })
+  })
+
   it('does not mistake an empty field for an opinion', () => {
     // An empty negative box and a strength field the model does not have both
     // arrive here as blanks; a fork that recorded them would read back as

@@ -41,6 +41,34 @@ const QWEN = modelById(MODEL_REGISTRY, 'fal-ai/qwen-image-2/edit')
 const GLASS = stylePresetById('glass-caustics')
 if (GLASS === null) throw new Error('the built-in library lost a preset')
 
+/** A prose variant, as a fork that has been taught both idioms holds one. */
+const PROSE_VARIANT = {
+  transform: 'Grade it towards a warm dusk.',
+  compose: '{transform}',
+  negative: null,
+  strength: 0.7,
+} as const
+
+/**
+ * A fork that speaks both idioms — saved once from a prose model, once from a
+ * tags one. The case update-in-place has to not destroy.
+ */
+function bilingualFork(): unknown {
+  const tags = userPresetFrom({
+    id: 'my-look',
+    name: 'My look',
+    promptStyle: 'tags',
+    prompt: 'a keyword list',
+    negative: null,
+    strength: null,
+  })
+
+  return writeUserPreset({
+    ...tags,
+    variants: { tags: tags.variants.tags, prose: PROSE_VARIANT },
+  })
+}
+
 /** A saved fork, as the file in app data holds it. */
 function savedFork({
   id = 'my-look',
@@ -347,6 +375,74 @@ describe('saving a fork', () => {
     ).toBe('Make it mine, warmer.')
     // The form is the preset again, so the provenance flag is clean.
     expect(styleDraft().presetModified).toBe(false)
+  })
+
+  it('keeps the fork’s other idiom when updating from this one', async () => {
+    // A fork that speaks both idioms is two saves' work. Updating it from a
+    // prose model used to write the prose variant and set the tags one to null,
+    // which silently threw half of it away — and the picker would then disable
+    // the preset for every tags model, with nothing on screen to say why.
+    const user = userEvent.setup()
+    withSaved(bilingualFork())
+    open()
+    render(<LivePresetField />)
+
+    await waitFor(() =>
+      expect(picker().querySelectorAll('optgroup')).toHaveLength(2)
+    )
+    pick('my-look')
+    useEditorStore.getState().dispatch({
+      type: 'setPrompt',
+      stage: 'style',
+      prompt: 'Grade it towards a warmer dusk.',
+    })
+
+    await user.click(
+      screen.getByRole('button', { name: /update this preset/i })
+    )
+
+    await waitFor(() =>
+      expect(mockCommands.userPresetSave).toHaveBeenCalledOnce()
+    )
+    const variants = savedDocument().variants as Record<string, unknown>
+    expect(variants.prose).toMatchObject({
+      transform: 'Grade it towards a warmer dusk.',
+    })
+    // Verbatim, down to the strength: this save said nothing about tags.
+    expect(variants.tags).toMatchObject({ transform: 'a keyword list' })
+  })
+
+  it('will not update a fork this model’s idiom cannot be read back into', async () => {
+    // On `unsupported` the box holds text this fork never seeded — the model
+    // reads an idiom it does not speak — so writing it in as the missing idiom
+    // would be putting words in the preset's mouth. Save as new is right there.
+    const user = userEvent.setup()
+    withSaved(savedFork({ promptStyle: 'tags', prompt: 'a keyword list' }))
+    open()
+    useEditorStore
+      .getState()
+      .dispatch({ type: 'chooseModel', stage: 'style', modelId: QWEN.id })
+    render(<LivePresetField />)
+
+    await waitFor(() =>
+      expect(picker().querySelectorAll('optgroup')).toHaveLength(2)
+    )
+    pick('my-look')
+    useEditorStore
+      .getState()
+      .dispatch({ type: 'chooseModel', stage: 'style', modelId: FLUX_I2I.id })
+
+    const update = await screen.findByRole('button', {
+      name: /update this preset/i,
+    })
+    expect(update).toBeDisabled()
+    // Disabled with the reason already on screen (PRD §10.1), not hidden: it is
+    // still yours, and deleting it is still offered.
+    expect(screen.getByText(/no version written for prose/i)).toBeVisible()
+    expect(screen.getByRole('button', { name: /delete preset/i })).toBeEnabled()
+
+    await user.click(update)
+    expect(mockCommands.userPresetSave).not.toHaveBeenCalled()
   })
 
   it('offers no update or delete on a built-in', async () => {

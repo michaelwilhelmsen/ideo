@@ -28,6 +28,7 @@ import {
   imageParamShape,
   modelById,
   planBatch,
+  sentRecipe,
   MODEL_REGISTRY,
   type EditorAction,
   type ModelCapabilities,
@@ -117,32 +118,43 @@ export async function requireFalApiKey(
 }
 
 /**
- * What a stage needs to send its input image, or `null` when it needs none.
+ * What a stage needs to send its input image — three answers, not two.
  *
- * Two absences, deliberately told apart. A model with no `imageParam` — every
- * source model — wants nothing here and gets `null`. A model that *has* one and
- * has no input generation to point it at is a `'missing'`: the run is refused
- * rather than submitted, because the Nano Banana edit endpoints do not require
- * their image field — so the same call without a source is a paid text-to-image
- * of whatever the prompt happens to say (#28).
+ * `needsNone` is a model with no `imageParam` at all, which is every source
+ * model. `missing` is a model that *has* one and has no input generation to
+ * point it at: the run is refused rather than submitted, because the Nano Banana
+ * edit endpoints do not require their image field — so the same call without a
+ * source is a paid text-to-image of whatever the prompt happens to say (#28).
+ *
+ * Told apart by a tag rather than by `null` versus a magic string, because the
+ * two absences mean opposite things — one submits, one refuses — and a caller
+ * that forgets which is which spends money on the difference.
  */
+type ResolvedImageInput =
+  | { readonly kind: 'needsNone' }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'names'; readonly input: ImageInput }
+
 function imageInputFor(
   model: ModelCapabilities,
   recipe: StageRecipe
-): ImageInput | null | 'missing' {
+): ResolvedImageInput {
   const shape = imageParamShape(model)
-  if (model.imageParam === null || shape === null) return null
+  if (model.imageParam === null || shape === null) return { kind: 'needsNone' }
 
   // Whichever candidate the stage is working from — a generated source or one
   // the user dropped in (#27). Both are a file in the assets folder named after
   // their generation, which is the whole reason the upload converged on that
   // shape and the reason this needs no branch for it.
-  if (recipe.inputGenerationId === null) return 'missing'
+  if (recipe.inputGenerationId === null) return { kind: 'missing' }
 
   return {
-    generationId: recipe.inputGenerationId,
-    param: model.imageParam,
-    shape,
+    kind: 'names',
+    input: {
+      generationId: recipe.inputGenerationId,
+      param: model.imageParam,
+      shape,
+    },
   }
 }
 
@@ -191,9 +203,9 @@ export function useRunStage(
   async function submitWhenKeyed() {
     // Frozen once for the whole batch: every candidate of one run has to
     // describe itself identically, or the four-up would be four recipes. It
-    // carries the draft's own prompt and parameters, exactly as the form has
-    // them — seeding a preset into those fields happened earlier and elsewhere
-    // (#28), so what is sent is what is on screen.
+    // carries the draft's own prompt, exactly as the form has it — seeding a
+    // preset into that box happened earlier and elsewhere (#28), so what is
+    // sent is what is on screen.
     const recipe = freezeRecipe(project, stage)
 
     // `null` means the stage has no input selected at all. The button is
@@ -216,13 +228,21 @@ export function useRunStage(
     const model = modelById(MODEL_REGISTRY, recipe.modelId)
     const built = buildRequest(model, project.aspect, recipe)
 
+    // What is persisted is what went to fal, not what the form said (AC10): the
+    // built body resolves our defaults, the project's locked ratio as this
+    // model's own geometry field, and a pinned seed — and a recipe missing those
+    // is not a recipe anybody could re-run.
+    const sent = sentRecipe(recipe, built)
+
     // Before the key, because it costs nothing to check and because a run with
     // no source to restyle must not reach fal at all: on the models whose image
     // field is optional it would quietly succeed as text-to-image and charge for
     // it (#28).
     const imageInput = imageInputFor(model, recipe)
-    if (imageInput === 'missing') {
-      toast.error(t('generate.error.inputImageUnusable'))
+    if (imageInput.kind === 'missing') {
+      // The same refusal Rust makes on the far side, in the same words: this is
+      // simply the cheaper place to find out.
+      toast.error(t('generate.error.inputImageNoneNamed'))
       return
     }
 
@@ -258,13 +278,13 @@ export function useRunStage(
             projectId: project.id,
             generationId,
             stage,
-            recipe,
+            recipe: sent,
             prompt: recipe.prompt,
             modelId: built.modelId,
             params: built.params,
             // The id, not the pixels — Rust reads the file and inlines it as
             // base64 (#28, `docs/research/models-gaps.md` §4).
-            imageInput,
+            imageInput: imageInput.kind === 'names' ? imageInput.input : null,
           })
         } catch (error: unknown) {
           // `useSubmitGeneration` rejects with the reason Rust named, so the

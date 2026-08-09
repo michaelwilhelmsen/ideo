@@ -264,13 +264,68 @@ describe('preset provenance', () => {
     expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
   })
 
-  it('records a parameter move as an edit too', () => {
+  it('records a move of a seeded parameter as an edit too', () => {
+    // Strength is seeded, so "which preset produced this" is a different claim
+    // at 0.8 than at 0.7.
     const state = apply(fixtureEditorState(), choose('glass-caustics'), {
       type: 'setParam',
       stage: 'style',
       key: 'strength',
       value: 0.8,
     })
+
+    expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
+  })
+
+  it('records a move of the negative, where the model has one to seed', () => {
+    const state = apply(
+      fixtureEditorState(),
+      // Qwen is the one model with a `negative_prompt` to seed.
+      {
+        type: 'chooseModel',
+        stage: 'style',
+        modelId: 'fal-ai/qwen-image-2/edit',
+      },
+      choose('glass-caustics'),
+      {
+        type: 'setParam',
+        stage: 'style',
+        key: 'negative_prompt',
+        value: 'no gradients',
+      }
+    )
+
+    expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
+  })
+
+  it('ignores a parameter the preset never seeded', () => {
+    // Seeding writes three fields (`seedFromPreset`) and this is not one of
+    // them: a step count is the model's business, and moving it says nothing
+    // about whether the recipe is still the preset's.
+    const state = apply(fixtureEditorState(), choose('glass-caustics'), {
+      type: 'setParam',
+      stage: 'style',
+      key: 'num_inference_steps',
+      value: 40,
+    })
+
+    expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
+  })
+
+  it('keeps the flag once a seeded field has moved, whatever is edited next', () => {
+    // Provenance is a claim about the past. Editing something unrelated
+    // afterwards does not un-edit the prompt.
+    const state = apply(
+      fixtureEditorState(),
+      choose('glass-caustics'),
+      { type: 'setPrompt', stage: 'style', prompt: 'my own words' },
+      {
+        type: 'setParam',
+        stage: 'style',
+        key: 'num_inference_steps',
+        value: 40,
+      }
+    )
 
     expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
   })
@@ -283,6 +338,21 @@ describe('preset provenance', () => {
     )
 
     expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
+  })
+
+  it('claims nothing on the stages whose presets seed nothing', () => {
+    // Source and animate pick from fixture lists that compose no prompt and fill
+    // no field (`preset: null` on every selection), so an edit there cannot have
+    // moved away from a seeding that never happened. #34 gives them libraries.
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'choosePreset', stage: 'source', presetId: 'wide', preset: null },
+      { type: 'setPrompt', stage: 'source', prompt: 'a different subject' },
+      { type: 'setParam', stage: 'source', key: 'strength', value: 0.8 }
+    )
+
+    expect(openProjectOf(state).drafts.source.presetId).toBe('wide')
+    expect(openProjectOf(state).drafts.source.presetModified).toBe(false)
   })
 })
 

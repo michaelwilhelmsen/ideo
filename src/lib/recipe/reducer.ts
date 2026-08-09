@@ -274,7 +274,8 @@ export function createEditorReducer(
         return editDraft(state, action.stage, draft => ({
           ...draft,
           prompt: action.prompt,
-          presetModified: draft.presetId !== null,
+          // The prompt is seeded on every supported model, so this always counts.
+          presetModified: modifiedByEdit(action.stage, draft, true),
         }))
 
       // A fresh selection is a fresh seed, so nothing has been changed yet.
@@ -305,11 +306,17 @@ export function createEditorReducer(
 
       // Strength and the negative prompt are seeded too, so moving one counts —
       // "which preset produced this" is a different claim at 0.8 than at 0.7.
+      // Every other field is the model's rather than the preset's, and moving
+      // one says nothing about provenance.
       case 'setParam':
         return editDraft(state, action.stage, draft => ({
           ...draft,
           params: { ...draft.params, [action.key]: action.value },
-          presetModified: draft.presetId !== null,
+          presetModified: modifiedByEdit(
+            action.stage,
+            draft,
+            isSeededParam(registry, draft, action.key)
+          ),
         }))
 
       case 'setOption':
@@ -515,6 +522,45 @@ function seedFromPreset(
 }
 
 /**
+ * `presetModified` after an edit — provenance about the *seeded* fields, and
+ * nothing else (#28).
+ *
+ * Three narrowings, each one straight out of what {@link seedFromPreset}
+ * actually writes:
+ *
+ * - **The style stage only.** Source and animate pick from fixture lists that
+ *   compose nothing and seed nothing (`preset: null` on every selection), so a
+ *   flag saying their form has drifted from a preset would be describing a
+ *   seeding that never happened. #34 gives them libraries, and this is where
+ *   they join.
+ * - **A selected preset only.** With none there is no provenance to lose, which
+ *   is what `false` means where `presetId` is null (see {@link StageRecipe}).
+ * - **A seeded field only** — the caller's `seeded`, since which parameter names
+ *   the model seeds is the registry's answer rather than this action's.
+ *
+ * Sticky, because it is a claim about the past: once a seeded field has moved,
+ * editing something else does not unmove it.
+ */
+function modifiedByEdit(
+  stage: StageKind,
+  draft: StageRecipe,
+  seeded: boolean
+): boolean {
+  if (stage !== 'style' || draft.presetId === null) return false
+  return draft.presetModified || seeded
+}
+
+/** Whether this parameter is one seeding would have written. */
+function isSeededParam(
+  registry: readonly ModelCapabilities[],
+  draft: StageRecipe,
+  key: string
+): boolean {
+  const model = modelById(registry, draft.modelId)
+  return key === model.strengthParam || key === model.negativePromptParam
+}
+
+/**
  * Submit the current draft.
  *
  * The draft is *copied* onto each generation with the upstream pointer
@@ -713,6 +759,11 @@ function strandedRun(
  * Exported because a submitted job carries this to Rust and gets it back when
  * it lands (#24). Freezing it in two places would mean a resumed generation
  * could describe itself differently from a fresh one.
+ *
+ * Not the whole story for a stage with a model behind it: the parameters a
+ * *request* carries are resolved afterwards, and `sentRecipe` is what puts them
+ * back on the copy that gets persisted (AC10). A fixture stage has no request,
+ * so the frozen draft is all there is to record.
  */
 export function freezeRecipe(
   project: Project,
