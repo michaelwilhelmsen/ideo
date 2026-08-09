@@ -10,8 +10,12 @@
  * store on the next launch.
  */
 
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import i18n from '@/i18n/config'
+import { ensureFalApiKey } from '@/services/fal-api-key'
+import { useUIStore } from '@/store/ui-store'
 import {
   buildRequest,
   freezeRecipe,
@@ -44,6 +48,30 @@ export function rollSeed(): number {
 }
 
 /**
+ * The gate the PRD puts on the *first generate* rather than on the app (§7).
+ *
+ * Browsing is free and requires nothing; spending money is what requires a
+ * key. Blocking here means the refusal arrives before the submit rather than
+ * as a failure partway through a job, and it arrives with the way out
+ * attached — the toast opens the key pane, so nobody has to go hunting through
+ * Settings for a field they have never seen.
+ */
+export async function requireFalApiKey(
+  queryClient: QueryClient
+): Promise<boolean> {
+  if (await ensureFalApiKey(queryClient)) return true
+
+  toast.error(i18n.t('generate.error.noApiKey'), {
+    action: {
+      label: i18n.t('generate.addKey'),
+      onClick: () => useUIStore.getState().openPreferencesPane('apiKey'),
+    },
+  })
+
+  return false
+}
+
+/**
  * Running a stage, whether or not there is a model behind it yet.
  *
  * Source submits jobs. Style and animate are still fixtures (#28, #29), so
@@ -60,6 +88,7 @@ export function useRunStage(
   const dispatch = useEditorStore(store => store.dispatch)
   const submit = useSubmitGeneration()
   const jobs = useStageJobs(project.id, stage)
+  const queryClient = useQueryClient()
 
   if (stage !== 'source') {
     return {
@@ -72,43 +101,50 @@ export function useRunStage(
     // In flight, not pending: a job submitted before the last quit is running
     // as much as one submitted a second ago, and the button has to say so.
     isRunning: submit.isPending || jobs.length > 0,
-    run: () => {
-      const recipe = freezeRecipe(project, stage)
-      if (recipe === null) return
+    run: () => void submitWhenKeyed(),
+  }
 
-      // The registry decides what goes on the wire (#25): the endpoint, the
-      // aspect idiom, our defaults rather than fal's, and a seed only where
-      // there is a field for one. `modelById` throws on an id with no entry, so
-      // an unknown model fails here rather than as a 422 after the charge
-      // (PRD §5 — no arbitrary model ids).
-      const built = buildRequest(
-        modelById(MODEL_REGISTRY, recipe.modelId),
-        project.aspect,
-        recipe
-      )
+  async function submitWhenKeyed() {
+    const recipe = freezeRecipe(project, stage)
+    if (recipe === null) return
 
-      // One job per click. `batch` is 1 for the source stage until #26 raises
-      // it, and fanning out here before then would be a batch the concurrency
-      // cap has never actually had to hold — see PRD §3.3.
-      submit.mutate(
-        {
-          projectId: project.id,
-          // Minted here because the file is named after it — the manifest
-          // entry and the file on disk agree by construction.
-          generationId: crypto.randomUUID(),
-          stage,
-          recipe,
-          prompt: recipe.prompt,
-          modelId: built.modelId,
-          params: built.params,
-        },
-        {
-          // A submit that failed bought nothing and mints nothing: an empty
-          // candidate would look like an orphan to the cleanup pass and like
-          // a result to everyone else.
-          onError: error => toast.error(generationErrorMessage(t, error)),
-        }
-      )
-    },
+    // Before anything else: a job submitted without a key fails at fal.ai
+    // after the request is on the wire, which reads as a broken app rather
+    // than as a missing setting.
+    if (!(await requireFalApiKey(queryClient))) return
+
+    // The registry decides what goes on the wire (#25): the endpoint, the
+    // aspect idiom, our defaults rather than fal's, and a seed only where
+    // there is a field for one. `modelById` throws on an id with no entry, so
+    // an unknown model fails here rather than as a 422 after the charge
+    // (PRD §5 — no arbitrary model ids).
+    const built = buildRequest(
+      modelById(MODEL_REGISTRY, recipe.modelId),
+      project.aspect,
+      recipe
+    )
+
+    // One job per click. `batch` is 1 for the source stage until #26 raises
+    // it, and fanning out here before then would be a batch the concurrency
+    // cap has never actually had to hold — see PRD §3.3.
+    submit.mutate(
+      {
+        projectId: project.id,
+        // Minted here because the file is named after it — the manifest
+        // entry and the file on disk agree by construction.
+        generationId: crypto.randomUUID(),
+        stage,
+        recipe,
+        prompt: recipe.prompt,
+        modelId: built.modelId,
+        params: built.params,
+      },
+      {
+        // A submit that failed bought nothing and mints nothing: an empty
+        // candidate would look like an orphan to the cleanup pass and like
+        // a result to everyone else.
+        onError: error => toast.error(generationErrorMessage(t, error)),
+      }
+    )
   }
 }

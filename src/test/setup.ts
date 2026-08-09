@@ -29,6 +29,11 @@ vi.mock('@tauri-apps/api/event', () => ({
   }),
 }))
 
+// Opening a URL in the system browser (#32) — jsdom has no shell to hand it to.
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: vi.fn().mockResolvedValue(undefined),
+}))
+
 // The webview handle reads window internals that jsdom has none of. Only its
 // drag-drop listener is used (#27), and it hands back an unlisten like the
 // real one so components can register and tear down as they normally would.
@@ -44,9 +49,13 @@ vi.mock('@tauri-apps/api/webview', () => ({
 vi.mock('@/lib/tauri-bindings', () => ({
   commands: {
     greet: vi.fn().mockResolvedValue('Hello, test!'),
-    loadPreferences: vi
-      .fn()
-      .mockResolvedValue({ status: 'ok', data: { theme: 'system' } }),
+    // A returning user by default (#32): `onboarding_version` above any step's
+    // version means no test inherits a welcome modal it did not ask for. Tests
+    // about onboarding set it to 0 — a first launch — themselves.
+    loadPreferences: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { theme: 'system', onboarding_version: 1_000 },
+    }),
     savePreferences: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     sendNativeNotification: vi
       .fn()

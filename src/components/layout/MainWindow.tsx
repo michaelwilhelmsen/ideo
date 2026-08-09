@@ -12,6 +12,7 @@ import { StageEditor } from '@/components/editor/StageEditor'
 import { ActiveStageParameters } from '@/components/editor/ActiveStageParameters'
 import { CommandPalette } from '@/components/command-palette/CommandPalette'
 import { PreferencesDialog } from '@/components/preferences/PreferencesDialog'
+import { OnboardingDialog } from '@/components/onboarding/OnboardingDialog'
 import { Toaster } from 'sonner'
 import { useTheme } from '@/hooks/use-theme'
 import { useUIStore } from '@/store/ui-store'
@@ -97,6 +98,9 @@ export function MainWindow() {
       {/* Global UI Components (hidden until triggered) */}
       <CommandPalette />
       <PreferencesDialog />
+      {/* First launch, or a step added since the last one (#32). Main window
+          only — the quick pane is no place to meet an app for the first time. */}
+      <OnboardingDialog />
       <Toaster
         position="bottom-right"
         theme={

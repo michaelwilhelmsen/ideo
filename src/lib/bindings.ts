@@ -392,7 +392,13 @@ quick_pane_shortcut: string | null;
  * User's preferred language (e.g., "en", "es", "de")
  * If None, uses system locale detection
  */
-language: string | null }
+language: string | null; 
+/**
+ * Highest onboarding version the user has been walked through (PRD §7).
+ * `0` means "never onboarded", which is also what a preferences file
+ * written before this field existed deserialises to.
+ */
+onboarding_version?: number }
 /**
  * The result of a cleanup, so the UI can say what it actually did rather than
  * "done".

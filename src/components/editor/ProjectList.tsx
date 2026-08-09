@@ -34,6 +34,7 @@ import {
   useProjectUsage,
 } from '@/services/projects'
 import { useEditorStore } from '@/store/editor-store'
+import { useUIStore } from '@/store/ui-store'
 import { NewProjectDialog } from './NewProjectDialog'
 
 export function ProjectList() {
@@ -42,7 +43,9 @@ export function ProjectList() {
   const openProjectId = useEditorStore(store => store.state.project?.id ?? null)
   const openProject = useOpenProject()
 
-  const [creating, setCreating] = useState(false)
+  // In the store because onboarding's last step opens it (#32).
+  const creating = useUIStore(state => state.newProjectOpen)
+  const setCreating = useUIStore(state => state.setNewProjectOpen)
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
 
   return (

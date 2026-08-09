@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,6 +11,7 @@ import { SettingsField, SettingsSection } from '../shared/SettingsComponents'
 import { usePreferences, useSavePreferences } from '@/services/preferences'
 import { commands } from '@/lib/tauri-bindings'
 import { logger } from '@/lib/logger'
+import { useUIStore } from '@/store/ui-store'
 
 export function GeneralPane() {
   const { t } = useTranslation()
@@ -99,6 +101,25 @@ export function GeneralPane() {
             onChange={handleShortcutChange}
             disabled={!preferences || savePreferences.isPending}
           />
+        </SettingsField>
+      </SettingsSection>
+
+      <SettingsSection title={t('preferences.general.onboarding')}>
+        <SettingsField
+          label={t('preferences.general.replayOnboarding')}
+          description={t('preferences.general.replayOnboardingDescription')}
+        >
+          <Button
+            variant="outline"
+            onClick={() => {
+              // From zero, not from the stored version: replaying is a request
+              // for the whole thing, including steps already seen (#32).
+              useUIStore.getState().startOnboarding(0)
+              useUIStore.getState().setPreferencesOpen(false)
+            }}
+          >
+            {t('preferences.general.replayOnboardingAction')}
+          </Button>
         </SettingsField>
       </SettingsSection>
 

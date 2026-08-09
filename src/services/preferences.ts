@@ -9,6 +9,19 @@ export const preferencesQueryKeys = {
   preferences: () => [...preferencesQueryKeys.all] as const,
 }
 
+/**
+ * What preferences are before anything has been saved — and what a failed load
+ * falls back to. `onboarding_version: 0` is load-bearing: it is what makes a
+ * fresh install, and a preferences file written before onboarding existed,
+ * both read as "never onboarded" (#32).
+ */
+export const DEFAULT_PREFERENCES: AppPreferences = {
+  theme: 'system',
+  quick_pane_shortcut: null,
+  language: null,
+  onboarding_version: 0,
+}
+
 // TanStack Query hooks following the architectural patterns
 export function usePreferences() {
   return useQuery({
@@ -22,7 +35,7 @@ export function usePreferences() {
         logger.warn('Failed to load preferences, using defaults', {
           error: result.error,
         })
-        return { theme: 'system', quick_pane_shortcut: null, language: null }
+        return DEFAULT_PREFERENCES
       }
 
       logger.info('Preferences loaded successfully', {

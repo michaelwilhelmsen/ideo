@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query'
 import { logger } from '@/lib/logger'
 import { commands, unwrapResult, type KeyCheck } from '@/lib/tauri-bindings'
 
@@ -31,6 +36,25 @@ function unwrapOrThrow<T>(
 /** Whether a key is stored. Local check, no network. */
 export function useHasFalApiKey() {
   return useQuery({
+    queryKey: falApiKeyQueryKeys.presence(),
+    queryFn: async (): Promise<boolean> =>
+      unwrapResult(await commands.hasFalApiKey()),
+    staleTime: Infinity,
+  })
+}
+
+/**
+ * Whether a key is stored, answered at the moment of asking.
+ *
+ * The first generate is the gate (PRD §7), and a click cannot be gated on a
+ * hook that happens to still be loading: that would either block a legitimate
+ * run or wave through one with no key. This resolves the same cached answer
+ * `useHasFalApiKey` renders from, awaiting it if it is not there yet.
+ */
+export async function ensureFalApiKey(
+  queryClient: QueryClient
+): Promise<boolean> {
+  return await queryClient.ensureQueryData({
     queryKey: falApiKeyQueryKeys.presence(),
     queryFn: async (): Promise<boolean> =>
       unwrapResult(await commands.hasFalApiKey()),

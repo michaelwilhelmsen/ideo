@@ -11,6 +11,14 @@ pub const DEFAULT_QUICK_PANE_SHORTCUT: &str = "CommandOrControl+Shift+.";
 /// Maximum size for recovery data files (10MB)
 pub const MAX_RECOVERY_DATA_BYTES: u32 = 10_485_760;
 
+/// Upper bound on the stored onboarding version (PRD §7).
+///
+/// Completion is a version integer rather than a boolean so a step added later
+/// can re-prompt existing users. The cap only rejects nonsense written by hand
+/// into `preferences.json` — a version from the future would silently suppress
+/// every future step.
+pub const MAX_ONBOARDING_VERSION: u32 = 1_000;
+
 /// Pre-compiled regex pattern for filename validation.
 /// Only allows alphanumeric characters, dashes, underscores, and a single extension.
 pub static FILENAME_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
@@ -33,6 +41,11 @@ pub struct AppPreferences {
     /// User's preferred language (e.g., "en", "es", "de")
     /// If None, uses system locale detection
     pub language: Option<String>,
+    /// Highest onboarding version the user has been walked through (PRD §7).
+    /// `0` means "never onboarded", which is also what a preferences file
+    /// written before this field existed deserialises to.
+    #[serde(default)]
+    pub onboarding_version: u32,
 }
 
 impl Default for AppPreferences {
@@ -41,6 +54,7 @@ impl Default for AppPreferences {
             theme: "system".to_string(),
             quick_pane_shortcut: None, // None means use default
             language: None,            // None means use system locale
+            onboarding_version: 0,     // 0 means never onboarded
         }
     }
 }
@@ -118,5 +132,50 @@ pub fn validate_theme(theme: &str) -> Result<(), String> {
     match theme {
         "light" | "dark" | "system" => Ok(()),
         _ => Err("Invalid theme: must be 'light', 'dark', or 'system'".to_string()),
+    }
+}
+
+/// Validates a stored onboarding version.
+pub fn validate_onboarding_version(version: u32) -> Result<(), String> {
+    if version > MAX_ONBOARDING_VERSION {
+        return Err(format!(
+            "Invalid onboarding version: must be at most {MAX_ONBOARDING_VERSION}"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Preferences written before onboarding existed must still load, and must
+    /// read as "never onboarded" rather than as "already done".
+    #[test]
+    fn preferences_without_an_onboarding_version_default_to_zero() {
+        let prefs: AppPreferences =
+            serde_json::from_str(r#"{"theme":"dark","quick_pane_shortcut":null,"language":null}"#)
+                .expect("legacy preferences should still parse");
+
+        assert_eq!(prefs.onboarding_version, 0);
+    }
+
+    #[test]
+    fn a_stored_version_survives_a_round_trip() {
+        let prefs = AppPreferences {
+            onboarding_version: 3,
+            ..AppPreferences::default()
+        };
+        let json = serde_json::to_string(&prefs).expect("serialises");
+        let back: AppPreferences = serde_json::from_str(&json).expect("deserialises");
+
+        assert_eq!(back.onboarding_version, 3);
+    }
+
+    #[test]
+    fn rejects_a_version_from_the_future() {
+        assert!(validate_onboarding_version(0).is_ok());
+        assert!(validate_onboarding_version(MAX_ONBOARDING_VERSION).is_ok());
+        assert!(validate_onboarding_version(MAX_ONBOARDING_VERSION + 1).is_err());
     }
 }
