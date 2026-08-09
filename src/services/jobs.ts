@@ -44,6 +44,7 @@ import {
 } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { openProjectById, saveProject } from './projects'
+import { runIdOf } from './run-ids'
 
 /** Both match `src-tauri/src/jobs/runner.rs`. */
 const PROGRESS_EVENT = 'generation-progress'
@@ -449,5 +450,9 @@ function asCompletedRun(job: Job): CompletedRun | null {
     recipe,
     seed: job.seed,
     asset: job.asset,
+    // `null` for a job submitted by a previous launch: the store knows nothing
+    // about runs (#26), so a resumed candidate arrives ungrouped rather than
+    // not at all.
+    runId: runIdOf(job.generationId),
   }
 }

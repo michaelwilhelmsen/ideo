@@ -11,6 +11,7 @@
  *    source stage produces real files; style and animate arrive in #28/#29.
  */
 
+import { DEFAULT_IMAGE_BATCH, DEFAULT_VIDEO_BATCH } from './selectors'
 import type {
   EditorState,
   Generation,
@@ -104,7 +105,8 @@ function generation(
   seed: number | null,
   minutes: number,
   stageRecipe: StageRecipe,
-  verdict: Generation['verdict'] = 'unrated'
+  verdict: Generation['verdict'] = 'unrated',
+  runId: string | null = null
 ): Generation {
   return {
     id,
@@ -112,6 +114,7 @@ function generation(
     ordinal,
     seed,
     verdict,
+    runId,
     createdAt: T0 + minutes * MINUTE,
     recipe: stageRecipe,
     // No file behind a fixture — which is also the state of a real generation
@@ -128,6 +131,9 @@ const atlasSource = recipe({
   prompt: ATLAS_SUBJECT,
 })
 
+/** The one run behind Atlas's source candidates (#26). */
+const ATLAS_RUN = 'run-atlas-source'
+
 /**
  * The populated project. Its history is arranged to put every awkward case on
  * screen at once: a rejected candidate that is still there, a style candidate
@@ -139,8 +145,23 @@ export const ATLAS: Project = {
   name: 'Atlas — hero',
   aspect: '21:9',
   createdAt: T0,
+  imageBatchSize: DEFAULT_IMAGE_BATCH,
+  videoBatchSize: DEFAULT_VIDEO_BATCH,
   generations: [
-    generation('gen-src-1', 'source', 1, 481_562_003, 0, atlasSource),
+    // One click, three candidates (#26) — the strip groups them under the run
+    // that produced them, and the style candidates below deliberately do not
+    // carry one, because that is what a project made before the slice looks
+    // like.
+    generation(
+      'gen-src-1',
+      'source',
+      1,
+      481_562_003,
+      0,
+      atlasSource,
+      'unrated',
+      ATLAS_RUN
+    ),
     generation(
       'gen-src-2',
       'source',
@@ -148,7 +169,8 @@ export const ATLAS: Project = {
       913_774_118,
       1,
       atlasSource,
-      'approved'
+      'approved',
+      ATLAS_RUN
     ),
     generation(
       'gen-src-3',
@@ -157,7 +179,8 @@ export const ATLAS: Project = {
       220_009_641,
       2,
       atlasSource,
-      'rejected'
+      'rejected',
+      ATLAS_RUN
     ),
 
     // Made from source 1, which is no longer what the stage is working from —
@@ -264,6 +287,8 @@ export const LEDGER: Project = {
   name: 'Ledger — hero',
   aspect: '16:9',
   createdAt: T0 + 40 * MINUTE,
+  imageBatchSize: DEFAULT_IMAGE_BATCH,
+  videoBatchSize: DEFAULT_VIDEO_BATCH,
   generations: [
     generation('gen-led-1', 'source', 1, 55_120_777, 41, ledgerSource),
   ],

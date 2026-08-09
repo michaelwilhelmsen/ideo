@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import { ATLAS, readManifest, summaryOf, writeManifest } from '@/lib/recipe'
 import { commands, type JsonValue } from '@/lib/tauri-bindings'
+import { newProject } from '@/services/projects'
 import { useEditorStore } from '@/store/editor-store'
 
 /** The most recent manifest handed to Rust, as a project again. */
@@ -83,5 +84,66 @@ describe('the open project and the disk', () => {
 
     await new Promise(resolve => setTimeout(resolve, 1000))
     expect(commands.saveProject).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * #26 widened the manifest without moving its version. Both halves of that are
+ * disk claims, so they are checked against the document Rust was actually
+ * handed rather than against the reducer's copy.
+ */
+describe('runs and batch sizes reach the disk (#26)', () => {
+  beforeEach(() => {
+    useEditorStore.getState().reset()
+    vi.mocked(commands.saveProject).mockClear()
+  })
+
+  it('gives a new project the defaults, copied rather than referenced', () => {
+    const project = newProject('Something new', '16:9')
+
+    expect(project.imageBatchSize).toBe(4)
+    expect(project.videoBatchSize).toBe(1)
+  })
+
+  it('writes back a changed batch size', async () => {
+    await openAtlas()
+
+    act(() => {
+      useEditorStore
+        .getState()
+        .dispatch({ type: 'setBatchSize', stage: 'source', size: 2 })
+    })
+
+    await waitFor(() => expect(lastSavedProject().imageBatchSize).toBe(2), {
+      timeout: 3000,
+    })
+  })
+
+  it('writes back which run produced a candidate', async () => {
+    await openAtlas()
+
+    act(() => {
+      useEditorStore.getState().dispatch({
+        type: 'runStage',
+        // The source draft rolls its seed; the style draft pins one, and a pin
+        // collapses the batch to a single candidate.
+        stage: 'source',
+        runs: [
+          { id: 'fresh-a', seed: 1, asset: null, runId: 'run-fresh' },
+          { id: 'fresh-b', seed: 2, asset: null, runId: 'run-fresh' },
+        ],
+        at: 2,
+      })
+    })
+
+    await waitFor(
+      () => {
+        const saved = lastSavedProject().generations.filter(
+          g => g.runId === 'run-fresh'
+        )
+        expect(saved).toHaveLength(2)
+      },
+      { timeout: 3000 }
+    )
   })
 })

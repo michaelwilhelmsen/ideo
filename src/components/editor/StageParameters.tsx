@@ -22,7 +22,10 @@ import { cn } from '@/lib/utils'
 import {
   batchSizeFor,
   blockedReasonKey,
+  configuredBatchSize,
   controlAvailability,
+  MAX_BATCH_SIZE,
+  MIN_BATCH_SIZE,
   estimateCost,
   MODEL_REGISTRY,
   modelAvailability,
@@ -59,7 +62,10 @@ export function StageParameters({
 
   const draft = project.drafts[stage]
   const model = modelById(MODEL_REGISTRY, draft.modelId)
-  const batch = batchSizeFor(stage, draft)
+  // What the project is set to, and what this click would actually produce —
+  // the same number until a pinned seed collapses the batch to one.
+  const configured = configuredBatchSize(project, stage)
+  const batch = batchSizeFor(project, stage)
   const selected = selectedGeneration(project, stage)
   const { run, isRunning } = useRunStage(project, stage, batch)
 
@@ -216,6 +222,34 @@ export function StageParameters({
           </div>
         )}
       </Gated>
+
+      {/* PRD §4.2 — how many candidates one click produces, per project and
+          per stage (PRD §11). The number is the project's, not the app's, so
+          raising the default later leaves this project alone. */}
+      <Field label={t('editor.field.batchSize')}>
+        <Input
+          type="number"
+          min={MIN_BATCH_SIZE}
+          max={MAX_BATCH_SIZE}
+          step={1}
+          aria-label={t('editor.field.batchSize')}
+          value={configured}
+          onChange={event =>
+            dispatch({
+              type: 'setBatchSize',
+              stage,
+              size: Number(event.target.value),
+            })
+          }
+        />
+        <p className="text-xs text-muted-foreground">
+          {t(
+            stage === 'animate'
+              ? 'editor.batch.hint.video'
+              : 'editor.batch.hint.image'
+          )}
+        </p>
+      </Field>
 
       {/* Plumbing: named by the model, so the label comes from the registry. */}
       {model.strengthParam !== null && strength !== null && (

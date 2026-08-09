@@ -17,7 +17,10 @@ import { MODEL_REGISTRY } from './models'
 import { UPLOAD_MODEL_ID, isUploadRecipe, uploadFileName } from './upload'
 import {
   activeProject,
+  batchSizeFor,
+  configuredBatchSize,
   generationsForStage,
+  runGroups,
   selectedGeneration,
   visibleGenerations,
 } from './selectors'
@@ -43,7 +46,7 @@ function runOf(
   return {
     type: 'runStage',
     stage,
-    runs: [{ id: `run-${stage}-${seed}`, seed, asset: null }],
+    runs: [{ id: `run-${stage}-${seed}`, seed, asset: null, runId: null }],
     at: 1,
   }
 }
@@ -108,10 +111,10 @@ describe('seeds (PRD §4.3)', () => {
       type: 'runStage',
       stage: 'style',
       runs: [
-        { id: 'a', seed: 1, asset: null },
-        { id: 'b', seed: 2, asset: null },
-        { id: 'c', seed: 3, asset: null },
-        { id: 'd', seed: 4, asset: null },
+        { id: 'a', seed: 1, asset: null, runId: 'run-1' },
+        { id: 'b', seed: 2, asset: null, runId: 'run-1' },
+        { id: 'c', seed: 3, asset: null, runId: 'run-1' },
+        { id: 'd', seed: 4, asset: null, runId: 'run-1' },
       ],
       at: 1,
     })
@@ -345,7 +348,7 @@ describe('a generation records the file it produced (#23)', () => {
     const state = apply(fixtureEditorState(), {
       type: 'runStage',
       stage: 'source',
-      runs: [{ id: 'run-real', seed: 5, asset: 'run-real.jpeg' }],
+      runs: [{ id: 'run-real', seed: 5, asset: 'run-real.jpeg', runId: null }],
       at: 1,
     })
 
@@ -537,5 +540,242 @@ describe('an image the user brought in (#27)', () => {
     const twice = apply(once, uploaded())
 
     expect(openProjectOf(twice)).toBe(openProjectOf(once))
+  })
+})
+
+/**
+ * Four candidates from one click, and one of them kept (#26, PRD §4.2).
+ *
+ * The batch is only worth paying for if the choice between candidates is real,
+ * and that is a claim about two things the reducer owns: the candidates know
+ * which click made them, and a choice made during the run is not taken back by
+ * the rest of the run arriving.
+ */
+describe('a run of several candidates (#26)', () => {
+  /** One click's worth of candidates, as the fixture stages mint them. */
+  function runOfFour(runId: string): EditorAction {
+    return {
+      type: 'runStage',
+      stage: 'source',
+      runs: Array.from({ length: 4 }, (_, index) => ({
+        id: `${runId}-${String(index)}`,
+        seed: 100 + index,
+        asset: null,
+        runId,
+      })),
+      at: 1,
+    }
+  }
+
+  /** A candidate arriving off the job store, carrying its run. */
+  function arrival(id: string, runId: string | null): EditorAction {
+    return {
+      type: 'recordGenerations',
+      entries: [
+        {
+          id,
+          stage: 'source',
+          recipe: ATLAS.drafts.source,
+          seed: 7,
+          asset: `${id}.jpeg`,
+          runId,
+        },
+      ],
+      at: 5,
+    }
+  }
+
+  it('stamps every candidate of one click with the same run', () => {
+    const project = openProjectOf(
+      apply(fixtureEditorState(), runOfFour('run-1'))
+    )
+    const created = generationsForStage(project, 'source').slice(-4)
+
+    expect(created).toHaveLength(4)
+    expect(new Set(created.map(g => g.runId))).toEqual(new Set(['run-1']))
+    // Distinct candidates, not four references to one.
+    expect(new Set(created.map(g => g.id)).size).toBe(4)
+  })
+
+  it('groups a stage into the runs that produced it, newest last', () => {
+    const project = openProjectOf(
+      apply(fixtureEditorState(), runOfFour('run-1'))
+    )
+    const groups = runGroups(project, 'source', true)
+
+    // The fixture's own run, then this one — never merged, never reordered.
+    expect(groups).toHaveLength(2)
+    expect(groups.at(-1)?.runId).toBe('run-1')
+    expect(groups.at(-1)?.number).toBe(2)
+    expect(groups.at(-1)?.generations).toHaveLength(4)
+  })
+
+  it('leaves candidates from before the slice ungrouped rather than invented', () => {
+    const ungrouped = {
+      ...ATLAS,
+      generations: ATLAS.generations.map(g => ({ ...g, runId: null })),
+    }
+    const groups = runGroups(ungrouped, 'source', true)
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.runId).toBeNull()
+    expect(groups[0]?.number).toBeNull()
+  })
+
+  it('keeps a run numbered the same when a reject is hidden', () => {
+    // "Run 2" has to keep meaning one click, for the same reason ordinals are
+    // never renumbered — otherwise "the second one of that run" stops working.
+    const withReject = apply(fixtureEditorState(), runOfFour('run-1'))
+    const rejected = apply(withReject, {
+      type: 'setVerdict',
+      // Not the first, which the run selected — a rejected candidate the next
+      // stage is consuming stays on screen (PRD §10.3).
+      generationId: 'run-1-1',
+      verdict: 'rejected',
+    })
+
+    const project = openProjectOf(rejected)
+    const shown = runGroups(project, 'source', false).at(-1)
+
+    expect(shown?.number).toBe(2)
+    expect(shown?.generations).toHaveLength(3)
+  })
+
+  it('selects the first candidate to arrive, so the next stage has an input', () => {
+    const state = apply(fixtureEditorState(), arrival('job-a', 'run-1'))
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
+  })
+
+  it('does not let later arrivals steal the selection from their own run', () => {
+    // Otherwise a four-up ends on whichever job happened to finish last.
+    const state = apply(
+      fixtureEditorState(),
+      arrival('job-a', 'run-1'),
+      arrival('job-b', 'run-1'),
+      arrival('job-c', 'run-1')
+    )
+
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
+  })
+
+  it('never overrides a candidate the user picked during the run', () => {
+    // The grid is the moment the choice is made, and it is made while the rest
+    // of the batch is still generating. An arrival that moved the selection
+    // would undo a click from two seconds ago.
+    const state = apply(
+      fixtureEditorState(),
+      arrival('job-a', 'run-1'),
+      arrival('job-b', 'run-1'),
+      { type: 'selectGeneration', generationId: 'job-b' },
+      arrival('job-c', 'run-1'),
+      arrival('job-d', 'run-1')
+    )
+
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-b')
+  })
+
+  it('claims the selection again for a run started after the last one', () => {
+    // A selection pointing at an older run is not a choice about this one, so
+    // the new run's first arrival takes it — the stage after this one has to
+    // have something to work from.
+    const state = apply(
+      fixtureEditorState(),
+      arrival('job-a', 'run-1'),
+      arrival('job-b', 'run-2')
+    )
+
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-b')
+  })
+
+  it('still selects an arrival whose run this session never knew', () => {
+    // A job submitted before the last quit comes back with no run at all, and
+    // it is exactly the image the user has been waiting for.
+    const state = apply(fixtureEditorState(), arrival('job-resumed', null))
+    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
+      'job-resumed'
+    )
+  })
+})
+
+/** PRD §4.2/§11 — the batch is the project's setting, not the app's. */
+describe('batch size (#26)', () => {
+  it('produces four images and one video by default', () => {
+    const project = openProjectOf(fixtureEditorState())
+
+    expect(batchSizeFor(project, 'source')).toBe(4)
+    expect(batchSizeFor(project, 'animate')).toBe(1)
+    // Style is an image stage too — the fixture's style draft pins a seed, so
+    // what it would submit right now is the collapse rather than the setting.
+    expect(configuredBatchSize(project, 'style')).toBe(4)
+    expect(batchSizeFor(project, 'style')).toBe(1)
+  })
+
+  it('reads what the project was set to, not a constant', () => {
+    const state = apply(fixtureEditorState(), {
+      type: 'setBatchSize',
+      stage: 'source',
+      size: 2,
+    })
+
+    const project = openProjectOf(state)
+    expect(project.imageBatchSize).toBe(2)
+    expect(batchSizeFor(project, 'source')).toBe(2)
+    // The image stages share one setting; video keeps its own.
+    expect(configuredBatchSize(project, 'style')).toBe(2)
+    expect(batchSizeFor(project, 'animate')).toBe(1)
+  })
+
+  it('sets the video batch from the animate stage alone', () => {
+    const project = openProjectOf(
+      apply(fixtureEditorState(), {
+        type: 'setBatchSize',
+        stage: 'animate',
+        size: 3,
+      })
+    )
+
+    expect(project.videoBatchSize).toBe(3)
+    expect(project.imageBatchSize).toBe(4)
+  })
+
+  it('refuses a size we would not actually submit', () => {
+    const huge = openProjectOf(
+      apply(fixtureEditorState(), {
+        type: 'setBatchSize',
+        stage: 'source',
+        size: 40,
+      })
+    )
+    const none = openProjectOf(
+      apply(fixtureEditorState(), {
+        type: 'setBatchSize',
+        stage: 'source',
+        size: 0,
+      })
+    )
+
+    expect(huge.imageBatchSize).toBe(4)
+    expect(none.imageBatchSize).toBe(1)
+  })
+
+  it('collapses to one candidate while the seed is pinned', () => {
+    // Four copies of the same picture is not a choice, whatever the setting
+    // says — and the estimate above the button has to agree with the button.
+    const state = apply(fixtureEditorState(), {
+      type: 'pinSeed',
+      stage: 'source',
+      value: 12_345,
+    })
+
+    const project = openProjectOf(state)
+    expect(batchSizeFor(project, 'source')).toBe(1)
+    // The setting itself is untouched: unpinning restores the four.
+    expect(configuredBatchSize(project, 'source')).toBe(4)
+    expect(
+      batchSizeFor(
+        openProjectOf(apply(state, { type: 'unpinSeed', stage: 'source' })),
+        'source'
+      )
+    ).toBe(4)
   })
 })

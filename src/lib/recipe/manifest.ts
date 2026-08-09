@@ -19,6 +19,11 @@
  */
 
 import { isAspectId } from './aspects'
+import {
+  clampBatchSize,
+  DEFAULT_IMAGE_BATCH,
+  DEFAULT_VIDEO_BATCH,
+} from './selectors'
 import type {
   Generation,
   ParamValue,
@@ -51,6 +56,8 @@ export interface ManifestGeneration {
   readonly createdAt: number
   readonly asset: string | null
   readonly recipe: unknown
+  /** #26. Absent in manifests older than the slice, which read as `null`. */
+  readonly runId: string | null
 }
 
 export interface ProjectManifest {
@@ -64,6 +71,13 @@ export interface ProjectManifest {
   readonly drafts: unknown
   readonly selection: unknown
   readonly generations: readonly ManifestGeneration[]
+  /**
+   * #26. Absent in older manifests, which read as the defaults — the same
+   * numbers a project created today would have been given, so nothing about
+   * an existing project changes by being opened.
+   */
+  readonly imageBatchSize: number
+  readonly videoBatchSize: number
 }
 
 /** The project, as the bytes that go to disk. */
@@ -75,6 +89,8 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
     aspect: project.aspect,
     createdAt: project.createdAt,
     updatedAt: now,
+    imageBatchSize: project.imageBatchSize,
+    videoBatchSize: project.videoBatchSize,
     drafts: project.drafts,
     selection: project.selection,
     generations: project.generations.map(generation => ({
@@ -86,6 +102,7 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
       createdAt: generation.createdAt,
       asset: generation.asset,
       recipe: generation.recipe,
+      runId: generation.runId,
     })),
   }
 }
@@ -122,6 +139,12 @@ export function readManifest(document: unknown): Project {
     name: asString(manifest.name, 'name'),
     aspect,
     createdAt: asNumber(manifest.createdAt, 'createdAt'),
+    // Missing is the normal case for a manifest written before #26, and a
+    // number outside the range is a hand-edit — both take the default rather
+    // than the project, because a batch size is a preference and the recipe
+    // is the thing worth refusing over.
+    imageBatchSize: readBatchSize(manifest.imageBatchSize, DEFAULT_IMAGE_BATCH),
+    videoBatchSize: readBatchSize(manifest.videoBatchSize, DEFAULT_VIDEO_BATCH),
     drafts: readDrafts(manifest.drafts),
     generations,
     selection: readSelection(manifest.selection, known),
@@ -156,7 +179,17 @@ function readGeneration(document: unknown): Generation | null {
     createdAt: typeof document.createdAt === 'number' ? document.createdAt : 0,
     ordinal: typeof document.ordinal === 'number' ? document.ordinal : 0,
     asset: readAsset(document.asset),
+    // A candidate from before #26 belongs to no recorded run, which is what
+    // `null` says. Losing the grouping costs a divider in the strip; refusing
+    // the candidate over it would cost the recipe.
+    runId: typeof document.runId === 'string' ? document.runId : null,
   }
+}
+
+/** A batch size we would be willing to submit, or the default. */
+function readBatchSize(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return clampBatchSize(value)
 }
 
 /**

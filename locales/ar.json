@@ -177,5 +177,16 @@
   "preferences.general.replayOnboarding": "جولة الإعداد",
   "preferences.general.replayOnboardingDescription": "أعد المرور بخطوات الترحيب من البداية.",
   "preferences.general.replayOnboardingAction": "إعادة الجولة",
-  "generate.addKey": "أضف مفتاحًا"
+  "generate.addKey": "أضف مفتاحًا",
+  "editor.field.batchSize": "عدد المرشحين في كل تشغيل",
+  "editor.batch.hint.image": "الاختيار من بين عدة نتائج أفضل من إعادة التوليد واحدة تلو الأخرى. كل مرشح استدعاء مدفوع منفصل.",
+  "editor.batch.hint.video": "تُحتسب تكلفة الفيديو بالثانية، فكل مرشح إضافي مقطع كامل آخر.",
+  "editor.action.pinSeed": "تثبيت هذه البذرة",
+  "editor.seed.pinThisHint": "إعادة استخدام بذرة هذا المرشح في التشغيل التالي، كي لا يتغير إلا ما تغيّره أنت.",
+  "editor.run.title": "هذا التشغيل",
+  "editor.run.progress": "وصل {{done}} من {{total}}",
+  "editor.run.pending": "قيد التوليد",
+  "editor.run.pick.image": "اختر ما تريد الاحتفاظ به. تبقى البقية في الشريط أدناه — لا يُحذف شيء.",
+  "editor.run.pick.video": "اختر ما تريد الاحتفاظ به. تبقى البقية في الشريط أدناه — لا يُحذف شيء.",
+  "editor.run.number": "التشغيل {{number}}"
 }

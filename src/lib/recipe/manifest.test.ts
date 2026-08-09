@@ -102,6 +102,76 @@ describe('assets', () => {
   })
 })
 
+/**
+ * #26 widened the manifest without moving its version, which is only safe if
+ * both directions are true: what this build writes comes back whole, and what
+ * an older build wrote still opens. The second is the one worth a test — every
+ * project on disk today was written by that older build.
+ */
+describe('runs and batch sizes (#26)', () => {
+  const grouped: Generation = {
+    ...(ATLAS.generations[0] as Generation),
+    id: 'gen-run-1',
+    runId: 'run-abc',
+  }
+
+  it('carries the run a candidate belongs to', () => {
+    const project = readManifest(
+      writeManifest({ ...ATLAS, generations: [grouped] }, 1)
+    )
+
+    expect(project.generations[0]?.runId).toBe('run-abc')
+  })
+
+  it('carries the batch sizes the project was set to', () => {
+    const project = readManifest(
+      writeManifest({ ...ATLAS, imageBatchSize: 2, videoBatchSize: 1 }, 1)
+    )
+
+    expect(project.imageBatchSize).toBe(2)
+    expect(project.videoBatchSize).toBe(1)
+  })
+
+  it('reads a manifest written before the slice, with neither field', () => {
+    const manifest = writeManifest(ATLAS, 1) as unknown as Record<
+      string,
+      unknown
+    >
+    const older: Record<string, unknown> = {
+      ...manifest,
+      generations: (manifest.generations as Record<string, unknown>[]).map(
+        generation => {
+          const { runId: _runId, ...rest } = generation
+          return rest
+        }
+      ),
+    }
+    delete older.imageBatchSize
+    delete older.videoBatchSize
+
+    const project = readManifest(older)
+
+    // Ungrouped, not unreadable: the candidates are all still there.
+    expect(project.generations).toHaveLength(ATLAS.generations.length)
+    expect(project.generations.every(g => g.runId === null)).toBe(true)
+    // And the project produces what a project created today would.
+    expect(project.imageBatchSize).toBe(4)
+    expect(project.videoBatchSize).toBe(1)
+  })
+
+  it('holds a hand-edited batch size to what we would actually submit', () => {
+    // Forty paid calls one click away is the failure this prevents.
+    const project = readManifest({
+      ...writeManifest(ATLAS, 1),
+      imageBatchSize: 40,
+      videoBatchSize: 0,
+    })
+
+    expect(project.imageBatchSize).toBe(4)
+    expect(project.videoBatchSize).toBe(1)
+  })
+})
+
 describe('an upload survives the manifest (#27)', () => {
   const upload: Generation = {
     id: 'upload-1',
@@ -112,6 +182,7 @@ describe('an upload survives the manifest (#27)', () => {
     createdAt: 1_700_000_000,
     ordinal: 1,
     asset: 'upload-1.png',
+    runId: null,
   }
 
   it('comes back as the same upload, at the version this build already writes', () => {

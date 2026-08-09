@@ -13,12 +13,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
+  controlAvailability,
   diffRecipes,
   generationById,
   isFromAnotherInput,
   isUploadRecipe,
+  modelById,
+  MODEL_REGISTRY,
   previewArt,
   recipeSummary,
+  runGroups,
   seedSibling,
   upstreamOf,
   visibleGenerations,
@@ -91,6 +95,28 @@ export function Preview({
 function assetSource(directory: string | null, asset: string | null) {
   if (directory === null || directory === '' || asset === null) return null
   return convertFileSrc(`${directory}/assets/${asset}`)
+}
+
+/**
+ * A candidate that has been paid for but has not arrived yet (#26).
+ *
+ * Holds the project's ratio rather than collapsing, so the grid a run is
+ * watched in does not reflow as each job settles — the tiles are already where
+ * the images will be.
+ */
+export function PendingPreview({ aspect }: { aspect: string }) {
+  const { t } = useTranslation()
+
+  return (
+    <div
+      role="status"
+      aria-label={t('editor.run.pending')}
+      className={cn(
+        'w-full animate-pulse rounded-md border border-border bg-muted',
+        ASPECT_CLASS[aspect] ?? 'aspect-video'
+      )}
+    />
+  )
 }
 
 export function EmptyPreview({
@@ -229,6 +255,8 @@ export function GenerationTile({
         >
           {t('editor.action.reject')}
         </Button>
+        <PinSeedButton project={project} generation={generation} />
+
         <Button
           size="sm"
           variant="ghost"
@@ -241,6 +269,56 @@ export function GenerationTile({
         </Button>
       </div>
     </div>
+  )
+}
+
+/**
+ * Pin *this* candidate's seed into the draft (PRD §4.3).
+ *
+ * On the tile rather than only in the sidebar because the choice is about a
+ * picture: "keep that composition, change the fragment" is said while looking
+ * at the one you mean, and the sidebar switch can only ever pin whatever
+ * happens to be selected.
+ *
+ * Absent when there is nothing to pin — a candidate with no seed (an upload, a
+ * seedless model) or a draft whose current model has no seed field, where the
+ * button would promise a reproducibility the next run cannot deliver.
+ */
+function PinSeedButton({
+  project,
+  generation,
+}: {
+  project: Project
+  generation: Generation
+}) {
+  const { t } = useTranslation()
+  const dispatch = useEditorStore(store => store.dispatch)
+
+  const seed = generation.seed
+  if (seed === null) return null
+
+  const draft = project.drafts[generation.stage]
+  const model = modelById(MODEL_REGISTRY, draft.modelId)
+  if (controlAvailability(model, 'seed').state !== 'available') return null
+
+  const pinned = draft.seed.mode === 'pinned' && draft.seed.value === seed
+
+  return (
+    <Button
+      size="sm"
+      variant={pinned ? 'default' : 'outline'}
+      aria-pressed={pinned}
+      title={t('editor.seed.pinThisHint')}
+      onClick={() =>
+        dispatch(
+          pinned
+            ? { type: 'unpinSeed', stage: generation.stage }
+            : { type: 'pinSeed', stage: generation.stage, value: seed }
+        )
+      }
+    >
+      {t('editor.action.pinSeed')}
+    </Button>
   )
 }
 
@@ -264,6 +342,7 @@ export function CandidateStrip({
   const dispatch = useEditorStore(store => store.dispatch)
 
   const candidates = visibleGenerations(project, stage, showRejected)
+  const groups = runGroups(project, stage, showRejected)
   const hidden = showRejected ? 0 : rejectedCount(project, stage)
 
   return (
@@ -296,14 +375,46 @@ export function CandidateStrip({
               : 'flex-col overflow-y-auto'
           )}
         >
-          {candidates.map(generation => (
-            <GenerationTile
-              key={generation.id}
-              project={project}
-              generation={generation}
-              selected={project.selection[stage] === generation.id}
-              compact={compact}
-            />
+          {/* One click produced several candidates (#26), so the strip says
+              which — otherwise a four-up reads as four unrelated attempts and
+              "the second one of that run" stops being sayable. Candidates from
+              before runs were recorded carry no label and no divider. */}
+          {groups.map((group, index) => (
+            <div
+              key={group.runId ?? `ungrouped-${String(index)}`}
+              className={cn(
+                // The label sits above its run either way; only the divider
+                // between runs follows the strip's direction.
+                'flex shrink-0 flex-col gap-1',
+                index > 0 &&
+                  group.number !== null &&
+                  (orientation === 'horizontal'
+                    ? 'border-s border-border ps-3'
+                    : 'border-t border-border pt-3')
+              )}
+            >
+              {group.number !== null && (
+                <span className="text-xs text-muted-foreground">
+                  {t('editor.run.number', { number: group.number })}
+                </span>
+              )}
+              <div
+                className={cn(
+                  'flex gap-3',
+                  orientation === 'vertical' && 'flex-col'
+                )}
+              >
+                {group.generations.map(generation => (
+                  <GenerationTile
+                    key={generation.id}
+                    project={project}
+                    generation={generation}
+                    selected={project.selection[stage] === generation.id}
+                    compact={compact}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}

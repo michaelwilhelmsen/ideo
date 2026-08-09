@@ -116,26 +116,107 @@ export function blockedReasonKey(
 }
 
 /**
- * How many candidates one run produces.
- *
- * PRD §4.2 wants four images and one video, and #26 is the slice that makes
- * the image stages four. Until then this says one for every stage, because a
- * button labelled "Run 4" that makes one paid call — or four, on a stage that
- * now spends real money — is the kind of disagreement the price estimate
- * directly above it is supposed to prevent (PRD §10.2).
- *
- * `draft` stays in the signature because a pinned seed collapses the batch
- * regardless of what #26 raises this to: four copies of the same picture is
- * not a choice.
+ * PRD §4.2 — four images beats serial re-rolling and image calls are cheap;
+ * one video, because a four-up of a clip that costs real money per second
+ * would genuinely hurt. Copied into a project at creation (PRD §11).
  */
-export function batchSizeFor(stage: StageKind, draft: StageRecipe): number {
-  if (draft.seed.mode === 'pinned') return 1
-  return stage === 'animate' ? VIDEO_BATCH : IMAGE_BATCH
+export const DEFAULT_IMAGE_BATCH = 4
+export const DEFAULT_VIDEO_BATCH = 1
+
+/**
+ * The range the stepper offers, and the range anything read off disk is held
+ * to. The ceiling is a spending limit before it is a layout constraint: a
+ * hand-edited manifest saying `40` would otherwise be forty paid calls one
+ * click away.
+ */
+export const MIN_BATCH_SIZE = 1
+export const MAX_BATCH_SIZE = 4
+
+export function clampBatchSize(value: number): number {
+  if (!Number.isFinite(value)) return MIN_BATCH_SIZE
+  return Math.min(MAX_BATCH_SIZE, Math.max(MIN_BATCH_SIZE, Math.round(value)))
 }
 
-/** Raised to four by #26. One is what the source stage actually submits. */
-const IMAGE_BATCH = 1
-const VIDEO_BATCH = 1
+/**
+ * What the project is set to produce for this stage — the setting itself,
+ * which is what the stepper shows.
+ */
+export function configuredBatchSize(
+  project: Project,
+  stage: StageKind
+): number {
+  return clampBatchSize(
+    stage === 'animate' ? project.videoBatchSize : project.imageBatchSize
+  )
+}
+
+/**
+ * How many candidates a run of this stage would actually produce right now.
+ *
+ * The project's setting, except that a pinned seed collapses it to one: every
+ * candidate in a pinned batch is the same picture, and four copies of one
+ * picture is not a choice. That collapse is why this is not simply the field —
+ * the button says what the click will cost, and the estimate above it agrees
+ * (PRD §10.2).
+ */
+export function batchSizeFor(project: Project, stage: StageKind): number {
+  if (project.drafts[stage].seed.mode === 'pinned') return 1
+  return configuredBatchSize(project, stage)
+}
+
+/**
+ * A stage's candidates, split into the runs that produced them (#26).
+ *
+ * Consecutive rather than gathered: generations are appended in the order they
+ * arrived, so a run is already contiguous, and grouping by value would reorder
+ * history to make the grouping look tidier than it was.
+ *
+ * `number` is counted over every candidate in the stage, rejected ones
+ * included — so "Run 2" keeps meaning the same click after a reject is hidden,
+ * for the same reason ordinals are never renumbered.
+ */
+export interface RunGroup {
+  readonly runId: string | null
+  /** 1-based, and `null` for candidates that belong to no recorded run. */
+  readonly number: number | null
+  readonly generations: readonly Generation[]
+}
+
+export function runGroups(
+  project: Project,
+  stage: StageKind,
+  showRejected: boolean
+): readonly RunGroup[] {
+  const numbers = new Map<string, number>()
+  for (const generation of generationsForStage(project, stage)) {
+    if (generation.runId === null || numbers.has(generation.runId)) continue
+    numbers.set(generation.runId, numbers.size + 1)
+  }
+
+  const groups: RunGroup[] = []
+  for (const generation of visibleGenerations(project, stage, showRejected)) {
+    const last = groups.at(-1)
+
+    if (last !== undefined && last.runId === generation.runId) {
+      groups[groups.length - 1] = {
+        ...last,
+        generations: [...last.generations, generation],
+      }
+      continue
+    }
+
+    groups.push({
+      runId: generation.runId,
+      number:
+        generation.runId === null
+          ? null
+          : (numbers.get(generation.runId) ?? null),
+      generations: [generation],
+    })
+  }
+
+  return groups
+}
 
 /**
  * The two generations a "one fragment changed" comparison is between: the

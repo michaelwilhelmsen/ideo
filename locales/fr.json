@@ -177,5 +177,16 @@
   "preferences.general.replayOnboarding": "Guide de configuration",
   "preferences.general.replayOnboardingDescription": "Reprenez les étapes de bienvenue depuis le début.",
   "preferences.general.replayOnboardingAction": "Revoir le guide",
-  "generate.addKey": "Ajouter une clé"
+  "generate.addKey": "Ajouter une clé",
+  "editor.field.batchSize": "Candidats par génération",
+  "editor.batch.hint.image": "Choisir parmi plusieurs vaut mieux que relancer un par un. Chaque candidat est un appel payant distinct.",
+  "editor.batch.hint.video": "La vidéo est facturée à la seconde : chaque candidat supplémentaire est un clip entier de plus.",
+  "editor.action.pinSeed": "Épingler cette graine",
+  "editor.seed.pinThisHint": "Réutiliser la graine de ce candidat à la prochaine génération, pour que seul ce que vous modifiez change.",
+  "editor.run.title": "Cette génération",
+  "editor.run.progress": "{{done}} sur {{total}} arrivés",
+  "editor.run.pending": "Génération en cours",
+  "editor.run.pick.image": "Choisissez celui à garder. Les autres restent dans la bande ci-dessous — rien n'est supprimé.",
+  "editor.run.pick.video": "Choisissez celui à garder. Les autres restent dans la bande ci-dessous — rien n'est supprimé.",
+  "editor.run.number": "Génération {{number}}"
 }

@@ -25,11 +25,16 @@ import {
   type Project,
   type StageKind,
 } from '@/lib/recipe'
-import { useStageJobs, useSubmitGeneration } from '@/services/jobs'
+import { useSubmitGeneration } from '@/services/jobs'
+import { rememberRun } from '@/services/run-ids'
 import { useEditorStore } from '@/store/editor-store'
 import { generationErrorMessage } from './errors'
 
 export function runStageAction(stage: StageKind, count: number): EditorAction {
+  // One id for the whole click (#26), so the candidates it produces can be
+  // shown as the single choice they are rather than as four unrelated images.
+  const runId = crypto.randomUUID()
+
   return {
     type: 'runStage',
     stage,
@@ -37,6 +42,7 @@ export function runStageAction(stage: StageKind, count: number): EditorAction {
       id: crypto.randomUUID(),
       seed: rollSeed(),
       asset: null,
+      runId,
     })),
     at: Date.now(),
   }
@@ -87,7 +93,6 @@ export function useRunStage(
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
   const submit = useSubmitGeneration()
-  const jobs = useStageJobs(project.id, stage)
   const queryClient = useQueryClient()
 
   if (stage !== 'source') {
@@ -98,13 +103,18 @@ export function useRunStage(
   }
 
   return {
-    // In flight, not pending: a job submitted before the last quit is running
-    // as much as one submitted a second ago, and the button has to say so.
-    isRunning: submit.isPending || jobs.length > 0,
+    // Only while the submits themselves are on the wire. Jobs already in
+    // flight do *not* disable the button: three run at once and the rest queue
+    // (PRD §3.3), so refusing a second click would be this app enforcing a
+    // limit fal.ai and the semaphore already handle — and would stop someone
+    // from queueing the next idea while the current one renders.
+    isRunning: submit.isPending,
     run: () => void submitWhenKeyed(),
   }
 
   async function submitWhenKeyed() {
+    // Frozen once for the whole batch: every candidate of one run has to
+    // describe itself identically, or the four-up would be four recipes.
     const recipe = freezeRecipe(project, stage)
     if (recipe === null) return
 
@@ -124,27 +134,45 @@ export function useRunStage(
       recipe
     )
 
-    // One job per click. `batch` is 1 for the source stage until #26 raises
-    // it, and fanning out here before then would be a batch the concurrency
-    // cap has never actually had to hold — see PRD §3.3.
-    submit.mutate(
-      {
-        projectId: project.id,
-        // Minted here because the file is named after it — the manifest
-        // entry and the file on disk agree by construction.
-        generationId: crypto.randomUUID(),
-        stage,
-        recipe,
-        prompt: recipe.prompt,
-        modelId: built.modelId,
-        params: built.params,
-      },
-      {
-        // A submit that failed bought nothing and mints nothing: an empty
-        // candidate would look like an orphan to the cleanup pass and like
-        // a result to everyone else.
-        onError: error => toast.error(generationErrorMessage(t, error)),
-      }
-    )
+    // One job per candidate (#26, PRD §4.2). Rust still takes one call at a
+    // time and the semaphore paces them, so this is a queue of `batch` jobs
+    // rather than a batch request — three run, the rest wait (PRD §3.3).
+    const runId = crypto.randomUUID()
+
+    // The same failure four times is one failure. Four identical toasts for
+    // one click would read as four separate things having gone wrong.
+    let reported = false
+
+    for (let index = 0; index < batch; index++) {
+      // Minted here because the file is named after it — the manifest entry
+      // and the file on disk agree by construction.
+      const generationId = crypto.randomUUID()
+
+      // Written down before the submit, because the result may arrive before
+      // `mutate` has returned.
+      rememberRun(generationId, runId)
+
+      submit.mutate(
+        {
+          projectId: project.id,
+          generationId,
+          stage,
+          recipe,
+          prompt: recipe.prompt,
+          modelId: built.modelId,
+          params: built.params,
+        },
+        {
+          // A submit that failed bought nothing and mints nothing: an empty
+          // candidate would look like an orphan to the cleanup pass and like
+          // a result to everyone else.
+          onError: error => {
+            if (reported) return
+            reported = true
+            toast.error(generationErrorMessage(t, error))
+          },
+        }
+      )
+    }
   }
 }

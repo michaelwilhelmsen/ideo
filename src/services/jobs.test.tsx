@@ -21,6 +21,7 @@ import {
 import { commands, type Job, type JsonValue } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { collectFinished } from './jobs'
+import { forgetRuns, rememberRun } from './run-ids'
 
 /** A job the store was holding when the app started. */
 function finishedJob(overrides: Partial<Job> = {}): Job {
@@ -212,5 +213,61 @@ describe('collecting work that survived a quit', () => {
 
     const note = await screen.findByText(/may still charge/i)
     expect(note).toBeVisible()
+  })
+})
+
+/**
+ * The run a collected candidate belongs to (#26).
+ *
+ * The job store knows nothing about runs, so this is the one place the
+ * grouping can be lost: it is remembered in this session and attached as the
+ * result is folded in. A job that outlived the session has to arrive anyway.
+ */
+describe('a collected candidate remembers its run', () => {
+  beforeEach(() => {
+    useEditorStore.getState().reset()
+    vi.mocked(commands.saveProject).mockClear()
+    forgetRuns()
+    vi.mocked(commands.activeJobs).mockResolvedValue({ status: 'ok', data: [] })
+    vi.mocked(commands.finishedJobs).mockResolvedValue({
+      status: 'ok',
+      data: [],
+    })
+  })
+
+  it('carries the run it was submitted with into the manifest', async () => {
+    rememberRun('gen-from-last-time', 'run-this-session')
+    vi.mocked(commands.finishedJobs).mockResolvedValue({
+      status: 'ok',
+      data: [finishedJob()],
+    })
+
+    await openAtlas()
+
+    await waitFor(() => {
+      const saved = lastSavedProject().generations.find(
+        generation => generation.id === 'gen-from-last-time'
+      )
+      expect(saved?.runId).toBe('run-this-session')
+    })
+  })
+
+  it('arrives ungrouped rather than not at all when the run is forgotten', async () => {
+    // A job submitted before the last quit: nothing in this session ever knew
+    // which click it came from, and the candidate was still paid for.
+    vi.mocked(commands.finishedJobs).mockResolvedValue({
+      status: 'ok',
+      data: [finishedJob()],
+    })
+
+    await openAtlas()
+
+    await waitFor(() => {
+      const saved = lastSavedProject().generations.find(
+        generation => generation.id === 'gen-from-last-time'
+      )
+      expect(saved).toBeDefined()
+      expect(saved?.runId).toBeNull()
+    })
   })
 })

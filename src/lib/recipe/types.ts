@@ -98,6 +98,17 @@ export interface Generation {
   readonly verdict: Verdict
   readonly createdAt: number
   /**
+   * The run that produced it — one id shared by every candidate of a single
+   * click (#26, PRD §4.2), so a four-up can be shown and labelled as the one
+   * choice it actually is.
+   *
+   * `null` is a normal value, not a gap: a candidate written before runs were
+   * recorded has none, and neither does one whose run was submitted by a
+   * previous launch of the app — the grouping is a convenience, and losing it
+   * must never lose the candidate.
+   */
+  readonly runId: string | null
+  /**
    * Position within its stage, assigned once and never renumbered — "Style 3"
    * has to keep meaning the same candidate after something is rejected, or
    * "the second one was better" (PRD §10.3) stops being sayable.
@@ -134,6 +145,17 @@ export interface Project {
   /** Locked at creation, per PRD §4.4 — never edited afterwards. */
   readonly aspect: AspectId
   readonly createdAt: number
+  /**
+   * How many candidates one run produces, per PRD §4.2 — four images, one
+   * video.
+   *
+   * Per project rather than per app, and *copied* from the defaults at
+   * creation (PRD §11): changing a default later must not quietly make an old
+   * project spend four times as much on its next click. Unlike the aspect
+   * ratio these stay editable, because nothing already made depends on them.
+   */
+  readonly imageBatchSize: number
+  readonly videoBatchSize: number
   /** The editable form per stage — what a re-run would submit right now. */
   readonly drafts: Readonly<Record<StageKind, StageRecipe>>
   /** Flat and append-only. Stage membership is a field, not a bucket. */

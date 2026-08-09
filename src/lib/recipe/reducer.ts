@@ -11,7 +11,7 @@
  */
 
 import { modelById, reconcileParams, type ModelCapabilities } from './registry'
-import { upstreamOf } from './selectors'
+import { clampBatchSize, upstreamOf } from './selectors'
 import { isUploadRecipe, uploadRecipe } from './upload'
 import { STAGE_ORDER } from './types'
 import type {
@@ -36,6 +36,13 @@ export interface PlannedRun {
   readonly id: string
   readonly seed: number
   readonly asset: string | null
+  /**
+   * The click these candidates came from — one id across the whole batch
+   * (#26). Carried per candidate rather than on the action because a
+   * generation has to keep it: the strip groups on the record, not on what the
+   * editor happened to know at the time.
+   */
+  readonly runId: string | null
 }
 
 /**
@@ -53,6 +60,14 @@ export interface CompletedRun {
   /** What the model used, or `null` when it has no seed to report. */
   readonly seed: number | null
   readonly asset: string | null
+  /**
+   * The run it was submitted with, when this session still remembers it.
+   *
+   * Optional because a job can outlive the app: a result collected on the next
+   * launch has no run to belong to, and the candidate is worth more than the
+   * grouping.
+   */
+  readonly runId?: string | null
 }
 
 /** The editor with nothing open — where the app now starts. */
@@ -114,6 +129,16 @@ export type EditorAction =
       readonly value: number
     }
   | { readonly type: 'unpinSeed'; readonly stage: StageKind }
+  /**
+   * How many candidates this project's runs of that stage produce (PRD §4.2).
+   * Held to the range we would submit, because the action is one keystroke
+   * away from a number nobody meant to spend.
+   */
+  | {
+      readonly type: 'setBatchSize'
+      readonly stage: StageKind
+      readonly size: number
+    }
   | {
       readonly type: 'runStage'
       readonly stage: StageKind
@@ -241,6 +266,14 @@ export function createEditorReducer(
           seed: { mode: 'roll' },
         }))
 
+      case 'setBatchSize':
+        return editProject(state, project => {
+          const size = clampBatchSize(action.size)
+          return action.stage === 'animate'
+            ? { ...project, videoBatchSize: size }
+            : { ...project, imageBatchSize: size }
+        })
+
       case 'runStage':
         return editProject(state, project =>
           runStage(registry, project, action)
@@ -345,6 +378,7 @@ function runStage(
       createdAt: action.at,
       ordinal: ordinal++,
       asset: run.asset,
+      runId: run.runId,
     }
   })
 
@@ -422,18 +456,35 @@ export function withCollectedGenerations(
       createdAt: at,
       ordinal,
       asset: entry.asset,
+      runId: entry.runId ?? null,
     }
   })
 
   // The first arrival in each stage is selected, the same way a fresh run
   // selects its first candidate: this is the image the user has been waiting
-  // for, possibly across a restart. Later arrivals in the same batch do not
-  // keep stealing it, or a four-up would end on whichever finished last.
+  // for, possibly across a restart, and the stage after it needs an input
+  // whether or not anyone is watching.
+  //
+  // What it must never do is take the choice back. Once the selection points
+  // at something from *this* run — the first arrival claiming it, or the user
+  // clicking a tile in the grid while the rest are still coming — later
+  // arrivals leave it alone, or a four-up would end on whichever finished last
+  // and a click made two seconds ago would be undone by a job settling.
+  const held = new Map(project.generations.map(g => [g.id, g]))
   const selection = { ...project.selection }
   const claimed = new Set<StageKind>()
+
   for (const generation of created) {
     if (claimed.has(generation.stage)) continue
     claimed.add(generation.stage)
+
+    const current = held.get(selection[generation.stage] ?? '')
+    const withinThisRun =
+      current !== undefined &&
+      current.runId !== null &&
+      current.runId === generation.runId
+
+    if (withinThisRun) continue
     selection[generation.stage] = generation.id
   }
 

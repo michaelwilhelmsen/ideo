@@ -17,7 +17,9 @@ import { toast } from 'sonner'
 import i18n from '@/i18n/config'
 import { logger } from '@/lib/logger'
 import {
+  DEFAULT_IMAGE_BATCH,
   DEFAULT_MODEL_IDS,
+  DEFAULT_VIDEO_BATCH,
   readManifest,
   writeManifest,
   type AspectId,
@@ -305,6 +307,10 @@ export function newProject(name: string, aspect: AspectId): Project {
     name,
     aspect,
     createdAt: Date.now(),
+    // Copied, not referenced (PRD §11): raising the default later must not
+    // make an existing project's next click cost four times as much.
+    imageBatchSize: DEFAULT_IMAGE_BATCH,
+    videoBatchSize: DEFAULT_VIDEO_BATCH,
     drafts: {
       // From the registry (#25), not written out here: a draft naming a model
       // with no capability entry is a recipe nothing can build a request for,

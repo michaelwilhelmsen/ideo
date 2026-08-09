@@ -8,10 +8,11 @@
  * different model (PRD §10.1 — "helpfulness that spends money is not helpful").
  */
 
-import { describe, expect, it } from 'vitest'
-import { render, screen, within } from '@/test/test-utils'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, within } from '@/test/test-utils'
 import userEvent from '@testing-library/user-event'
 import { ATLAS, LEDGER, MODEL_REGISTRY, modelById } from '@/lib/recipe'
+import { useEditorStore } from '@/store/editor-store'
 import { StageParameters } from './StageParameters'
 
 describe('StageParameters — model selection', () => {
@@ -135,5 +136,87 @@ describe('StageParameters — cost (PRD §10.2)', () => {
     render(<StageParameters project={tokenPriced} stage="source" />)
 
     expect(screen.getByText(/not checked/i)).toBeVisible()
+  })
+})
+
+/**
+ * PRD §4.2 — how many candidates one click produces, and what the button and
+ * the estimate above it say it will cost.
+ */
+describe('StageParameters — batch (#26)', () => {
+  beforeEach(() => {
+    useEditorStore.getState().reset()
+  })
+
+  /** The panel against the live project, which is how the app renders it. */
+  function LivePanel({ stage }: { stage: 'source' | 'style' | 'animate' }) {
+    const project = useEditorStore(store => store.state.project)
+    if (project === null) return null
+    return <StageParameters project={project} stage={stage} />
+  }
+
+  function open(project: typeof LEDGER): void {
+    useEditorStore.getState().dispatch({
+      type: 'openProject',
+      project,
+      directory: `/tmp/${project.id}`,
+    })
+  }
+
+  it('offers four candidates on an image stage and one on video', () => {
+    render(<StageParameters project={LEDGER} stage="source" />)
+    expect(
+      screen.getByLabelText<HTMLInputElement>('Candidates per run').value
+    ).toBe('4')
+
+    render(<StageParameters project={LEDGER} stage="animate" />)
+    expect(
+      screen.getAllByLabelText<HTMLInputElement>('Candidates per run')[1]?.value
+    ).toBe('1')
+  })
+
+  it('says on the button what the click will actually produce', () => {
+    open(LEDGER)
+    render(<LivePanel stage="source" />)
+
+    expect(screen.getByRole('button', { name: 'Generate 4' })).toBeEnabled()
+
+    fireEvent.change(screen.getByLabelText('Candidates per run'), {
+      target: { value: '2' },
+    })
+
+    // The button and the estimate above it have to agree with the stepper, or
+    // the number beside "Generate" is not what the click costs (PRD §10.2).
+    expect(screen.getByRole('button', { name: 'Generate 2' })).toBeEnabled()
+    expect(useEditorStore.getState().state.project?.imageBatchSize).toBe(2)
+  })
+
+  it('prices the batch, not one call', () => {
+    open(LEDGER)
+    const { rerender } = render(<LivePanel stage="source" />)
+
+    const four = screen.getByText(/approximate/i).textContent ?? ''
+
+    useEditorStore
+      .getState()
+      .dispatch({ type: 'setBatchSize', stage: 'source', size: 1 })
+    rerender(<LivePanel stage="source" />)
+
+    const one = screen.getByText(/approximate/i).textContent ?? ''
+    expect(four).not.toBe(one)
+  })
+
+  it('collapses to one while the seed is pinned, and says so', async () => {
+    open(LEDGER)
+    render(<LivePanel stage="source" />)
+
+    await userEvent.setup().click(screen.getByRole('switch', { name: /pin/i }))
+
+    expect(screen.getByRole('button', { name: 'Generate 1' })).toBeEnabled()
+    expect(screen.getByText(/pinned seed makes every candidate/i)).toBeVisible()
+    // The setting itself is untouched — unpinning gets the four back.
+    expect(
+      screen.getByLabelText<HTMLInputElement>('Candidates per run').value
+    ).toBe('4')
   })
 })
