@@ -9,8 +9,6 @@ import { describe, expect, it } from 'vitest'
 import {
   needsOnboarding,
   onboardingVersion,
-  ONBOARDING_STEPS,
-  ONBOARDING_VERSION,
   stepsSince,
   type OnboardingStep,
 } from './steps'
@@ -61,20 +59,5 @@ describe('onboarding versions', () => {
 
   it('does not re-prompt on a version above the list, however it got there', () => {
     expect(needsOnboarding(V1, 99)).toBe(false)
-  })
-
-  describe('the shipped registry', () => {
-    it('records the version its own steps derive', () => {
-      expect(ONBOARDING_VERSION).toBe(onboardingVersion(ONBOARDING_STEPS))
-      expect(ONBOARDING_VERSION).toBeGreaterThan(0)
-    })
-
-    it('has unique ids and versions that only ever go up', () => {
-      const ids = ONBOARDING_STEPS.map(s => s.id)
-      expect(new Set(ids).size).toBe(ids.length)
-
-      const versions = ONBOARDING_STEPS.map(s => s.version)
-      expect([...versions].sort((a, b) => a - b)).toEqual(versions)
-    })
   })
 })

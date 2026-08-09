@@ -245,6 +245,31 @@ src/components/
 - **ui/** - shadcn/ui primitives (don't modify directly)
 - **Feature folders** - Group related components together
 
+## Onboarding Steps
+
+Onboarding is a declarative list, split so the dependency points from `components/` into
+`lib/` — `lib/` is pure logic and never imports a component.
+
+| Location                           | Holds                                                                  |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| `src/lib/onboarding/steps.ts`      | `OnboardingStep`, `onboardingVersion`, `stepsSince`, `needsOnboarding` |
+| `src/components/onboarding/steps/` | The step components, and `index.ts` with `ONBOARDING_STEPS`            |
+
+**Completion is a version integer, not a boolean.** Each step carries the onboarding
+version that introduced it; the stored `onboarding_version` in preferences says how far a
+user has been walked. `stepsSince(steps, stored)` returns only what is newer, so a step
+added later re-prompts existing users with _that step alone_ while a first-time user
+(stored `0`) gets the lot. A boolean could express neither.
+
+`ONBOARDING_VERSION` is derived from the list (`onboardingVersion(ONBOARDING_STEPS)`),
+never declared beside it — a hand-kept constant would eventually disagree, and the
+disagreement would be invisible.
+
+**Adding a step**: write the component in `src/components/onboarding/steps/`, add one
+entry to `ONBOARDING_STEPS` in that folder's `index.ts` with `version` one above the
+current `ONBOARDING_VERSION`. Nothing else changes — `OnboardingDialog` walks whatever
+list it is handed, which is also how its tests hand it a longer one.
+
 ## shadcn/ui Usage
 
 ### Adding Components

@@ -135,6 +135,12 @@ export function StageParameters({
             dispatch({ type: 'setPrompt', stage, prompt: event.target.value })
           }
         />
+        {/* PRD §5's `promptStyle`, said out loud. The registry knows Qwen reads
+            a keyword list and everything else reads prose; without this the
+            user finds out by writing the wrong kind of prompt and paying. */}
+        <p className="text-xs text-muted-foreground">
+          {t(`editor.promptStyle.${model.promptStyle}`)}
+        </p>
       </Field>
 
       <Field label={t('editor.field.preset')}>

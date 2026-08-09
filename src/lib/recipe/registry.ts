@@ -123,6 +123,19 @@ export interface ModelCapabilities {
   readonly durationFormat: DurationFormat | null
   readonly resolutionParam: string | null
   readonly resolutions: readonly string[]
+  /**
+   * Fields no registry column names but *this* model still understands — the
+   * `generate_audio: false` of PRD §9, which is billed and unwanted on a hero
+   * loop that has no sound.
+   *
+   * Per model rather than a shared whitelist, and that is the whole point. A
+   * global list of "extras every model might have" makes `validateRegistry`'s
+   * undeclared-default check and the request builder's filter blind for every
+   * name on it: a `guidance_scale` default on a model with no such field would
+   * pass validation and ship in the body, which is a 422 at the paid step.
+   * Absent means the model does not have it — read the schema before adding.
+   */
+  readonly extraParams?: readonly string[]
   /** Ours, never the API's (PRD §5, §6.3). Keyed by API field name. */
   readonly defaults: StageParams
   readonly price: Price | null
@@ -495,6 +508,10 @@ export function validateRegistry(
       fail('must declare resolutionParam and resolutions together')
     }
 
+    for (const extra of model.extraParams ?? []) {
+      if (extra.trim() === '') fail('lists an unnamed extra parameter')
+    }
+
     // A default nothing reads is a default nobody maintains, and a default for
     // a field the model does not have is a 422 waiting to be sent.
     for (const key of Object.keys(model.defaults)) {
@@ -562,21 +579,8 @@ function declaredParams(model: ModelCapabilities): ReadonlySet<string> {
     model.supportsSeed ? 'seed' : null,
   ].filter((name): name is string => name !== null)
 
-  return new Set([...names, ...EXTRA_PARAMS])
+  return new Set([...names, ...(model.extraParams ?? [])])
 }
-
-/**
- * Fields no registry column names but some model still needs sent — the
- * `generate_audio: false` of PRD §9, which is billed and unwanted on a hero
- * loop that has no sound.
- */
-const EXTRA_PARAMS: readonly string[] = [
-  'generate_audio',
-  'guidance_scale',
-  'num_inference_steps',
-  'enable_safety_checker',
-  'output_format',
-]
 
 function validateAspects(
   model: ModelCapabilities,

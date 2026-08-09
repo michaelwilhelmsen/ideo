@@ -179,6 +179,28 @@ describe('buildRequest — defaults and unknown fields', () => {
     expect(request.params.negative_prompt).toBeUndefined()
   })
 
+  it('drops an extra field only the model that opted into it may send', () => {
+    // `guidance_scale` is real on some endpoints and unknown on this one. A
+    // shared whitelist would have let it through to a 422 at the paid step.
+    const kontext = buildRequest(
+      model('fal-ai/flux-pro/kontext/text-to-image'),
+      '16:9',
+      recipe({ params: { guidance_scale: 3.5, num_inference_steps: 40 } })
+    )
+
+    expect(kontext.params.guidance_scale).toBeUndefined()
+    expect(kontext.params.num_inference_steps).toBeUndefined()
+
+    const schnell = buildRequest(
+      model('fal-ai/flux/schnell'),
+      '16:9',
+      recipe({ params: { guidance_scale: 3.5, num_inference_steps: 8 } })
+    )
+
+    expect(schnell.params.guidance_scale).toBeUndefined()
+    expect(schnell.params.num_inference_steps).toBe(8)
+  })
+
   it('turns Seedance’s audio off, because it is billed and a hero is silent', () => {
     const request = buildRequest(
       model('bytedance/seedance-2.5/image-to-video'),

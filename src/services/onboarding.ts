@@ -12,7 +12,6 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { logger } from '@/lib/logger'
-import { ONBOARDING_VERSION } from '@/lib/onboarding/steps'
 import { commands, type AppPreferences } from '@/lib/tauri-bindings'
 import {
   DEFAULT_PREFERENCES,
@@ -42,7 +41,10 @@ export function useOnboardingVersion(): {
 }
 
 /**
- * Records a version as reached. Silent on success, and silent on failure too:
+ * Records a version as reached — the caller passes the number, because the
+ * step list is a component-layer value this hook has no business importing.
+ *
+ * Silent on success, and silent on failure too:
  * a preferences write that fails means onboarding offers itself again next
  * launch, which is a far better outcome than an error toast at the end of a
  * welcome flow.
@@ -51,7 +53,7 @@ export function useRecordOnboardingVersion() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (version: number = ONBOARDING_VERSION) => {
+    mutationFn: async (version: number) => {
       const loaded = await commands.loadPreferences()
       const current: AppPreferences =
         loaded.status === 'ok' ? loaded.data : DEFAULT_PREFERENCES

@@ -1,5 +1,12 @@
 /**
- * Onboarding as a declarative list (PRD §7, #32).
+ * Onboarding as a declarative list (PRD §7, #32) — the shape of a step, and
+ * the arithmetic over a list of them.
+ *
+ * The list itself lives in `@/components/onboarding/steps`, because its
+ * entries name React components and `lib/` is pure logic that does not reach
+ * into `components/` (architecture guide). Everything here takes the steps as
+ * an argument, which is also why the version rules are testable without
+ * rendering anything.
  *
  * Two decisions live here and nowhere else.
  *
@@ -15,9 +22,6 @@
  */
 
 import type { ComponentType } from 'react'
-import { ApiKeyStep } from '@/components/onboarding/steps/ApiKeyStep'
-import { FirstProjectStep } from '@/components/onboarding/steps/FirstProjectStep'
-import { WelcomeStep } from '@/components/onboarding/steps/WelcomeStep'
 
 export interface OnboardingStep {
   /** Stable id — used as a React key and to target a step directly. */
@@ -52,9 +56,7 @@ export const FAL_KEYS_URL = 'https://fal.ai/dashboard/keys'
  * constant that will one day disagree with it, and the disagreement would be
  * invisible — either a new step never prompts, or every user is re-prompted.
  */
-export function onboardingVersion(
-  steps: readonly OnboardingStep[] = ONBOARDING_STEPS
-): number {
+export function onboardingVersion(steps: readonly OnboardingStep[]): number {
   return steps.reduce((highest, step) => Math.max(highest, step.version), 0)
 }
 
@@ -79,34 +81,3 @@ export function needsOnboarding(
 ): boolean {
   return stepsSince(steps, storedVersion).length > 0
 }
-
-/** The list itself — the whole feature's surface for adding a step. */
-export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
-  {
-    id: ONBOARDING_STEP_WELCOME,
-    version: 1,
-    titleKey: 'onboarding.welcome.title',
-    descriptionKey: 'onboarding.welcome.description',
-    Content: WelcomeStep,
-    canSkip: true,
-  },
-  {
-    id: ONBOARDING_STEP_API_KEY,
-    version: 1,
-    titleKey: 'onboarding.apiKey.title',
-    descriptionKey: 'onboarding.apiKey.description',
-    Content: ApiKeyStep,
-    canSkip: true,
-  },
-  {
-    id: ONBOARDING_STEP_FIRST_PROJECT,
-    version: 1,
-    titleKey: 'onboarding.firstProject.title',
-    descriptionKey: 'onboarding.firstProject.description',
-    Content: FirstProjectStep,
-    canSkip: true,
-  },
-]
-
-/** The version a completed run of the real list records. */
-export const ONBOARDING_VERSION = onboardingVersion(ONBOARDING_STEPS)

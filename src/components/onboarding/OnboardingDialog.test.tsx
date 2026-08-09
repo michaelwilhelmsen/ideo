@@ -13,11 +13,8 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { render, screen, waitFor } from '@/test/test-utils'
 import { commands } from '@/lib/tauri-bindings'
-import {
-  ONBOARDING_STEPS,
-  ONBOARDING_VERSION,
-  type OnboardingStep,
-} from '@/lib/onboarding/steps'
+import type { OnboardingStep } from '@/lib/onboarding/steps'
+import { ONBOARDING_STEPS, ONBOARDING_VERSION } from './steps'
 import { useUIStore } from '@/store/ui-store'
 import { OnboardingDialog } from './OnboardingDialog'
 

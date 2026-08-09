@@ -79,6 +79,39 @@ describe('StageParameters — model selection', () => {
   })
 })
 
+/**
+ * PRD §5's `promptStyle`. The registry has always known that Qwen reads a
+ * keyword list and everything else reads prose; until it was shown, the only
+ * way to learn it was to write the wrong kind of prompt and pay for the result.
+ */
+describe('StageParameters — prompt style', () => {
+  it('says a prose model wants sentences', () => {
+    render(<StageParameters project={ATLAS} stage="source" />)
+
+    expect(screen.getByText(/reads the prompt as prose/i)).toBeInTheDocument()
+  })
+
+  it('follows the selected model onto a keyword-list one', () => {
+    const onQwen = {
+      ...LEDGER,
+      drafts: {
+        ...LEDGER.drafts,
+        source: {
+          ...LEDGER.drafts.source,
+          modelId: 'fal-ai/qwen-image-2/text-to-image',
+        },
+      },
+    }
+
+    render(<StageParameters project={onQwen} stage="source" />)
+
+    expect(
+      screen.getByText(/reads the prompt as a keyword list/i)
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/reads the prompt as prose/i)).toBeNull()
+  })
+})
+
 describe('StageParameters — cost (PRD §10.2)', () => {
   it('shows an approximate figure with the date the price was checked', () => {
     render(<StageParameters project={LEDGER} stage="source" />)

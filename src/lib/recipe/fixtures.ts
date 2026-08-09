@@ -126,7 +126,6 @@ const ATLAS_SUBJECT =
 const atlasSource = recipe({
   modelId: 'fal-ai/flux-pro/kontext/text-to-image',
   prompt: ATLAS_SUBJECT,
-  params: { guidance_scale: 3.5 },
 })
 
 /**

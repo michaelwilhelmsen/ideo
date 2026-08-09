@@ -1,6 +1,6 @@
 /**
  * The two ways an image the user already has becomes a project source (#27):
- * a file picker, and dropping it on the window.
+ * a file picker, and dropping it on the upload panel.
  *
  * Both are the *same* path — they only differ in where the path string comes
  * from, and they meet one line later in `useImportSourceImage`. That is the
@@ -12,25 +12,37 @@
  * the stage above (PRD §4.1) rather than from disk, so an upload affordance
  * there would offer something the recipe model has nowhere to put.
  *
- * The drop target is the whole stage pane rather than a small rectangle: the
- * OS drag is already a coarse gesture, and Tauri reports the drop against the
- * window, not against a DOM node, so a small target would be a lie about what
- * is actually being listened to.
+ * Two things the OS gesture forces this component to do by hand:
+ *
+ * **Scoping.** Tauri reports a drag against the *window*, not against a DOM
+ * node, so a listener that simply believed the event would swallow a file
+ * dropped anywhere — over the candidate strip, the sidebar, another stage.
+ * The drop is therefore tested against this panel's own rectangle, and the
+ * highlight follows the same test, so what lights up is what will accept.
+ *
+ * **Arity.** A source is one picture. A multi-file drop is an ambiguous
+ * request, and quietly taking `paths[0]` answers it by guessing — the user
+ * would watch four files vanish into one candidate with no idea which. So it
+ * refuses, and says why (`editor.upload.oneAtATime`).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import i18n from '@/i18n/config'
 import { logger } from '@/lib/logger'
 import { cn } from '@/lib/utils'
 import type { Project } from '@/lib/recipe'
+import { isWithinDropZone } from './drop-zone'
 import { useImportSourceImage } from './import-source'
 
 export function SourceUpload({ project }: { project: Project }) {
   const { t } = useTranslation()
   const importer = useImportSourceImage(project)
   const [isOver, setIsOver] = useState(false)
+  const zone = useRef<HTMLElement>(null)
 
   // `importer` is rebuilt every render, so the effect reads it through a ref
   // the compiler keeps current rather than re-registering the OS listener on
@@ -41,22 +53,46 @@ export function SourceUpload({ project }: { project: Project }) {
     let isMounted = true
     let unlisten: (() => void) | null = null
 
+    const inside = (position: { x: number; y: number }): boolean => {
+      const element = zone.current
+      if (element === null) return false
+      return isWithinDropZone(
+        element.getBoundingClientRect(),
+        position,
+        window.devicePixelRatio
+      )
+    }
+
     getCurrentWebview()
       .onDragDropEvent(event => {
-        if (event.payload.type === 'enter' || event.payload.type === 'over') {
-          setIsOver(true)
+        const payload = event.payload
+
+        if (payload.type === 'leave') {
+          setIsOver(false)
+          return
+        }
+
+        const over = inside(payload.position)
+
+        if (payload.type === 'enter' || payload.type === 'over') {
+          setIsOver(over)
           return
         }
 
         setIsOver(false)
-        if (event.payload.type !== 'drop') return
+        if (payload.type !== 'drop' || !over) return
 
-        // One image per source. A multi-file drop is an ambiguous request and
-        // guessing which one was meant is worse than taking the first.
-        const [first] = event.payload.paths
-        if (first === undefined) return
+        // Read off `i18n` rather than the hook's `t`: this callback is
+        // registered once and would otherwise keep the language it was born in.
+        if (payload.paths.length !== 1) {
+          toast.error(i18n.t('editor.upload.oneAtATime'))
+          return
+        }
 
-        void importPath(first)
+        const [only] = payload.paths
+        if (only === undefined) return
+
+        void importPath(only)
       })
       .then(unlistenFn => {
         if (isMounted) {
@@ -77,6 +113,7 @@ export function SourceUpload({ project }: { project: Project }) {
 
   return (
     <section
+      ref={zone}
       className={cn(
         'rounded-lg border border-dashed border-border p-4 transition-colors',
         isOver && 'border-primary bg-primary/5'

@@ -27,12 +27,12 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
-  ONBOARDING_STEPS,
   onboardingVersion,
   needsOnboarding,
   stepsSince,
   type OnboardingStep,
 } from '@/lib/onboarding/steps'
+import { ONBOARDING_STEPS } from './steps'
 import {
   useOnboardingVersion,
   useRecordOnboardingVersion,

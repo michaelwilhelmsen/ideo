@@ -388,6 +388,32 @@ describe('validateRegistry', () => {
     ).toThrow(/undeclared parameter "strength"/)
   })
 
+  // The blind spot a shared whitelist of "extras" used to open: every name on
+  // it counted as declared on every model, so both the check above and the
+  // request builder's filter waved these through.
+  it('refuses an extra-parameter default the model has not opted into', () => {
+    expect(() =>
+      validateRegistry([model({ defaults: { guidance_scale: 3.5 } })])
+    ).toThrow(/undeclared parameter "guidance_scale"/)
+  })
+
+  it('accepts one the model opts into by name', () => {
+    expect(() =>
+      validateRegistry([
+        model({
+          extraParams: ['guidance_scale'],
+          defaults: { guidance_scale: 3.5 },
+        }),
+      ])
+    ).not.toThrow()
+  })
+
+  it('refuses an unnamed extra parameter', () => {
+    expect(() => validateRegistry([model({ extraParams: [' '] })])).toThrow(
+      /unnamed extra parameter/
+    )
+  })
+
   it('refuses a default the model does not offer', () => {
     expect(() =>
       validateRegistry([

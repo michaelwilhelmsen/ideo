@@ -146,6 +146,8 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: null,
     resolutionParam: null,
     resolutions: [],
+    // `docs/research/models.md` — schnell's schema names a step count.
+    extraParams: ['num_inference_steps'],
     // 4 is the model's own step count and the whole point of the distillation;
     // raising it buys nothing on a 4-step schedule.
     defaults: { num_inference_steps: 4 },
@@ -635,6 +637,8 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     durationFormat: 'integer',
     resolutionParam: 'resolution',
     resolutions: ['480p', '720p'],
+    // PRD §9 — the one field outside the registry's columns this model has.
+    extraParams: ['generate_audio'],
     defaults: {
       duration: '5',
       resolution: '720p',

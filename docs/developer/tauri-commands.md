@@ -242,6 +242,15 @@ Projects (see [data-persistence.md](./data-persistence.md) for the storage model
 | `projectUsage`        | `projectId: string`   | `Result<ProjectUsage, string>`     | Size on disk, and how much is unused       |
 | `cleanupUnusedAssets` | `projectId: string`   | `Result<CleanupOutcome, string>`   | Delete unreferenced assets only            |
 
+| Command             | Parameters                                                    | Returns                              | Description                                  |
+| ------------------- | ------------------------------------------------------------- | ------------------------------------ | -------------------------------------------- |
+| `importSourceImage` | `projectId: string, generationId: string, sourcePath: string` | `Result<ImportedImage, ImportError>` | Copy a user's own image in as a source asset |
+
+`importSourceImage` names the file after the `generationId` the caller mints, so the
+manifest entry and the file on disk agree by construction — the same shape a finished
+job produces. Its error is a typed `ImportError` rather than a string, because the
+refusal is shown to the user and therefore has to be translated.
+
 Jobs (see the queue-API section of [external-apis.md](./external-apis.md)). Note that
 `generateImage` returns a **receipt, not an image**: the generation outlives the call,
 and its result is collected from the job store.
