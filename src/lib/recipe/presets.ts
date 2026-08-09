@@ -355,10 +355,11 @@ function strengthFor(
  * asking a model for grain barely registers. #34 replaces this content with the
  * hero-recipes v4 library once the mechanics here are proven.
  *
- * Every variant is `tags`, which is the idiom the drafts are written in and the
- * one PRD §6.2's A/B refused to rewrite. `prose` is explicitly null, so the six
- * prose-idiom style models seed nothing until #34 — which is a visible gap
- * rather than a tag list quietly sent to a prose encoder.
+ * Every preset carries both idioms: `tags` as the drafts were written (the
+ * idiom PRD §6.2's A/B refused to rewrite) and a `prose` restatement in
+ * instruction phrasing for the edit models, so every style-stage registry row
+ * seeds. Nothing is ever cross-sent — a variant only reaches a model whose
+ * `promptStyle` matches it.
  */
 export const STYLE_PRESET_LIBRARY: PresetLibrary =
   readPresetLibrary(LIBRARY_DOCUMENT)
