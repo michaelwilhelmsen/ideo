@@ -46,7 +46,7 @@ use std::path::Path;
 use super::downscale;
 use super::fal::{GenerationError, GenerationErrorReason, InputImageProblem};
 use super::storage;
-use crate::projects::import::sniff_format;
+use crate::projects::import::{sniff_format, ImageFormat};
 use crate::projects::store::asset_path;
 
 /// The stages that transform somebody else's image, and therefore cannot run
@@ -62,20 +62,31 @@ fn requires_input(stage: &str) -> bool {
     INPUT_STAGES.contains(&stage)
 }
 
-/// The ceiling on an input image, measured on the file as it sits on disk.
+/// The largest file worth opening at all.
 ///
-/// The number has not moved since #28 but its justification has, and #50 is
-/// where that mattered. It used to be a guess about how large a base64 body
-/// could get away with being; there is no body to overload now. What is left is
-/// the real constraint underneath it: **10 MB is the largest input any surveyed
-/// model accepts** — Kling's own documented cap — so a file over it is refused
-/// by the model whatever route it takes to get there. Refusing here costs a
-/// stat call; discovering it after an upload costs the upload.
+/// Not a limit fal or any model imposes — a guard on this process. `downscale`
+/// has to decode an image to shrink it, and decoding is where a hostile or
+/// simply enormous file costs memory: a 24-bit 12000×8000 PNG is ~26 MB on disk
+/// and ~288 MB decoded. So the file is measured before it is read, and anything
+/// beyond a generous ceiling is refused without being opened.
 ///
-/// Checked before `downscale::apply` rather than after, deliberately. A 40 MB
-/// PNG would shrink to well under the cap, but the point of a ceiling is that
-/// the oversized file is never decoded into memory in the first place.
-const MAX_INPUT_BYTES: u64 = 10 * 1024 * 1024;
+/// Deliberately far above anything this app produces. The largest asset seen
+/// from any surveyed model is ~5 MB, so this only ever catches a user upload
+/// (#27), and refusing one at 64 MB is a different judgement from refusing one
+/// the model would have taken.
+const MAX_READ_BYTES: u64 = 64 * 1024 * 1024;
+
+/// The largest image any surveyed model accepts — Kling's own documented cap.
+///
+/// This is the real constraint, and #50 moved it to the only place it can
+/// honestly be applied: **after** `downscale::apply`, on the bytes actually
+/// being uploaded. Before that it sat on the raw file, which meant an 11 MB PNG
+/// was refused as too large even though what would have been sent was 400 KB —
+/// a refusal invented on this side for a request that was going to succeed.
+///
+/// The two ceilings answer different questions, which is why there are two. This
+/// one is "will the model take it"; `MAX_READ_BYTES` is "can we afford to look".
+const MAX_UPLOAD_BYTES: u64 = 10 * 1024 * 1024;
 
 /// How a model's image field is shaped — the one thing knowing its *name* does
 /// not tell you.
@@ -164,9 +175,21 @@ pub fn resolve(
 /// that follow are only reached by a run that was going to work.
 #[derive(Debug, Default)]
 pub struct ResolvedInputs {
-    /// Generation id → the bytes to send for it, read and shrunk exactly once
+    /// Generation id → what to send for it, read and shrunk exactly once
     /// however many fields point at it.
-    images: HashMap<String, Vec<u8>>,
+    images: HashMap<String, ReadyImage>,
+}
+
+/// One image as it will go on the wire.
+///
+/// The format travels with the bytes because it was already determined — a
+/// format no model accepts is one of the refusals `resolve` makes — and both the
+/// file name and the content type are derived from it downstream. Sniffing again
+/// per use would be three answers to one question, each free to drift.
+#[derive(Debug)]
+struct ReadyImage {
+    bytes: Vec<u8>,
+    format: ImageFormat,
 }
 
 /// Uploads each resolved image and writes the URLs into the body (#50).
@@ -186,9 +209,9 @@ pub async fn attach(
     }
 
     let mut urls: HashMap<String, String> = HashMap::new();
-    for (id, bytes) in resolved.images {
-        let name = upload_name(&id, &bytes);
-        let url = storage::upload(key, bytes, &name).await?;
+    for (id, image) in resolved.images {
+        let name = upload_name(&id, image.format);
+        let url = storage::upload(key, image.bytes, &name, image.format).await?;
         urls.insert(id, url);
     }
 
@@ -226,14 +249,10 @@ fn inject_urls(
 /// What the file is called once it is fal's.
 ///
 /// The generation id, so a file in fal's storage can be traced back to the
-/// candidate it came from, and an extension from the *sniffed* bytes — which
+/// candidate it came from, and an extension from the *sniffed* format — which
 /// after `downscale::apply` is frequently no longer the extension on disk.
-fn upload_name(generation_id: &str, bytes: &[u8]) -> String {
-    let extension = sniff_format(bytes)
-        .map(|format| format.extension())
-        .unwrap_or("bin");
-
-    format!("{generation_id}.{extension}")
+fn upload_name(generation_id: &str, format: ImageFormat) -> String {
+    format!("{generation_id}.{}", format.extension())
 }
 
 /// Everything that can refuse the run before a single byte is read.
@@ -264,20 +283,18 @@ fn not_an_object() -> GenerationError {
     )
 }
 
-/// Each named generation as a data URI, one entry per *generation* rather than
-/// per field.
+/// The bytes to send for each named generation, one entry per *generation*
+/// rather than per field.
 ///
 /// The deduplication is the point rather than an optimisation. A loop names one
-/// still under two fields (#30); reading it twice would hold two copies of a
-/// hero-size image and two base64 strings a third larger again, and would put
-/// the same file past the inline ceiling on the second pass of a size check it
-/// had already passed.
+/// still under two fields (#30); doing this twice would hold two copies of a
+/// hero-size image, decode and re-encode it twice, and upload it twice.
 fn read_once(
     root: &Path,
     project_id: &str,
     inputs: &[ImageInput],
-) -> Result<HashMap<String, Vec<u8>>, GenerationError> {
-    let mut images: HashMap<String, Vec<u8>> = HashMap::new();
+) -> Result<HashMap<String, ReadyImage>, GenerationError> {
+    let mut images: HashMap<String, ReadyImage> = HashMap::new();
 
     for input in inputs {
         let id = input.generation_id.as_str();
@@ -292,15 +309,27 @@ fn read_once(
             return Err(unusable(InputImageProblem::Unreadable));
         }
 
-        // Checked here rather than at upload time, and this is the last point
-        // where it is free: past `resolve` the key has been fetched, so a
-        // format we cannot name would cost a keychain prompt to discover.
-        if sniff_format(&bytes).is_none() {
+        // Every remaining check is on what will actually be sent, not on what
+        // was on disk — and this is the last point where any of them is free:
+        // past `resolve` the key has been fetched, so anything discovered later
+        // costs a keychain prompt to find out.
+        let Some(format) = sniff_format(&bytes) else {
             log::error!("The input image is not a PNG, JPEG or WebP");
             return Err(unusable(InputImageProblem::UnsupportedFormat));
+        };
+
+        let size = bytes.len() as u64;
+        if size > MAX_UPLOAD_BYTES {
+            log::error!(
+                "The input image for {id} is {size} bytes after downscaling, over the {MAX_UPLOAD_BYTES} any model accepts"
+            );
+            return Err(unusable(InputImageProblem::TooLarge {
+                bytes: size as f64,
+                limit: MAX_UPLOAD_BYTES as f64,
+            }));
         }
 
-        images.insert(id.to_string(), bytes);
+        images.insert(id.to_string(), ReadyImage { bytes, format });
     }
 
     Ok(images)
@@ -322,8 +351,8 @@ fn read_image(
             unusable(InputImageProblem::NotOnDisk)
         })?;
 
-    // Before the read, not after: the point of a ceiling is that the oversized
-    // file is never held in memory.
+    // Before the read, not after: the point of this ceiling is that an enormous
+    // file is never held in memory, let alone decoded from it.
     let size = std::fs::metadata(&path)
         .map_err(|e| {
             log::error!("Could not measure the input image {}: {e}", path.display());
@@ -331,14 +360,14 @@ fn read_image(
         })?
         .len();
 
-    if size > MAX_INPUT_BYTES {
+    if size > MAX_READ_BYTES {
         log::error!(
-            "The input image {} is {size} bytes, over the {MAX_INPUT_BYTES} an inlined image may be",
+            "The input image {} is {size} bytes, past the {MAX_READ_BYTES} worth opening",
             path.display()
         );
         return Err(unusable(InputImageProblem::TooLarge {
             bytes: size as f64,
-            limit: MAX_INPUT_BYTES as f64,
+            limit: MAX_READ_BYTES as f64,
         }));
     }
 
@@ -353,10 +382,10 @@ fn read_image(
 /// Infallible, which is the whole of the atomicity claim: everything that could
 /// refuse has already refused in `check`, so once the first field is written
 /// the rest are certain to follow.
-fn inject(fields: &mut Map<String, Value>, input: &ImageInput, uri: &str) {
+fn inject(fields: &mut Map<String, Value>, input: &ImageInput, url: &str) {
     let value = match input.shape {
-        ImageParamShape::Url => json!(uri),
-        ImageParamShape::UrlArray => json!([uri]),
+        ImageParamShape::Url => json!(url),
+        ImageParamShape::UrlArray => json!([url]),
     };
 
     // Overwrites rather than merges: whatever a persisted draft claimed about
@@ -387,6 +416,32 @@ mod tests {
         bytes.extend_from_slice(&1u32.to_be_bytes());
         bytes.extend_from_slice(&[8, 6, 0, 0, 0]);
         bytes
+    }
+
+    /// A decodable PNG large enough to be over the upload cap on disk.
+    ///
+    /// Deterministic noise rather than a gradient, and that is the whole trick:
+    /// PNG is lossless, so a smooth image compresses to a fraction of its raw
+    /// size and could not be pushed past 10 MB at any sane resolution. Noise
+    /// barely compresses, so the file is roughly its pixel count.
+    fn big_png(width: u32, height: u32) -> Vec<u8> {
+        let mut state: u32 = 0x1234_5678;
+        let image = image::RgbImage::from_fn(width, height, |_, _| {
+            // xorshift, so the bytes are incompressible without needing a
+            // random source — `Math.random`'s equivalent is unavailable here and
+            // a fixture that differs per run is a fixture that flakes.
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let [r, g, b, _] = state.to_le_bytes();
+            image::Rgb([r, g, b])
+        });
+
+        let mut out = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut out, image::ImageFormat::Png)
+            .expect("a synthetic PNG encodes");
+        out.into_inner()
     }
 
     fn input(param: &str, shape: ImageParamShape) -> ImageInput {
@@ -434,21 +489,28 @@ mod tests {
         let urls: HashMap<String, String> = resolved
             .images
             .iter()
-            .map(|(id, bytes)| (id.clone(), format!("{UPLOADED}{}", upload_name(id, bytes))))
+            .map(|(id, image)| {
+                (
+                    id.clone(),
+                    format!("{UPLOADED}{}", upload_name(id, image.format)),
+                )
+            })
             .collect();
 
         inject_urls(inputs, &urls, params)
     }
 
     #[test]
-    fn the_uploaded_name_comes_from_the_bytes_and_not_the_extension() {
-        // A JPEG saved as `.png` uploaded as `.png` is served back announced as
-        // something it is not. After `downscale::apply` this is the common case
-        // rather than the odd one: a re-encoded PNG is a JPEG on a `.png` path.
-        let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 0];
-
-        assert_eq!(upload_name("gen-src-1", &jpeg), "gen-src-1.jpeg");
-        assert_eq!(upload_name("gen-src-1", &png()), "gen-src-1.png");
+    fn the_uploaded_name_carries_the_format_that_was_sniffed() {
+        // A JPEG uploaded under a `.png` name is served back announced as
+        // something it is not. After `downscale::apply` that is the common case
+        // rather than the odd one: a re-encoded PNG is a JPEG on a `.png` path,
+        // which is exactly why the name comes from the format and not the file.
+        assert_eq!(
+            upload_name("gen-src-1", ImageFormat::Jpeg),
+            "gen-src-1.jpeg"
+        );
+        assert_eq!(upload_name("gen-src-1", ImageFormat::Png), "gen-src-1.png");
     }
 
     #[test]
@@ -656,13 +718,13 @@ mod tests {
 
     #[test]
     fn a_still_at_the_ceiling_still_loops() {
-        // The cap is on the file, not on the request: a 10 MB still sent as
-        // both frames is one 10 MB read, and refusing it would refuse a loop
-        // that is exactly inside the documented limit.
+        // The cap is on the image, not on the request: one still sent as both
+        // frames is one read and one upload, and refusing it would refuse a
+        // loop that is exactly inside the documented limit.
         let root = project_with_source(&png(), "png");
         let dir = root.path().join("atlas").join("assets");
         let mut at_the_limit = png();
-        at_the_limit.resize(MAX_INPUT_BYTES as usize, 0);
+        at_the_limit.resize(MAX_UPLOAD_BYTES as usize, 0);
         std::fs::write(dir.join("gen-src-1.png"), &at_the_limit).unwrap();
 
         let mut params = json!({});
@@ -680,6 +742,68 @@ mod tests {
 
         assert!(params["image_url"].is_string());
         assert!(params["end_image_url"].is_string());
+    }
+
+    #[test]
+    fn a_file_over_the_model_cap_that_downscales_under_it_is_sent_not_refused() {
+        // The bug this replaces: the ceiling used to sit on the raw file, so an
+        // 11 MB PNG was refused as too large even though what would have been
+        // sent was a few hundred KB. A refusal invented on this side, for a
+        // request that was going to succeed.
+        let root = project_with_source(&png(), "png");
+        let dir = root.path().join("atlas").join("assets");
+        let oversized = big_png(2400, 1500);
+        assert!(
+            oversized.len() as u64 > MAX_UPLOAD_BYTES,
+            "the fixture has to start over the cap to be testing anything: {} B",
+            oversized.len()
+        );
+        std::fs::write(dir.join("gen-src-1.png"), &oversized).unwrap();
+
+        let mut params = json!({});
+        resolve_and_attach(
+            root.path(),
+            "atlas",
+            "style",
+            &[input("image_url", ImageParamShape::Url)],
+            &mut params,
+        )
+        .expect("what matters is the size of what is sent, not what was on disk");
+
+        assert!(params["image_url"].is_string());
+    }
+
+    #[test]
+    fn a_file_too_large_to_be_worth_opening_is_refused_unread() {
+        // The other ceiling, and the reason there are two: decoding is where an
+        // enormous file costs memory, so it is refused on its size alone.
+        let root = project_with_source(&png(), "png");
+        let dir = root.path().join("atlas").join("assets");
+        let mut absurd = png();
+        absurd.resize(MAX_READ_BYTES as usize + 1, 0);
+        std::fs::write(dir.join("gen-src-1.png"), &absurd).unwrap();
+
+        let mut params = json!({});
+        let error = resolve_and_attach(
+            root.path(),
+            "atlas",
+            "style",
+            &[input("image_url", ImageParamShape::Url)],
+            &mut params,
+        )
+        .expect_err("past the read ceiling");
+
+        assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
+        // The numbers travel too: "too large" is only actionable with the
+        // ceiling next to it, and the frontend must not keep its own copy of a
+        // limit this side enforces.
+        assert_eq!(
+            error.input_image,
+            Some(InputImageProblem::TooLarge {
+                bytes: (MAX_READ_BYTES + 1) as f64,
+                limit: MAX_READ_BYTES as f64,
+            })
+        );
     }
 
     #[test]
@@ -767,37 +891,6 @@ mod tests {
         assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
         assert_eq!(error.input_image, Some(InputImageProblem::NotOnDisk));
         assert!(!params.as_object().unwrap().contains_key("image_url"));
-    }
-
-    #[test]
-    fn an_oversized_input_is_refused_locally_rather_than_by_fal() {
-        let root = project_with_source(&png(), "png");
-        let dir = root.path().join("atlas").join("assets");
-        let mut oversized = png();
-        oversized.resize(MAX_INPUT_BYTES as usize + 1, 0);
-        std::fs::write(dir.join("gen-src-1.png"), &oversized).unwrap();
-
-        let mut params = json!({});
-        let error = resolve_and_attach(
-            root.path(),
-            "atlas",
-            "style",
-            &[input("image_url", ImageParamShape::Url)],
-            &mut params,
-        )
-        .expect_err("too large to inline");
-
-        assert_eq!(error.reason, GenerationErrorReason::InputImageUnusable);
-        // The numbers travel too: "too large" is only actionable with the
-        // ceiling next to it, and the frontend must not keep its own copy of a
-        // limit this side enforces.
-        assert_eq!(
-            error.input_image,
-            Some(InputImageProblem::TooLarge {
-                bytes: (MAX_INPUT_BYTES + 1) as f64,
-                limit: MAX_INPUT_BYTES as f64,
-            })
-        );
     }
 
     #[test]

@@ -48,10 +48,14 @@ reqwest = { version = "0.13.3", default-features = false, features = ["json", "r
 # `sync` for the semaphore that caps concurrent jobs (PRD §3.3) — a 4-up batch
 # is already four charged calls, and nothing else stops them stacking.
 tokio = { version = "1.53.1", default-features = false, features = ["time", "sync"] }
+# Dimensions from a file header, without decoding it. Kept alongside `image`
+# rather than replaced by it: `downscale` reads every input's size to decide
+# whether to touch it at all, and only the ones it decides to shrink get decoded.
 imagesize = "0.14"
-# The input image reaches fal as an inline base64 data URI (#28, and
-# `docs/research/models-gaps.md` §4 — the one transfer confirmed to work).
-base64 = "0.22"
+# Decoding, resizing and re-encoding an input image before it is sent (#51).
+# Codecs are named explicitly rather than taking `default-features`: the three
+# here are what `sniff_format` accepts, and the default set pulls a dozen more
+# (TIFF, EXR, DDS, HDR…) that no input can ever be.
 image = { version = "0.25.6", default-features = false, features = ["png", "jpeg", "webp"] }
 
 # OS keychain for the fal.ai API key. Backends are selected per platform so the

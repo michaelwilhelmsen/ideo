@@ -268,25 +268,55 @@ Three practical points, each learned the expensive way:
 
 ### Sending an input image
 
-An image-to-image endpoint needs the input image _in the request body_. It travels as an
-inline base64 data URI (`data:image/png;base64,…`), which `docs/research/models-gaps.md` §4
-settled: it is the transfer confirmed to work on every image field surveyed, and the
-two-step storage upload's wire protocol is still unverified. The ceiling is 10 MB raw,
-refused locally rather than discovered as a 4xx.
+An image-to-image endpoint needs the input image, and the body carries a **URL** to it.
+The bytes go to fal's storage first (`jobs::storage`), which `docs/research/models-gaps.md`
+§4 now specifies at wire level: `POST /storage/upload/initiate` returns `{file_url,
+upload_url}`, the bytes go by `PUT` to `upload_url`, and `file_url` is what the model is
+handed. The `PUT` carries no `Authorization` — `upload_url` is already signed.
+
+This replaced an inline base64 data URI in #50, and the reason is worth keeping: a data URI
+put the image _inside_ the submit, so a looping animate run — which names one still under
+two fields — carried it twice. A 5 MB styled PNG made the body ~13 MB and the submit timed
+out before fal answered, surfacing as a bare transport error that said nothing about size.
+A URL costs the same handful of bytes however many fields name it.
+
+Before any of that, the image is shrunk (`jobs::downscale`, #51). Raw model output is
+routinely 4K, the animate models cap at 720p, and 1920 on the longest edge is what a hero is
+delivered at anyway — measured on real assets, 5 MB of PNG becomes ~400 KB of JPEG. Split
+like `export::plan`: what to send is a pure function of width, height and size and is
+unit-tested without decoding anything.
 
 The bytes never cross the IPC boundary. `StartRequest.imageInputs` carries one entry per
-image **field** — a **generation id**, the field name and its shape;
-`jobs::image_input::prepare` resolves each id to a file in the project's `assets` folder,
-sniffs its media type from the magic bytes, encodes it, and writes it into the params under
-that name — a string for `image_url`, a one-element array for `image_urls` — before
-`fal::submit` posts anything.
+image **field** — a **generation id**, the field name and its shape. The work then splits in
+two, and the split is load-bearing: **everything that can refuse refuses before the key is
+fetched.**
+
+- `image_input::resolve` — no key, no network. Resolves each id to a file in the project's
+  `assets` folder, applies the ceilings, shrinks it, and sniffs its format from the magic
+  bytes. Returns a `ResolvedInputs`, which is the proof that nothing is left to refuse.
+- `image_input::attach` — needs the key. Uploads each image once and writes the URLs into
+  the params under the model's own field name and shape: a string for `image_url`, a
+  one-element array for `image_urls`.
+
+**Two ceilings, because they answer different questions.** `MAX_READ_BYTES` (64 MB) is "can
+we afford to look" — shrinking means decoding, and a 12000×8000 PNG is ~26 MB on disk but
+~288 MB decoded, so the file is measured before it is opened. `MAX_UPLOAD_BYTES` (10 MB,
+Kling's own documented cap) is "will the model take it", and it is checked on the bytes
+actually being uploaded rather than on the file. Applying the model's cap to the raw file
+was a bug: an 11 MB PNG that downscales to 400 KB got refused for a request that would have
+succeeded.
 
 A list rather than one entry because of the seamless loop (#30, PRD §4.5): a looping animate
 run names the same generation twice, once under the model's start-frame field and once under
-its end-frame field. `prepare` reads and encodes each **generation** once however many
-fields point at it, so the loop costs one read, one base64 string, and one measurement
-against the 10 MB ceiling. Every read happens before any write, so a body is either fully
-prepared or untouched — half a loop would be a paid call for a clip that does not loop.
+its end-frame field. Each **generation** is read, shrunk and uploaded once however many
+fields point at it, so the loop costs one of each and the second field is free. Every
+refusal happens before any write, so a body is either fully prepared or untouched — half a
+loop would be a paid call for a clip that does not loop. `inject_urls` is separate from the
+upload precisely so that guarantee is testable without a network.
+
+An upload failure is `GenerationErrorReason::UploadFailed`, not `Offline`. It is the one
+failure that happens before the queue is asked, so nothing is submitted and nothing charged
+— which makes "try again" honest advice in a way it stops being once a job exists.
 
 That module also holds a refusal worth copying: a `style` or `animate` submit with no
 resolvable input fails there, before the key is fetched and before a concurrency slot is
@@ -321,7 +351,11 @@ script can use.
 Every one of those refusals crosses as a code, not a sentence: `GenerationError.inputImage`
 is an `InputImageProblem` — `noneNamed`, `notOnDisk`, `unreadable`, `unsupportedFormat`,
 `tooLarge { bytes, limit }`, `noField` — which `components/editor/errors.ts` maps to a key
-in `locales/`. Unlike `detail`, which quotes what fal said, this failure is ours and there
+in `locales/`. `tooLarge` carries both numbers because "too large" is only actionable with
+the limit beside it, and because the frontend must not keep its own copy of a ceiling this
+side enforces. `GenerationErrorReason::UploadFailed` sits alongside them for the same
+reason: a distinct code, so the sentence can say the thing that is true of it and of no
+other failure — that nothing was charged. Unlike `detail`, which quotes what fal said, this failure is ours and there
 is nobody to quote, so an English sentence built in Rust would be one no locale file could
 ever reach (PRD §10.4). The path, the `io::Error` and the byte count are logged Rust-side
 instead — see [error-handling.md](./error-handling.md).

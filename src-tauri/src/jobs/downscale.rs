@@ -10,13 +10,39 @@
 //! resolution parameter at all — so most of those bytes are decoded by the
 //! provider and thrown away. They were also enough to time out the submit
 //! outright (#50), because a seamless loop sends the same still twice.
+//!
+//! ## This is not surfaced to the user, on purpose
+//!
+//! #51 asked whether it should be. It is not, and the reasoning is that a notice
+//! here would be about something the user cannot act on: there is no control to
+//! change it, no version of the run that skips it, and the alternative to
+//! shrinking is a request that fails. A line saying "your image was resized"
+//! would be a permanent fixture reporting that the app worked normally.
+//!
+//! What that trades away is real and worth naming: if output ever looks softer
+//! than expected, nothing on screen points here, and the answer is only in the
+//! log (`Input image 3840×2160 5022164 B sent as 1920×1080 416234 B`). The
+//! moment a user *can* act on it — a per-project quality setting, or a model
+//! whose cap makes the difference visible — this becomes the wrong answer.
 
 /// The longest edge an input image is sent at.
 ///
-/// Matches `export::MAX_WEB_WIDTH`, which is not a coincidence worth hiding:
-/// 1920 is what a hero is delivered at, and conditioning a clip on more detail
-/// than the deliverable can show is paying to have it discarded twice — once by
-/// the model, once by the export cap.
+/// The same number as `export::MAX_WEB_WIDTH` and deliberately *not* the same
+/// constant. They coincide today because both follow from what a hero is
+/// delivered at, but they answer to different things — that one is the width of
+/// the file a landing page serves, this one is how much detail a model is given
+/// to work from — and tying them together would mean a future change to either
+/// silently moved the other.
+///
+/// **One number for every stage, not one per model, and that is a real
+/// tradeoff.** #51 asked whether this should come from the registry, since the
+/// animate models cap lower than the style models: Kling and Luma output 720p,
+/// so they are handed roughly 2.7× the pixels they will emit. Left global
+/// anyway, because the cost of being wrong is asymmetric — too many pixels
+/// wastes upload bandwidth the app already has, too few permanently limits what
+/// a model can see, and the style models genuinely use the detail. Tightening it
+/// per model needs the registry to carry an input cap, which is a new capability
+/// column and PRD §5's business rather than this module's guess.
 pub const MAX_EDGE: u32 = 1920;
 
 /// Below this, a file is sent exactly as it sits on disk.
@@ -255,6 +281,108 @@ mod tests {
             sniff_format(&prepared).map(|f| f.mime()),
             Some("image/png"),
             "an image with alpha stays in a format that has alpha"
+        );
+    }
+
+    #[test]
+    fn a_flat_graphic_survives_the_re_encode_without_visible_banding() {
+        // #51 named this risk: "a styled still with hard flat colour or text may
+        // band". Measured rather than assumed — a large flat field with hard
+        // edges is the worst case for JPEG, and the assertion is on the error
+        // against the source rather than on the file size, because banding is a
+        // pixel problem and a small file is not evidence of one.
+        let flat = image::RgbImage::from_fn(2400, 1350, |x, y| {
+            // Four solid quadrants plus a hard 2px cross — no gradient anywhere
+            // for the quantiser to hide error in.
+            let near_edge = (x as i64 - 1200).abs() < 2 || (y as i64 - 675).abs() < 2;
+            if near_edge {
+                image::Rgb([255, 255, 255])
+            } else {
+                match (x < 1200, y < 675) {
+                    (true, true) => image::Rgb([18, 22, 30]),
+                    (false, true) => image::Rgb([220, 40, 60]),
+                    (true, false) => image::Rgb([30, 90, 200]),
+                    (false, false) => image::Rgb([240, 236, 228]),
+                }
+            }
+        });
+        let mut source = std::io::Cursor::new(Vec::new());
+        flat.write_to(&mut source, ImageFormat::Png)
+            .expect("a synthetic PNG encodes");
+
+        // `reencode` directly rather than through `apply`, because banding is a
+        // property of the encoder and this image never reaches it: flat colour
+        // compresses better in PNG than in JPEG, so `apply` finds the re-encode
+        // came out *larger* and keeps the original. That is the right call and
+        // it is pinned by its own test below — but it would make this one
+        // vacuous, comparing a PNG against itself.
+        let prepared = reencode(&source.into_inner(), 1920, 1080).expect("a flat PNG re-encodes");
+        let decoded = image::load_from_memory(&prepared)
+            .expect("the re-encode decodes")
+            .to_rgb8();
+
+        // Compare against the source scaled the same way, so the resize itself
+        // is not counted as JPEG error.
+        let reference = image::DynamicImage::ImageRgb8(flat)
+            .resize_exact(1920, 1080, image::imageops::FilterType::Lanczos3)
+            .to_rgb8();
+
+        let worst = decoded
+            .pixels()
+            .zip(reference.pixels())
+            .flat_map(|(a, b)| {
+                (0..3).map(move |c| (i32::from(a[c]) - i32::from(b[c])).unsigned_abs())
+            })
+            .max()
+            .expect("the image has pixels");
+
+        let total: u64 = decoded
+            .pixels()
+            .zip(reference.pixels())
+            .flat_map(|(a, b)| {
+                (0..3).map(move |c| u64::from((i32::from(a[c]) - i32::from(b[c])).unsigned_abs()))
+            })
+            .sum();
+        let mean = total as f64 / (decoded.pixels().len() * 3) as f64;
+
+        // Ringing at a hard edge is unavoidable in a DCT codec; what matters is
+        // that it stays local. A mean error under one level means the flat
+        // fields themselves are clean, which is what banding would spoil.
+        assert!(
+            mean < 1.0,
+            "mean channel error {mean:.3} — the flat fields are banding, not just the edges"
+        );
+        assert!(
+            worst < 96,
+            "worst channel error {worst} — ringing at the edges is out of hand"
+        );
+    }
+
+    #[test]
+    fn a_flat_graphic_that_jpeg_would_inflate_is_sent_unchanged() {
+        // PNG beats JPEG on flat colour, sometimes by a lot. When it does, a
+        // re-encode would spend quality *and* bytes — the worst of both — so the
+        // original goes as it is, even though it is over the edge cap.
+        //
+        // The cap is about not paying for detail the model discards, and there
+        // is nothing to save here: this file is already tiny. Deliberately a
+        // smaller image than the banding test above so it stays quick.
+        let flat = image::RgbImage::from_fn(2400, 1350, |x, y| match (x < 1200, y < 675) {
+            (true, true) => image::Rgb([18, 22, 30]),
+            (false, true) => image::Rgb([220, 40, 60]),
+            (true, false) => image::Rgb([30, 90, 200]),
+            (false, false) => image::Rgb([240, 236, 228]),
+        });
+        let mut source = std::io::Cursor::new(Vec::new());
+        flat.write_to(&mut source, ImageFormat::Png)
+            .expect("a synthetic PNG encodes");
+        let original = source.into_inner();
+
+        let prepared = apply(original.clone());
+
+        assert_eq!(
+            prepared, original,
+            "a re-encode that grows the file is declined outright"
         );
     }
 

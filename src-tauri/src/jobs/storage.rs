@@ -28,7 +28,7 @@ use serde_json::json;
 use std::time::Duration;
 
 use super::fal::{client, GenerationError, GenerationErrorReason};
-use crate::projects::import::sniff_format;
+use crate::projects::import::ImageFormat;
 
 /// fal's REST host — not the queue host the rest of `fal.rs` talks to.
 const REST_URL: &str = "https://rest.fal.ai";
@@ -44,11 +44,11 @@ const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Where fal will serve the file from, and where to put it.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct UploadTicket {
+struct UploadTicket {
     /// The public URL to hand the model. Usable only once the PUT succeeds.
-    pub file_url: String,
+    file_url: String,
     /// The one-shot destination for the bytes.
-    pub upload_url: String,
+    upload_url: String,
 }
 
 fn initiate_url() -> String {
@@ -75,13 +75,18 @@ fn parse_ticket(body: &str) -> Result<UploadTicket, GenerationError> {
 /// a signed, single-purpose URL, and adding our key to it is at best redundant
 /// and at worst a signature mismatch on whichever bucket is behind it. Only the
 /// `Content-Type` goes, exactly as fal's own client sends it.
-pub async fn upload(key: &str, bytes: Vec<u8>, file_name: &str) -> Result<String, GenerationError> {
-    // Sniffed from the bytes rather than the name, as everything else here
-    // does: a `.png` holding a JPEG would be announced as something it is not,
-    // and the content type is what the CDN will serve it back as.
-    let content_type = sniff_format(&bytes)
-        .map(|format| format.mime())
-        .unwrap_or("application/octet-stream");
+///
+/// `format` arrives rather than being sniffed here. `image_input` has already
+/// sniffed these bytes — it has to, to refuse a format no model takes before the
+/// key is fetched — and sniffing them again would be a second answer to a
+/// settled question, free to drift from the first.
+pub async fn upload(
+    key: &str,
+    bytes: Vec<u8>,
+    file_name: &str,
+    format: ImageFormat,
+) -> Result<String, GenerationError> {
+    let content_type = format.mime();
 
     let http = client(UPLOAD_TIMEOUT)?;
 
