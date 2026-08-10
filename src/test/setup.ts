@@ -16,6 +16,16 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
+// jsdom has no layout, so it has no ResizeObserver. Radix measures its sliders
+// with one (the colour picker's hue track, #46), and a missing constructor is a
+// hard throw at mount rather than a degraded render. Observing nothing is the
+// right stub: there are no box sizes under jsdom to report anyway.
+globalThis.ResizeObserver ??= class NoLayoutResizeObserver implements ResizeObserver {
+  observe = vi.fn()
+  unobserve = vi.fn()
+  disconnect = vi.fn()
+}
+
 // Mock Tauri APIs for tests
 vi.mock('@tauri-apps/api/core', () => ({
   // Asset URLs go through the webview's protocol handler, which does not exist

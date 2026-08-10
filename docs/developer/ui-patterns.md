@@ -338,6 +338,32 @@ const buttonVariants = cva('...', {
 
 This app includes commonly needed components. Run `npx shadcn@latest add [component]` to add more from [ui.shadcn.com](https://ui.shadcn.com/docs/components).
 
+### Components from other registries
+
+The official registry is the default and the first place to look. It does not cover
+everything — there is no colour picker in it, for instance — and the CLI takes a registry
+URL as well as a name:
+
+```bash
+npx shadcn@latest add https://www.kibo-ui.com/r/color-picker.json
+```
+
+A namespaced component lands in **its own directory** (`src/components/kibo-ui/`) rather
+than in `ui/`, which is why `eslint.config.js` exempts that path alongside `ui/`. Decline
+the overwrite prompts for `button.tsx`, `input.tsx` and `select.tsx` — a registry lists
+those as dependencies and will happily replace this project's copies with its own.
+
+Treat a non-official component as **code you now own**, not a dependency. Read it before
+using it and expect to fix things: the colour picker arrived with four defects, all of them
+documented in the patch note at the top of
+`src/components/kibo-ui/color-picker/index.tsx`. Re-running `add` silently reverts every
+one, so read the diff before accepting an update.
+
+Prefer the official registry, then a vendored component you have read, then writing it
+yourself. Adding a whole second component library (HeroUI, MUI) for one control is the
+option to argue for explicitly — it means a second design system, provider and theme in an
+app that already has one.
+
 ## The `cn()` Utility
 
 All components use the `cn()` utility for conditional classes:

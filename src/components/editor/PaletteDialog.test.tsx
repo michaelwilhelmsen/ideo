@@ -10,7 +10,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@/test/test-utils'
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils'
 import { ATLAS, colourNameOf } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
 import { PaletteDialog } from './PaletteDialog'
@@ -81,30 +81,41 @@ describe('the palette editor', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('picks a colour from the swatch, and the hex field follows', () => {
+  it('opens a picker from the swatch, and the hex field follows it', async () => {
     // The swatch is the control, not a preview: these values are chosen by eye,
     // and a hex field alone makes that a typing exercise.
     render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
 
-    const swatch = screen.getByLabelText('Pick the Primary colour')
-    expect(swatch).toHaveAttribute('type', 'color')
+    fireEvent.click(screen.getByLabelText('Pick the Primary colour'))
 
-    fireEvent.change(swatch, { target: { value: '#2fb6bf' } })
-
-    // Normalised on the way in, so two spellings of one colour are one colour.
-    expect(hexField('Primary')).toHaveValue('#2FB6BF')
-    fireEvent.click(saveButton())
-    expect(paletteOf().roles.primary.hex).toBe('#2FB6BF')
+    // The picker mounts uncontrolled from the row's current hex, so what it
+    // emits on open is that same colour rather than a drifted one.
+    await waitFor(() => expect(hexField('Primary')).toHaveValue('#D9662C'))
   })
 
-  it('flags a half-typed hex on the field, not on the swatch', () => {
-    // The picker cannot represent `#141` at all, so it shows the fallback and
-    // the text field carries the invalid state — one control per job.
+  it('opens a grey swatch on the grey, not on red', () => {
+    // The upstream component read hue/saturation/lightness with `||` fallbacks,
+    // so a saturation of 0 became 100 and every neutral opened as red. Three of
+    // the six roles are greys — see the patch note in the vendored file.
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    fireEvent.change(hexField('Neutral'), { target: { value: '#808080' } })
+    fireEvent.click(screen.getByLabelText('Pick the Neutral colour'))
+
+    expect(hexField('Neutral')).toHaveValue('#808080')
+  })
+
+  it('shows a half-typed hex as no colour at all on the swatch', () => {
+    // `#141` is not a colour, so the swatch shows nothing rather than guessing;
+    // the text field beside it carries the invalid state.
     render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
 
     fireEvent.change(hexField('Ink'), { target: { value: '#141' } })
 
-    expect(screen.getByLabelText('Pick the Ink colour')).toHaveValue('#000000')
+    // jsdom resolves `transparent` to its rgba form.
+    expect(screen.getByLabelText('Pick the Ink colour')).toHaveStyle({
+      backgroundColor: 'rgba(0, 0, 0, 0)',
+    })
     expect(hexField('Ink')).toHaveAttribute('aria-invalid', 'true')
   })
 

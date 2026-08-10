@@ -62,7 +62,14 @@ export default tseslint.config(
   },
   prettierConfig,
   {
-    files: ['src/components/ui/**/*.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
+    files: [
+      'src/components/ui/**/*.{ts,tsx}',
+      // Vendored the same way and for the same reason, from a registry other
+      // than ui.shadcn.com — the CLI files a namespaced component under its own
+      // directory rather than into `ui/`. See docs/developer/ui-patterns.md.
+      'src/components/kibo-ui/**/*.{ts,tsx}',
+      'src/test/**/*.{ts,tsx}',
+    ],
     rules: {
       'react-refresh/only-export-components': 'off',
       // Disable compiler rule for UI components (from shadcn) and test files

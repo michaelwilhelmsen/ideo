@@ -25,6 +25,7 @@
  * clearly not typed, and replaceable by typing.
  */
 
+import { formatHex } from 'culori'
 import type { TFunction } from 'i18next'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -37,8 +38,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  ColorPicker,
+  ColorPickerEyeDropper,
+  ColorPickerHue,
+  ColorPickerSelection,
+} from '@/components/kibo-ui/color-picker'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import {
   isHex,
   isPaletteRole,
@@ -51,7 +63,6 @@ import {
   type PaletteRole,
   type Project,
 } from '@/lib/recipe'
-import { cn } from '@/lib/utils'
 import { useEditorStore } from '@/store/editor-store'
 
 /**
@@ -185,6 +196,21 @@ export function PaletteDialog({
 }
 
 /**
+ * A colour from the picker's `[r, g, b]`, as the hex everything else here uses.
+ *
+ * `culori` rather than the `color` package the picker itself carries: one
+ * colour library owns this app's maths (it is the same one that names a colour
+ * and measures the lightness invariant), and the other is an implementation
+ * detail of a vendored component.
+ */
+function hexFrom(red: number, green: number, blue: number): string {
+  return (
+    formatHex({ mode: 'rgb', r: red / 255, g: green / 255, b: blue / 255 }) ??
+    FALLBACK_SWATCH
+  ).toUpperCase()
+}
+
+/**
  * One colour: a swatch you can pick from, its hex, and what to call it.
  *
  * **The swatch is the control**, not a preview. A hex field alone makes choosing
@@ -226,28 +252,39 @@ function EntryRow({
     <div className="space-y-1">
       <Label htmlFor={`${id}-hex`}>{label}</Label>
       <div className="flex items-center gap-2">
-        <input
-          type="color"
-          id={`${id}-pick`}
-          // Named after the row it belongs to, because six swatches called
-          // "Pick a colour" are six controls a screen reader cannot tell apart.
-          aria-label={t('editor.palette.pick', { name: label })}
-          // The browser's colour input accepts `#rrggbb` and nothing else, so a
-          // half-typed hex shows as the fallback — the text field beside it is
-          // where that state is visible and flagged.
-          value={valid ? entry.hex.toLowerCase() : FALLBACK_SWATCH}
-          onChange={event =>
-            onChange({ ...entry, hex: event.target.value.toUpperCase() })
-          }
-          className={cn(
-            'size-8 shrink-0 cursor-pointer rounded-sm border border-border bg-transparent p-0',
-            // The default control is a swatch inside a padded, bordered box.
-            // Stripping both is what makes it read as the swatch itself.
-            '[&::-webkit-color-swatch-wrapper]:p-0',
-            '[&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0',
-            '[&::-moz-color-swatch]:rounded-sm [&::-moz-color-swatch]:border-0'
-          )}
-        />
+        <Popover>
+          <PopoverTrigger
+            // Named after the row it belongs to, because six swatches called
+            // "Pick a colour" are six controls a screen reader cannot tell
+            // apart.
+            aria-label={t('editor.palette.pick', { name: label })}
+            className="size-8 shrink-0 cursor-pointer rounded-sm border border-border"
+            // The one place a hex is a colour rather than a word. Inline
+            // because it is data, and a class cannot hold a value just typed.
+            style={{ backgroundColor: valid ? entry.hex : 'transparent' }}
+          />
+          <PopoverContent className="w-64">
+            {/* Mounted only while open, which is what keeps it honest: the
+                picker is uncontrolled, so opening it re-reads whatever the hex
+                field currently says rather than drifting from it. */}
+            <ColorPicker
+              className="gap-3"
+              defaultValue={valid ? entry.hex : FALLBACK_SWATCH}
+              onChange={([red, green, blue]) =>
+                onChange({ ...entry, hex: hexFrom(red, green, blue) })
+              }
+            >
+              <ColorPickerSelection className="h-32" />
+              <div className="flex items-center gap-2">
+                <ColorPickerEyeDropper />
+                <ColorPickerHue />
+              </div>
+              {/* No alpha and no format switcher. A palette colour is opaque —
+                  a prompt cannot express transparency — and the hex field
+                  beside the swatch is already this row's readout. */}
+            </ColorPicker>
+          </PopoverContent>
+        </Popover>
         <Input
           id={`${id}-hex`}
           className="w-28 font-mono"
