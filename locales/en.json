@@ -341,6 +341,7 @@
   "editor.palette.role.paper": "Paper",
   "editor.palette.role.neutral": "Neutral",
   "editor.palette.extra": "Extra {{number}}",
+  "editor.palette.pick": "Pick the {{name}} colour",
   "editor.palette.name": "Name for prompts",
   "editor.palette.addExtra": "Add a colour",
   "editor.palette.removeExtra": "Remove",

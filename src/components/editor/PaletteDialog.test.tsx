@@ -81,6 +81,33 @@ describe('the palette editor', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('picks a colour from the swatch, and the hex field follows', () => {
+    // The swatch is the control, not a preview: these values are chosen by eye,
+    // and a hex field alone makes that a typing exercise.
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    const swatch = screen.getByLabelText('Pick the Primary colour')
+    expect(swatch).toHaveAttribute('type', 'color')
+
+    fireEvent.change(swatch, { target: { value: '#2fb6bf' } })
+
+    // Normalised on the way in, so two spellings of one colour are one colour.
+    expect(hexField('Primary')).toHaveValue('#2FB6BF')
+    fireEvent.click(saveButton())
+    expect(paletteOf().roles.primary.hex).toBe('#2FB6BF')
+  })
+
+  it('flags a half-typed hex on the field, not on the swatch', () => {
+    // The picker cannot represent `#141` at all, so it shows the fallback and
+    // the text field carries the invalid state — one control per job.
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    fireEvent.change(hexField('Ink'), { target: { value: '#141' } })
+
+    expect(screen.getByLabelText('Pick the Ink colour')).toHaveValue('#000000')
+    expect(hexField('Ink')).toHaveAttribute('aria-invalid', 'true')
+  })
+
   it('keeps an authored name as the word prompts will use', () => {
     render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
 

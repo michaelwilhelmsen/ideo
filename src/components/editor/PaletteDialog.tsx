@@ -51,7 +51,15 @@ import {
   type PaletteRole,
   type Project,
 } from '@/lib/recipe'
+import { cn } from '@/lib/utils'
 import { useEditorStore } from '@/store/editor-store'
+
+/**
+ * What the picker shows while the text field holds something that is not a
+ * colour yet. Never saved — `complete` refuses the palette until every hex is
+ * one, so this is only ever what a swatch looks like mid-keystroke.
+ */
+const FALLBACK_SWATCH = '#000000'
 
 /** One row's text, as typed — a hex mid-edit is not yet a colour. */
 interface EntryDraft {
@@ -177,7 +185,22 @@ export function PaletteDialog({
 }
 
 /**
- * One colour: a swatch, its hex, and what to call it.
+ * One colour: a swatch you can pick from, its hex, and what to call it.
+ *
+ * **The swatch is the control**, not a preview. A hex field alone makes choosing
+ * a colour into a typing exercise, and the values here are chosen by eye — this
+ * is the one part of the app where somebody is picking a colour rather than
+ * describing one. `<input type="color">` gets the platform's own picker for
+ * free, including the eyedropper, which is what most palettes actually come
+ * from: something already on screen.
+ *
+ * The hex field stays beside it and stays authoritative. A palette arrives from
+ * a brand document as six hex codes far more often than it arrives from a colour
+ * wheel, and pasting one has to be possible — so the two are bound to the same
+ * value and either can move it. Only the text field can hold a value that is not
+ * a colour, which is why only it carries `aria-invalid`; the picker shows
+ * {@link FALLBACK_SWATCH} for the keystrokes in between rather than tracking a
+ * previous value nothing else needs to remember.
  *
  * `onRemove` is absent on the six roles rather than disabled, because a role is
  * not something you are temporarily prevented from deleting.
@@ -203,12 +226,27 @@ function EntryRow({
     <div className="space-y-1">
       <Label htmlFor={`${id}-hex`}>{label}</Label>
       <div className="flex items-center gap-2">
-        <span
-          aria-hidden
-          className="size-8 shrink-0 rounded-sm border border-border"
-          // The one place a hex is a colour rather than a word. Inline because
-          // it is data, and a class cannot hold a value the user just typed.
-          style={{ backgroundColor: valid ? entry.hex : 'transparent' }}
+        <input
+          type="color"
+          id={`${id}-pick`}
+          // Named after the row it belongs to, because six swatches called
+          // "Pick a colour" are six controls a screen reader cannot tell apart.
+          aria-label={t('editor.palette.pick', { name: label })}
+          // The browser's colour input accepts `#rrggbb` and nothing else, so a
+          // half-typed hex shows as the fallback — the text field beside it is
+          // where that state is visible and flagged.
+          value={valid ? entry.hex.toLowerCase() : FALLBACK_SWATCH}
+          onChange={event =>
+            onChange({ ...entry, hex: event.target.value.toUpperCase() })
+          }
+          className={cn(
+            'size-8 shrink-0 cursor-pointer rounded-sm border border-border bg-transparent p-0',
+            // The default control is a swatch inside a padded, bordered box.
+            // Stripping both is what makes it read as the swatch itself.
+            '[&::-webkit-color-swatch-wrapper]:p-0',
+            '[&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0',
+            '[&::-moz-color-swatch]:rounded-sm [&::-moz-color-swatch]:border-0'
+          )}
         />
         <Input
           id={`${id}-hex`}
