@@ -11,8 +11,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { MODEL_REGISTRY } from './models'
+import { ASPECTS } from './aspects'
+import { DEFAULT_MODEL_IDS, MODEL_REGISTRY } from './models'
 import {
+  BUILT_IN_SOURCE_PRESETS,
   BUILT_IN_STYLE_PRESETS,
   composePreset,
   isPresetId,
@@ -22,34 +24,54 @@ import {
   presetSupportsModel,
   readPresetLibrary,
   readUserPreset,
+  SOURCE_PRESET_LIBRARY,
+  sourcePresetById,
   STYLE_PRESET_LIBRARY,
   stylePresetById,
   USER_PRESET_FAMILY,
   userPresetFrom,
   writeUserPreset,
+  type Preset,
   type PresetVariant,
-  type StylePreset,
 } from './presets'
 import { modelById, modelsForStage, type ModelCapabilities } from './registry'
+import type { AspectId } from './types'
 
-/** A well-formed document, so each test states only what it is about. */
+/** The one v4 generate recipe that wants lettering, so opts out of `append`. */
+const TEXT_EXCEPTION = 'gn-isometric-lineup'
+
+/**
+ * A well-formed document, so each test states only what it is about.
+ *
+ * An override of `undefined` **removes** the key rather than setting it, the way
+ * `JSON.stringify` would — these documents stand in for files on disk, and a
+ * file cannot hold `undefined`. That distinction is load-bearing here: whether a
+ * library declares a block at all is a different question from what the block
+ * says.
+ */
 function document(overrides: Record<string, unknown> = {}): unknown {
-  return {
+  return asDocument({
     version: 1,
     preserve: { tags: 'same composition', prose: null },
     presets: [preset()],
     ...overrides,
-  }
+  })
 }
 
 function preset(overrides: Record<string, unknown> = {}): unknown {
-  return {
+  return asDocument({
     id: 'test-preset',
     name: 'Test preset',
     family: 'test',
     variants: { tags: variant(), prose: null },
     ...overrides,
-  }
+  })
+}
+
+function asDocument(record: Record<string, unknown>): unknown {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined)
+  )
 }
 
 function variant(overrides: Partial<PresetVariant> = {}): unknown {
@@ -68,6 +90,9 @@ const QWEN = modelById(MODEL_REGISTRY, 'fal-ai/qwen-image-2/edit')
 /** The one endpoint of 33 with a strength field (PRD §6.3). */
 const FLUX_I2I = modelById(MODEL_REGISTRY, 'fal-ai/flux/dev/image-to-image')
 
+/** What a new project's source stage starts on. */
+const SOURCE_DEFAULT = modelById(MODEL_REGISTRY, DEFAULT_MODEL_IDS.source)
+
 /** A `tags` model carrying flux i2i's strength field, which no real one does. */
 function tagsModelWithStrength(
   overrides: Partial<ModelCapabilities> = {}
@@ -79,9 +104,7 @@ function tagsModelWithStrength(
   }
 }
 
-function tagsPreset(
-  variantOverrides: Partial<PresetVariant> = {}
-): StylePreset {
+function tagsPreset(variantOverrides: Partial<PresetVariant> = {}): Preset {
   const library = readPresetLibrary(
     document({
       presets: [
@@ -166,6 +189,147 @@ describe('the built-in library', () => {
     expect(stylePresetById('glass-caustics')?.name).toBe('Glass caustics')
     expect(stylePresetById('no-such-preset')).toBeNull()
     expect(stylePresetById(null)).toBeNull()
+  })
+
+  it('has a preserve block and no append block', () => {
+    // Which block a library declares is the whole difference between the two
+    // (#47). A style preset restyles somebody else's composition, so it has
+    // something to preserve and nothing standing to append.
+    expect(STYLE_PRESET_LIBRARY.preserve).not.toBeNull()
+    expect(STYLE_PRESET_LIBRARY.append).toBeNull()
+  })
+
+  it('says nothing about aspect, because a restyle inherits its frame', () => {
+    for (const style of BUILT_IN_STYLE_PRESETS) {
+      expect(style.aspect, style.id).toBeNull()
+    }
+  })
+})
+
+/**
+ * The source library — the same type and the same loader as the style one,
+ * differing by the block it declares and by carrying an aspect hint (#47).
+ */
+describe('the built-in source library', () => {
+  it('validates at import, or the module would not have loaded', () => {
+    expect(BUILT_IN_SOURCE_PRESETS.length).toBeGreaterThanOrEqual(4)
+    expect(SOURCE_PRESET_LIBRARY.presets).toBe(BUILT_IN_SOURCE_PRESETS)
+  })
+
+  it('has an append block and no preserve block', () => {
+    // The mirror of the style library's assertion. There is no composition to
+    // preserve when the recipe *is* the composition.
+    expect(SOURCE_PRESET_LIBRARY.append).not.toBeNull()
+    expect(SOURCE_PRESET_LIBRARY.preserve).toBeNull()
+  })
+
+  it('is a different library from style, not the same list twice', () => {
+    // The conflation #47 exists to break: source borrowed the style list, which
+    // asked a text-to-image model to preserve a composition that did not exist.
+    const styleIds = new Set(BUILT_IN_STYLE_PRESETS.map(preset => preset.id))
+
+    for (const source of BUILT_IN_SOURCE_PRESETS) {
+      expect(styleIds.has(source.id), source.id).toBe(false)
+    }
+  })
+
+  it('speaks both idioms, so no source model is left with nothing to seed', () => {
+    for (const source of BUILT_IN_SOURCE_PRESETS) {
+      expect(source.variants.tags, source.id).not.toBeNull()
+      expect(source.variants.prose, source.id).not.toBeNull()
+    }
+  })
+
+  it('names an aspect it was composed for, from the curated list', () => {
+    const offered = new Set(ASPECTS.map(aspect => aspect.id))
+
+    for (const source of BUILT_IN_SOURCE_PRESETS) {
+      expect(source.aspect, source.id).not.toBeNull()
+      expect(offered.has(source.aspect as AspectId), source.id).toBe(true)
+    }
+
+    // More than one, or the hint would be proving nothing about the picker not
+    // sorting or dimming on it.
+    expect(
+      new Set(BUILT_IN_SOURCE_PRESETS.map(source => source.aspect)).size
+    ).toBeGreaterThan(1)
+  })
+
+  it('appends the no-text clause to every scene that wants it', () => {
+    for (const source of BUILT_IN_SOURCE_PRESETS) {
+      if (source.id === TEXT_EXCEPTION) continue
+
+      for (const idiom of ['tags', 'prose'] as const) {
+        const appended = SOURCE_PRESET_LIBRARY.append?.[idiom] ?? ''
+        expect(appended, idiom).not.toBe('')
+        expect(
+          source.variants[idiom]?.compose,
+          `${source.id}/${idiom}`
+        ).toContain(appended)
+      }
+    }
+  })
+
+  it('leaves the one scene that wants lettering out of it', () => {
+    // The opt-out is the mechanism preserve already had: a preset that does not
+    // want the block leaves the placeholder out of its own template. No flag, no
+    // second mechanism.
+    const labelled = sourcePresetById(TEXT_EXCEPTION)
+    if (labelled === null) throw new Error('the proving set lost its exception')
+
+    for (const idiom of ['tags', 'prose'] as const) {
+      const appended = SOURCE_PRESET_LIBRARY.append?.[idiom] ?? ''
+      expect(labelled.variants[idiom]?.compose, idiom).not.toContain(appended)
+    }
+  })
+
+  it('seeds every built-in on every source model the registry lists', () => {
+    const models = modelsForStage(MODEL_REGISTRY, 'source')
+    expect(models.length).toBeGreaterThanOrEqual(4)
+
+    for (const model of models) {
+      for (const source of BUILT_IN_SOURCE_PRESETS) {
+        const where = `${source.id} on ${model.id}`
+        const composed = composePreset(source, model)
+
+        if (composed === null) throw new Error(`${where} seeded nothing`)
+
+        // Every slot resolved. `{{…}}` survives on purpose — see below — so
+        // this is about the single-brace slots the loader owns.
+        expect(composed.prompt.replaceAll(/\{\{|\}\}/g, ''), where).not.toMatch(
+          /[{}]/
+        )
+        expect(composed.prompt, where).toContain(
+          source.variants[model.promptStyle]?.transform ?? ''
+        )
+
+        // Never in the body — routed or dropped, per the registry (PRD §9).
+        const negative = source.variants[model.promptStyle]?.negative ?? null
+        expect(composed.negative, where).toBe(
+          model.negativePromptParam === null ? null : negative
+        )
+      }
+    }
+  })
+
+  it('seeds a template variable literally, until #46 can resolve it', () => {
+    // #46 owns the palette and the resolution; this library only has to carry
+    // the holes. Unresolved, `{{subject}}` arrives in the prompt box as those
+    // nine characters — visible and editable like any other text, which is what
+    // #46 settled on for a placeholder it cannot fill either.
+    const withVariables = BUILT_IN_SOURCE_PRESETS.filter(source =>
+      Object.values(source.variants).some(carried =>
+        carried?.transform.includes('{{')
+      )
+    )
+    expect(withVariables.length).toBeGreaterThan(0)
+
+    const monolith = sourcePresetById('gn-monolith')
+    if (monolith === null) throw new Error('the proving set lost a scene')
+
+    expect(composePreset(monolith, SOURCE_DEFAULT)?.prompt).toContain(
+      '{{subject}}'
+    )
   })
 })
 
@@ -279,6 +443,115 @@ describe('a preset document that is not what we expect', () => {
     expect(() =>
       readPresetLibrary(document({ preserve: { tags: null, prose: null } }))
     ).toThrow(/preserve/i)
+  })
+
+  it('refuses an append placeholder the idiom has no block for', () => {
+    expect(() =>
+      readPresetLibrary(
+        document({
+          presets: [
+            preset({
+              variants: {
+                tags: variant({ compose: '{transform}, {append}' }),
+                prose: null,
+              },
+            }),
+          ],
+        })
+      )
+    ).toThrow(/append/i)
+  })
+
+  /**
+   * A library declaring neither block is not the same mistake as a block that
+   * forgot an idiom. The first is a library whose presets are all self-contained;
+   * the second is data nobody finished writing.
+   */
+  it('tells a library with no such block from a block missing an idiom', () => {
+    const noBlocks = readPresetLibrary(
+      document({
+        preserve: undefined,
+        presets: [
+          preset({
+            variants: {
+              tags: variant({ compose: '{transform}' }),
+              prose: null,
+            },
+          }),
+        ],
+      })
+    )
+    expect(noBlocks.preserve).toBeNull()
+    expect(noBlocks.append).toBeNull()
+
+    expect(() =>
+      readPresetLibrary(document({ append: { tags: 'no text' } }))
+    ).toThrow(/prose append/i)
+  })
+
+  it('resolves the append block into the template, once, at load', () => {
+    const library = readPresetLibrary(
+      document({
+        preserve: undefined,
+        append: { tags: 'no text', prose: null },
+        presets: [
+          preset({
+            variants: {
+              tags: variant({ compose: '{transform}, {append}' }),
+              prose: null,
+            },
+          }),
+        ],
+      })
+    )
+
+    expect(library.presets[0]?.variants.tags?.compose).toBe(
+      '{transform}, no text'
+    )
+  })
+
+  /**
+   * The one style recipe wanting stricter preserve wording (v4's `rs-blueprint`)
+   * needs no new mechanism: it omits `{preserve}` and writes its own clause into
+   * its own template. Proved here rather than shipped as content, because the
+   * content is #48's.
+   */
+  it('lets a preset carry stricter wording in its own template', () => {
+    const strict =
+      'Preserve the exact silhouette and edge position of every object.'
+    const library = readPresetLibrary(
+      document({
+        presets: [
+          preset({
+            variants: {
+              tags: variant({ compose: `${strict} {transform}` }),
+              prose: null,
+            },
+          }),
+        ],
+      })
+    )
+
+    const only = library.presets[0]
+    if (only === undefined) throw new Error('the fixture has no presets')
+
+    expect(composePreset(only, QWEN)?.prompt).toBe(`${strict} a look`)
+    // And the library's standard block is nowhere in it.
+    expect(composePreset(only, QWEN)?.prompt).not.toContain('same composition')
+  })
+
+  it('refuses an aspect hint that is not a ratio we offer', () => {
+    expect(() =>
+      readPresetLibrary(document({ presets: [preset({ aspect: '4:5' })] }))
+    ).toThrow(/aspect/i)
+  })
+
+  it('takes a missing aspect as no hint, since most presets have none', () => {
+    expect(readPresetLibrary(document()).presets[0]?.aspect).toBeNull()
+    expect(
+      readPresetLibrary(document({ presets: [preset({ aspect: '21:9' })] }))
+        .presets[0]?.aspect
+    ).toBe('21:9')
   })
 
   it('refuses a strength override outside anything a model would accept', () => {
@@ -396,7 +669,8 @@ describe('composePreset', () => {
         expect(composed.prompt.length, where).toBeGreaterThan(60)
         expect(composed.prompt, where).not.toContain('{')
 
-        const preserve = STYLE_PRESET_LIBRARY.preserve[model.promptStyle] ?? ''
+        const preserve =
+          STYLE_PRESET_LIBRARY.preserve?.[model.promptStyle] ?? ''
         expect(composed.prompt.startsWith(preserve), where).toBe(true)
         expect(composed.prompt, where).toContain(
           style.variants[model.promptStyle]?.transform ?? ''
@@ -513,6 +787,7 @@ describe('a saved fork', () => {
     prompt: 'same composition, warm dusk grade',
     negative: 'cold light',
     strength: 0.72,
+    aspect: null,
   } as const
 
   it('round-trips through the file it is written to', () => {
@@ -548,7 +823,7 @@ describe('a saved fork', () => {
    */
   describe('updated in place', () => {
     /** A fork that has been taught both idioms, as the file holds it. */
-    const both: StylePreset = {
+    const both: Preset = {
       ...userPresetFrom(capture),
       variants: {
         tags: userPresetFrom(capture).variants.tags,

@@ -18,6 +18,7 @@ import {
   MODEL_REGISTRY,
   modelById,
   motionPresetById,
+  sourcePresetById,
   stylePresetById,
   userPresetFrom,
   writeUserMotionPreset,
@@ -63,6 +64,7 @@ function bilingualFork(): unknown {
     prompt: 'a keyword list',
     negative: null,
     strength: null,
+    aspect: null,
   })
 
   return writeUserPreset({
@@ -91,6 +93,7 @@ function savedFork({
       prompt,
       negative: null,
       strength: null,
+      aspect: null,
     })
   )
 }
@@ -656,5 +659,121 @@ describe('picking a movement', () => {
     expect(
       within(motionPicker()).getByRole('option', { name: 'Mine' })
     ).toBeInTheDocument()
+  })
+})
+
+/**
+ * The source stage got the same control in #47, over a library of its own.
+ *
+ * What is worth asserting is only what differs — that it is a *different* list,
+ * that the append block reaches a real seeded prompt, that the aspect hint is
+ * on screen and inert, and that a fork of a scene lands in the source folder
+ * rather than the style one. Everything else the control does is the same code
+ * the style tests above already exercise.
+ */
+describe('picking a scene', () => {
+  const MONOLITH = sourcePresetById('gn-monolith')
+  if (MONOLITH === null) throw new Error('the source library lost a preset')
+
+  /** Atlas's source draft is on flux/schnell, which reads prose. */
+  const SOURCE_MODEL = modelById(MODEL_REGISTRY, ATLAS.drafts.source.modelId)
+
+  function LiveSourceField() {
+    const project = useEditorStore(store => store.state.project)
+    if (project === null) return null
+    return <PresetField project={project} stage="source" />
+  }
+
+  function sourceDraft(): StageRecipe {
+    const project = useEditorStore.getState().state.project
+    if (project === null) throw new Error('nothing is open')
+    return project.drafts.source
+  }
+
+  it('offers the source library rather than the style one', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    const names = within(picker())
+      .getAllByRole('option')
+      .map(option => option.textContent ?? '')
+
+    expect(names.some(name => name.startsWith(MONOLITH.name))).toBe(true)
+    expect(names.some(name => name.startsWith(GLASS.name))).toBe(false)
+    await waitFor(() =>
+      expect(mockCommands.sourcePresetsList).toHaveBeenCalled()
+    )
+  })
+
+  it('seeds the whole scene, append block included', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    pick(MONOLITH.id)
+
+    const composed = composePreset(MONOLITH, SOURCE_MODEL)?.prompt ?? ''
+    await waitFor(() => expect(sourceDraft().prompt).toBe(composed))
+    expect(sourceDraft().prompt).toContain('No text, no lettering')
+    // Unresolved until #46, and visible rather than silently dropped.
+    expect(sourceDraft().prompt).toContain('{{subject}}')
+  })
+
+  it('leaves the scene that wants lettering without the append block', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    pick('gn-isometric-lineup')
+
+    await waitFor(() =>
+      expect(sourceDraft().presetId).toBe('gn-isometric-lineup')
+    )
+    expect(sourceDraft().prompt).not.toContain('No text, no lettering')
+  })
+
+  it('shows the aspect hint without letting it touch the project', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    const option = within(picker()).getByRole('option', {
+      name: new RegExp(`${MONOLITH.name}.*designed for 3:2`),
+    })
+    expect(option).toBeEnabled()
+
+    // 3:2 against a 21:9 project, and still offered, still in library order:
+    // the hint does not filter, sort or dim (PRD §4.4 locks the ratio anyway).
+    expect(ATLAS.aspect).toBe('21:9')
+    pick(MONOLITH.id)
+
+    await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
+    const project = useEditorStore.getState().state.project
+    expect(project?.aspect).toBe('21:9')
+  })
+
+  it('writes a fork into the source library, not the style one', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    const user = userEvent.setup()
+    pick(MONOLITH.id)
+    await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
+
+    await user.click(screen.getByRole('button', { name: /save as new/i }))
+    await user.clear(screen.getByLabelText('Name'))
+    await user.type(screen.getByLabelText('Name'), 'My monolith')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() =>
+      expect(mockCommands.sourcePresetSave).toHaveBeenCalled()
+    )
+    expect(mockCommands.userPresetSave).not.toHaveBeenCalled()
+
+    const [id, document] = mockCommands.sourcePresetSave.mock.calls[0] as [
+      string,
+      { aspect: string | null },
+    ]
+    expect(id).toBe('my-monolith')
+    // The hint travels with the text it was seeded from — the fork is still a
+    // scene composed for 3:2.
+    expect(document.aspect).toBe('3:2')
   })
 })

@@ -22,7 +22,7 @@ Technical documentation for building and extending this app. These docs describe
 | [Tauri Commands](./tauri-commands.md)         | Type-safe Rust-TypeScript bridge (tauri-specta)     |
 | [Tauri Plugins](./tauri-plugins.md)           | Plugin usage and configuration                      |
 | [Model Registry](./model-registry.md)         | Model capabilities, aspect idioms, validation       |
-| [Style Presets](./style-presets.md)           | Seeding the form, prompt idioms, the fork flow      |
+| [Composing Presets](./composing-presets.md)   | Source and style — seeding the form, idioms, forks  |
 | [Motion Presets](./motion-presets.md)         | The second library — movement, kept apart from look |
 | [Export](./export.md)                         | ffmpeg detection, web-ready encodes, ping-pong loop |
 

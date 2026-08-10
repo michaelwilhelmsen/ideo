@@ -209,6 +209,8 @@
   "editor.preset.yours": "Les vôtres",
   "editor.idiom.prose": "de la prose",
   "editor.idiom.tags": "une liste de mots-clés",
+  "editor.preset.aspectHint": "conçu pour le {{aspect}}",
+  "editor.preset.sourceHint": "Un préréglage de source est une scène entière. Tout ce qu'il préremplit reste modifiable, et le format qu'il indique est une note sur sa composition — il ne peut pas changer celui de ce projet.",
   "editor.preset.noIdiom": "pas de version pour {{idiom}}",
   "editor.preset.unsupported": "Ce préréglage n'a pas de version écrite pour {{idiom}} ; il ne peut donc pas préremplir ce modèle.",
   "editor.preset.reseed": "Préremplir de nouveau depuis le préréglage",

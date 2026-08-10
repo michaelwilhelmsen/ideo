@@ -1,5 +1,6 @@
 /**
- * The preset control — picking a look, and forking it once you have changed it.
+ * The preset control — picking a scene or a look, and forking it once you have
+ * changed it.
  *
  * A preset here is a **seed, not a filter** (#28): choosing one pre-fills the
  * prompt box with the fully composed prompt, plus strength and the negative
@@ -19,16 +20,19 @@
  *   no edit or delete affordance at all — they come from the repo and a repo
  *   update must never be able to touch yours.
  *
- * Animate has the same control over a second, independent library (#29) — look
- * and movement are orthogonal, so a recipe picks one of each. It is the simpler
- * of the two by exactly as much as its schema is: one field is seeded, no preset
- * is ever unsupported because there are no idioms, and an update cannot destroy
- * an idiom it was not saved from.
+ * **Source and style share that control** (#47), because they share a type and a
+ * loader: both compose a prompt out of a per-idiom variant and one block their
+ * library holds, and every sentence above is true of each. What differs is data
+ * — which library, which folder a fork of it goes in, and whether its presets
+ * carry an aspect hint — so it is passed in rather than branched on.
  *
- * Source still picks from a fixture list with nothing to compose (#34 gives it a
- * library of its own), so it gets the plain control.
+ * Animate has the same control over a third, independent library (#29). It is
+ * the simpler of the two by exactly as much as its schema is: one field is
+ * seeded, no preset is ever unsupported because there are no idioms, and an
+ * update cannot destroy an idiom it was not saved from.
  */
 
+import type { UseMutationResult } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -59,12 +63,11 @@ import {
   NativeSelectOption,
 } from '@/components/ui/native-select'
 import {
-  BUILT_IN_MOTION_PRESETS,
-  BUILT_IN_STYLE_PRESETS,
   MODEL_REGISTRY,
   modelById,
   motionPresetFrom,
   motionSeedState,
+  builtInPresetIds,
   presetIdFrom,
   presetSeedState,
   presetsForStage,
@@ -72,11 +75,11 @@ import {
   userPresetFrom,
   type ModelCapabilities,
   type MotionPreset,
+  type Preset,
   type PresetCapture,
   type Project,
   type StageKind,
   type StageRecipe,
-  type StylePreset,
 } from '@/lib/recipe'
 import {
   EMPTY_MOTION_PRESETS,
@@ -85,11 +88,18 @@ import {
   useSaveMotionPreset,
 } from '@/services/motion'
 import {
-  EMPTY_USER_PRESETS,
-  useDeleteUserPreset,
-  useSaveUserPreset,
-  useUserPresets,
-} from '@/services/presets'
+  EMPTY_STYLE_PRESETS,
+  useDeleteStylePreset,
+  useSaveStylePreset,
+  useStylePresets,
+  type UserPresetLibrary,
+} from '@/services/style-presets'
+import {
+  EMPTY_SOURCE_PRESETS,
+  useDeleteSourcePreset,
+  useSaveSourcePreset,
+  useSourcePresets,
+} from '@/services/source-presets'
 import { useEditorStore } from '@/store/editor-store'
 
 export function PresetField({
@@ -100,34 +110,95 @@ export function PresetField({
   stage: StageKind
 }) {
   switch (stage) {
+    case 'source':
+      return <SourcePresetField project={project} />
     case 'style':
       return <StylePresetField project={project} />
     case 'animate':
       return <MotionPresetField project={project} />
-    case 'source':
-      return <FixturePresetField project={project} stage={stage} />
   }
 }
 
 /**
- * The style library: ours and the user's, in one picker but never mixed up.
+ * The two composing libraries differ by which folder a fork lands in, and this
+ * is where that is decided.
+ *
+ * Two three-line components rather than one taking the hooks as props: a hook
+ * reached through a parameter is a hook whose identity the linter cannot see,
+ * and the whole value of keeping the libraries apart is that neither can end up
+ * writing into the other's folder by accident.
+ */
+function StylePresetField({ project }: { project: Project }) {
+  const { data } = useStylePresets()
+
+  return (
+    <ComposingPresetField
+      project={project}
+      stage="style"
+      library={data ?? EMPTY_STYLE_PRESETS}
+      hintKey={null}
+      save={useSaveStylePreset()}
+      remove={useDeleteStylePreset()}
+    />
+  )
+}
+
+function SourcePresetField({ project }: { project: Project }) {
+  const { data } = useSourcePresets()
+
+  return (
+    <ComposingPresetField
+      project={project}
+      stage="source"
+      // Said once, in the one place a ratio appears next to a control: the hint
+      // is a note about how the scene was composed and not a setting (PRD §4.4
+      // locks aspect at project creation). Without it, a ratio in a picker reads
+      // as a ratio the picker sets.
+      hintKey="editor.preset.sourceHint"
+      library={data ?? EMPTY_SOURCE_PRESETS}
+      save={useSaveSourcePreset()}
+      remove={useDeleteSourcePreset()}
+    />
+  )
+}
+
+/** The fork flow's two mutations, whichever library they were made for. */
+interface ForkFlow {
+  readonly save: UseMutationResult<Preset, Error, Preset>
+  readonly remove: UseMutationResult<string, Error, string>
+}
+
+/**
+ * A composing library: ours and the user's, in one picker but never mixed up.
  *
  * Grouped rather than concatenated because the two halves behave differently —
  * one is read-only and ships with the app, the other is the user's and can be
  * updated or deleted — and a picker that hid that would make the read-only half
  * look broken the moment someone tried to edit it.
  */
-function StylePresetField({ project }: { project: Project }) {
+function ComposingPresetField({
+  project,
+  stage,
+  hintKey,
+  library: { presets: userPresets, unreadable },
+  save,
+  remove,
+}: {
+  project: Project
+  stage: 'source' | 'style'
+  /** A line under the picker, or `null` where the library needs no preamble. */
+  hintKey: string | null
+  library: UserPresetLibrary
+} & ForkFlow) {
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
-  const { data } = useUserPresets()
-  const { presets: userPresets, unreadable } = data ?? EMPTY_USER_PRESETS
 
-  const draft = project.drafts.style
+  const draft = project.drafts[stage]
   const model = modelById(MODEL_REGISTRY, draft.modelId)
 
+  const builtIns = presetsForStage(stage)
   /** Everything selectable, in picker order — ours first, then theirs. */
-  const library = [...BUILT_IN_STYLE_PRESETS, ...userPresets]
+  const library = [...builtIns, ...userPresets]
 
   const selected = library.find(preset => preset.id === draft.presetId) ?? null
   /** Only your own can be updated in place or deleted. */
@@ -135,15 +206,12 @@ function StylePresetField({ project }: { project: Project }) {
   const seed = presetSeedState(draft.prompt, selected, model)
 
   const [savingAs, setSavingAs] = useState(false)
-  const [deleting, setDeleting] = useState<StylePreset | null>(null)
+  const [deleting, setDeleting] = useState<Preset | null>(null)
 
-  const save = useSaveUserPreset()
-  const remove = useDeleteUserPreset()
-
-  const choose = (preset: StylePreset | null): void => {
+  const choose = (preset: Preset | null): void => {
     dispatch({
       type: 'choosePreset',
-      stage: 'style',
+      stage,
       presetId: preset?.id ?? null,
       preset,
     })
@@ -151,16 +219,25 @@ function StylePresetField({ project }: { project: Project }) {
 
   /** The pointer only — used after a save, when the form already agrees. */
   const point = (presetId: string | null): void => {
-    dispatch({ type: 'choosePreset', stage: 'style', presetId, preset: null })
+    dispatch({ type: 'choosePreset', stage, presetId, preset: null })
   }
 
-  const option = (preset: StylePreset) => {
+  const option = (preset: Preset) => {
     const usable = presetSupportsModel(preset, model)
     return (
       <NativeSelectOption key={preset.id} value={preset.id} disabled={!usable}>
         {/* A name is user data, whoever wrote it (PRD §6) — no `t()` near it.
-            The reason for a refusal is ours, and is translated. */}
+            Everything appended to it is ours, and is translated. */}
         {preset.name}
+        {/* Displayed and nothing more (#47). PRD §4.4 locks aspect at project
+            creation, so this cannot set it — and it deliberately does not dim,
+            sort or hide the ratios that do not match either, because most of
+            the source library is composed for something other than whatever
+            this project is, and hiding two thirds of a library is a filter
+            wearing a hint's clothes. */}
+        {preset.aspect === null
+          ? ''
+          : ` — ${t('editor.preset.aspectHint', { aspect: preset.aspect })}`}
         {usable
           ? ''
           : ` — ${t('editor.preset.noIdiom', { idiom: idiomOf(t, model) })}`}
@@ -196,7 +273,7 @@ function StylePresetField({ project }: { project: Project }) {
     save.mutate(
       userPresetFrom(
         {
-          ...captureOf(draft, model),
+          ...captureOf(draft, model, selected),
           id: selected.id,
           name: selected.name,
         },
@@ -234,7 +311,7 @@ function StylePresetField({ project }: { project: Project }) {
           {t('editor.preset.none')}
         </NativeSelectOption>
         <NativeSelectOptGroup label={t('editor.preset.builtIn')}>
-          {BUILT_IN_STYLE_PRESETS.map(option)}
+          {builtIns.map(option)}
         </NativeSelectOptGroup>
         {userPresets.length > 0 && (
           <NativeSelectOptGroup label={t('editor.preset.yours')}>
@@ -242,6 +319,10 @@ function StylePresetField({ project }: { project: Project }) {
           </NativeSelectOptGroup>
         )}
       </NativeSelect>
+
+      {hintKey !== null && (
+        <p className="text-xs text-muted-foreground">{t(hintKey)}</p>
+      )}
 
       {/* The selected preset cannot seed the selected model — usually because a
           model switch landed on an idiom this fork was never saved in. */}
@@ -313,11 +394,8 @@ function StylePresetField({ project }: { project: Project }) {
           onSubmit={name => {
             save.mutate(
               userPresetFrom({
-                ...captureOf(draft, model),
-                id: presetIdFrom(
-                  name,
-                  library.map(preset => preset.id)
-                ),
+                ...captureOf(draft, model, selected),
+                id: presetIdFrom(name, takenIds(library)),
                 name,
               }),
               {
@@ -372,7 +450,8 @@ function MotionPresetField({ project }: { project: Project }) {
   const draft = project.drafts.animate
 
   /** Everything selectable, in picker order — ours first, then theirs. */
-  const library = [...BUILT_IN_MOTION_PRESETS, ...userPresets]
+  const builtIns = presetsForStage('animate')
+  const library = [...builtIns, ...userPresets]
 
   const selected = library.find(preset => preset.id === draft.presetId) ?? null
   /** Only your own can be updated in place or deleted. */
@@ -424,7 +503,7 @@ function MotionPresetField({ project }: { project: Project }) {
           {t('editor.preset.none')}
         </NativeSelectOption>
         <NativeSelectOptGroup label={t('editor.preset.builtIn')}>
-          {BUILT_IN_MOTION_PRESETS.map(preset => (
+          {builtIns.map(preset => (
             /* A name is user data, whoever wrote it (PRD §6) — no `t()` near
                it. And nothing here is ever disabled: a motion preset speaks to
                every video model, because there is only one idiom. */
@@ -528,10 +607,7 @@ function MotionPresetField({ project }: { project: Project }) {
           onSubmit={name => {
             save.mutate(
               motionPresetFrom({
-                id: presetIdFrom(
-                  name,
-                  library.map(preset => preset.id)
-                ),
+                id: presetIdFrom(name, takenIds(library)),
                 name,
                 prompt: draft.prompt,
               }),
@@ -643,7 +719,7 @@ function NamePresetDialog({
 /**
  * What deleting needs to know about a preset: which file, and what to call it.
  *
- * Structural rather than `StylePreset | MotionPreset` because the confirmation
+ * Structural rather than `Preset | MotionPreset` because the confirmation
  * genuinely does not care which library it is emptying — widening it to the
  * union would be claiming a difference the dialog does not have.
  */
@@ -727,60 +803,24 @@ function UnreadableNotice({ count }: { count: number }) {
   )
 }
 
-/** Source: a fixture list, and nothing to compose from it yet (#34). */
-function FixturePresetField({
-  project,
-  stage,
-}: {
-  project: Project
-  stage: StageKind
-}) {
-  const { t } = useTranslation()
-  const dispatch = useEditorStore(store => store.dispatch)
-  const draft = project.drafts[stage]
-
-  return (
-    <div className="space-y-2">
-      <Label>{t('editor.field.preset')}</Label>
-      <NativeSelect
-        className="w-full"
-        aria-label={t('editor.field.preset')}
-        value={draft.presetId ?? ''}
-        onChange={event =>
-          dispatch({
-            type: 'choosePreset',
-            stage,
-            presetId: event.target.value === '' ? null : event.target.value,
-            // Nothing to seed: these libraries hold a fragment, not a recipe.
-            preset: null,
-          })
-        }
-      >
-        <NativeSelectOption value="">
-          {t('editor.preset.none')}
-        </NativeSelectOption>
-        {presetsForStage(stage).map(preset => (
-          <NativeSelectOption key={preset.id} value={preset.id}>
-            {preset.name}
-          </NativeSelectOption>
-        ))}
-      </NativeSelect>
-    </div>
-  )
-}
-
 /**
  * The form as it stands — the three fields a preset seeds, read back under the
- * names *this* model gives them.
+ * names *this* model gives them, plus the one thing carried rather than typed.
  *
  * Only the current model's idiom is claimed. A save can speak for the model in
  * front of it and no other — so `userPresetFrom` writes this one variant and
  * takes the other from the preset being updated, if there is one, rather than
  * inventing or discarding it.
+ *
+ * `seeded` is whatever the form was filled from, and contributes only its aspect
+ * hint. That is not a field on the form, and it comes along anyway because the
+ * prompt does: a fork of a scene composed for 3:2 is still composed for 3:2, and
+ * dropping the hint would make the fork say less than its own text knows.
  */
 function captureOf(
   draft: StageRecipe,
-  model: ModelCapabilities
+  model: ModelCapabilities,
+  seeded: Preset | null
 ): Omit<PresetCapture, 'id' | 'name'> {
   return {
     promptStyle: model.promptStyle,
@@ -793,7 +833,23 @@ function captureOf(
       model.strengthParam === null
         ? null
         : Number(draft.params[model.strengthParam] ?? 0),
+    aspect: seeded?.aspect ?? null,
   }
+}
+
+/**
+ * The ids a new fork must not take.
+ *
+ * Every built-in from **all three** libraries, plus this library's forks. The
+ * other two libraries' built-ins are in there because `presetById` searches all
+ * three: a source fork slugged to `mesh-gradient` would be a second answer to
+ * "which preset produced this", and the wrong one is the one that wins. Other
+ * libraries' *forks* are not, and cannot be — they are behind their own query,
+ * which this control has not loaded — but they are the case a collision costs
+ * least, since both names came from the same person.
+ */
+function takenIds(library: readonly { readonly id: string }[]): string[] {
+  return [...builtInPresetIds(), ...library.map(preset => preset.id)]
 }
 
 /** The idiom in two words, for a sentence about why something is refused. */

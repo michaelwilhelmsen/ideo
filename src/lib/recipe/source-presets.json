@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "append": {
+    "tags": "no text, no lettering, no logos, no watermarks",
+    "prose": "No text, no lettering, no logos and no watermarks anywhere in the image."
+  },
+  "presets": [
+    {
+      "id": "gn-monolith",
+      "name": "Monolith on plinth",
+      "family": "product",
+      "aspect": "3:2",
+      "variants": {
+        "tags": {
+          "transform": "{{subject}} resting on a raw poured-concrete plinth, large empty room, {{brand_color}} walls, one hard directional light from high camera-left, long sharp shadow thrown across the floor to the right, everything else in deep shade, vast negative space above and to the right, cool neutral grade, matte surfaces, visible concrete aggregate, architectural photography, 50mm, eye level, dead-on symmetrical framing",
+          "compose": "{transform}, {append}",
+          "negative": "multiple objects, props, plants, people, soft diffused lighting, glossy studio sweep, floating, drop shadow, busy background, warm grade, tilted camera",
+          "strength": null
+        },
+        "prose": {
+          "transform": "{{subject}} resting on a raw poured-concrete plinth in a large empty room with {{brand_color}} walls. One hard directional light from high camera-left throws a long sharp shadow across the floor to the right. Everything else falls into shade. Vast negative space above and to the right. Cool neutral grade, matte surfaces, visible concrete aggregate texture. Architectural photography, 50mm, eye level, dead-on symmetrical framing.",
+          "compose": "{transform} {append}",
+          "negative": "multiple objects, props, plants, people, soft diffused lighting, glossy studio sweep, floating, drop shadow",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-gouache-sky",
+      "name": "Painted sky, gouache",
+      "family": "illustration",
+      "aspect": "21:9",
+      "variants": {
+        "tags": {
+          "transform": "hand-painted gouache landscape background, Japanese animation background art, one towering cumulus cloud filling the upper two thirds, cloud built from visible individual brush dabs of cream and warm white and pale grey, soft shadowed cloud underbellies, deep saturated cobalt sky graduating to paler blue at the horizon, green hillside receding across the lower right third, wildflower meadow of thousands of separate dabs of red and orange and blue, {{subject}} small within the landscape, open uncluttered sky across the lower left third, visible paint texture and brush direction, soft atmospheric haze at the horizon",
+          "compose": "{transform}, {append}",
+          "negative": "3D render, digital airbrush, vector shapes, black outlines, cel-shading, photorealism, lens flare, characters, mascots, smooth blended sky, large foreground subject",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A hand-painted gouache landscape background in the tradition of Japanese animation background art. A single towering cumulus cloud dominates the upper two thirds, built from visible individual brush dabs of cream, warm white and pale grey, with soft shadowed underbellies. Behind it a deep saturated cobalt sky graduating to paler blue near the horizon. The lower right third is a green hillside receding into the distance, scattered with a wildflower meadow rendered as thousands of separate small dabs of red, orange and blue paint. {{subject}} sits small within the landscape. The lower left third of the sky is kept deliberately open and uncluttered. Visible paint texture and brush direction throughout. Soft atmospheric haze along the horizon.",
+          "compose": "{transform} {append}",
+          "negative": "3D render, digital airbrush, vector shapes, black outlines, cel-shading, photorealism, lens flare, characters, mascots",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-gradient",
+      "name": "Soft gradient field",
+      "family": "abstract",
+      "aspect": "21:9",
+      "variants": {
+        "tags": {
+          "transform": "abstract soft gradient field, {{brand_color}} blending into {{secondary_color}}, slow organic asymmetric transition, subtle volumetric depth as if light diffuses through frosted glass or thick fog, one faint darker fold running diagonally to give the field structure, extremely fine tonal steps",
+          "compose": "{transform}, {append}",
+          "negative": "banding, harsh edges, mesh grid, blobs, shapes, neon, high saturation, rainbow, straight linear ramp, objects, subject",
+          "strength": null
+        },
+        "prose": {
+          "transform": "An abstract soft gradient field built from {{brand_color}} blending into {{secondary_color}}. The transition slow, organic and asymmetric, never a straight linear ramp. Subtle volumetric depth as if light diffuses through frosted glass or thick fog. One faint darker fold running diagonally to give the field structure. Extremely fine tonal steps with no banding. No objects, no shapes.",
+          "compose": "{transform} {append}",
+          "negative": "banding, harsh edges, mesh grid, blobs, shapes, neon, high saturation, rainbow",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-documentary",
+      "name": "Documentary workplace",
+      "family": "editorial",
+      "aspect": "16:9",
+      "variants": {
+        "tags": {
+          "transform": "candid documentary photograph of {{subject}} caught mid-action and unaware of the camera, available light only, slightly imperfect framing as if shot quickly on a 35mm rangefinder while moving through the space, real workwear with wear and creases, genuinely used tools and surfaces, honest clutter left where it fell, muted natural palette, one person partially cropped by the frame edge",
+          "compose": "{transform}, {append}",
+          "negative": "posed, smiling at camera, looking at the lens, crossed arms, handshake, staged teamwork, clean desk, stock photo, HDR, business suits, fill light, flash, studio lighting",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A candid documentary photograph of {{subject}}, caught mid-action and unaware of the camera. Nobody looking at the lens, nobody smiling for it. Available light only, no fill, no flash. Slightly imperfect framing as if shot quickly on a 35mm rangefinder while moving through the space. Real workwear with wear and creases, genuinely used tools and surfaces, honest clutter left where it fell. Muted natural palette. One person partially cropped by the frame edge.",
+          "compose": "{transform} {append}",
+          "negative": "posed, smiling at camera, crossed arms, handshake, staged teamwork, clean desk, stock photo, HDR, business suits",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-isometric-lineup",
+      "name": "Labelled isometric lineup",
+      "family": "diagram",
+      "aspect": "1:1",
+      "variants": {
+        "tags": {
+          "transform": "clear side miniature 3D cartoon view of {{subject}}, minimal textures with realistic materials, soft lifelike lighting, gentle shadows, clean minimalist composition, exactly three items arranged left to right in strict descending order of {{ranking_metric}}, accurate relative proportions, each item standing separately on a thin simple ceramic base, centred text below each base reading {{metric_labels}} in semibold sans-serif at medium size, {{secondary_labels}} in lighter weight and smaller size directly beneath, consistent padding and spacing and leading and kerning, straight-on orthographic-style rendering, identical camera angle and scale for every item, clean neutral background",
+          "compose": "{transform}",
+          "negative": "forced perspective, tilted camera, overlapping text, decorative props, background clutter, inconsistent scale, stretched proportions, exaggerated size difference, items touching",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A clear side miniature 3D cartoon view of {{subject}}. Minimal textures with realistic materials, soft lifelike lighting and gentle shadows. Clean minimalistic composition showing exactly three items arranged LEFT to RIGHT in strict descending order of {{ranking_metric}}. Accurate relative proportions: if one is larger in reality it must be proportionally larger here. No stretching, no compressing, no exaggeration. Each item stands separately on a thin simple ceramic base. Below each base, centred text: {{metric_labels}} in semibold sans-serif at medium size, with {{secondary_labels}} in lighter weight and smaller size directly beneath. Consistent padding, spacing, leading and kerning. No item may overlap or touch text. Straight-on orthographic-style rendering, no forced perspective, identical camera angle and scale for every item. Clean neutral background.",
+          "compose": "{transform}",
+          "negative": "forced perspective, tilted camera, overlapping text, decorative props, background clutter, inconsistent scale",
+          "strength": null
+        }
+      }
+    }
+  ]
+}

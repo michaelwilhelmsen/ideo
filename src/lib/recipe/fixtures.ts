@@ -5,18 +5,17 @@
  * two projects below are test data rather than what the app boots into; #25
  * replaced the fixture capability registry with the verified one in `models.ts`,
  * so the model ids here name real endpoints and resolve against it; #28 moved the
- * style presets into committed JSON (`presets.ts`) and #29 the motion presets
- * (`motion.ts`), leaving the one list below standing in for the source stage's
- * borrowed library. What remains temporary:
- *  - source's use of the style list, until #34,
- *  - `previewArt`, the stand-in for a candidate with no file. Every stage
- *    produces real pixels now (source in #22, style in #28, animate in #29), so
- *    what this draws is a candidate whose job has not landed rather than a stage
- *    that cannot generate.
+ * style presets into committed JSON (`presets.ts`), #29 the motion presets
+ * (`motion.ts`), and #47 the source presets — which took the last placeholder
+ * list out of this file and moved the two library queries that used to live here
+ * to `libraries.ts`, where they are no longer fixtures of anything.
+ *
+ * What remains temporary is `previewArt`, the stand-in for a candidate with no
+ * file. Every stage produces real pixels now (source in #22, style in #28,
+ * animate in #29), so what this draws is a candidate whose job has not landed
+ * rather than a stage that cannot generate.
  */
 
-import { BUILT_IN_MOTION_PRESETS, motionPresetById } from './motion'
-import { BUILT_IN_STYLE_PRESETS, stylePresetById } from './presets'
 import { DEFAULT_BATCH_SIZES } from './selectors'
 import type {
   EditorState,
@@ -30,95 +29,6 @@ import type {
 /** Fixed so a reload shows the same thing twice. */
 const T0 = Date.UTC(2026, 7, 8, 9, 0, 0)
 const MINUTE = 60_000
-
-/**
- * The shape of the placeholder list the source stage is still borrowing.
- *
- * Both real libraries outgrew it. The style library went first (#28): a single
- * `fragment` cannot hold a per-idiom variant, a compose template, a negative and
- * a strength, which is why `StylePreset` exists in `presets.ts`. The motion
- * library went the other way in #29 — it needs *less* than this, one whole
- * prompt and no fragment to assemble — which is why `MotionPreset` is its own
- * type in `motion.ts` rather than a second reading of this one. #34 finishes the
- * job by giving source a library of its own.
- */
-export interface Preset {
-  readonly id: string
-  readonly name: string
-  readonly fragment: string
-}
-
-/**
- * What the preset picker needs, and all the two libraries still agree on.
- *
- * The alternative was a union the picker has to narrow, for a control that only
- * ever renders an id and a name.
- */
-export interface PresetChoice {
-  readonly id: string
-  readonly name: string
-}
-
-export const STYLE_PRESETS: readonly Preset[] = [
-  {
-    id: 'editorial-noir',
-    name: 'Editorial noir',
-    fragment: 'high-contrast monochrome, hard key light, deep falloff',
-  },
-  {
-    id: 'sun-bleached-film',
-    name: 'Sun-bleached film',
-    fragment: 'washed highlights, warm cast, soft halation, ISO 3200 grain',
-  },
-  {
-    id: 'clean-product-studio',
-    name: 'Clean product studio',
-    fragment: 'seamless backdrop, even diffuse light, no visible shadow',
-  },
-  {
-    id: 'liquid-chrome',
-    name: 'Liquid chrome',
-    fragment: 'polished metal, caustic reflections, cool specular highlights',
-  },
-]
-
-/**
- * The presets on offer for a stage.
- *
- * Style and animate are real now — committed JSON, loaded and validated, in two
- * independent libraries (#28, #29). **Source still borrows the style list**,
- * which is the conflation #34 exists to break: a source preset is a whole scene
- * and a style preset is a transform applied to somebody else's composition.
- * Left exactly as it was rather than half-fixed here.
- */
-export function presetsForStage(stage: StageKind): readonly PresetChoice[] {
-  switch (stage) {
-    case 'style':
-      return BUILT_IN_STYLE_PRESETS
-    case 'animate':
-      return BUILT_IN_MOTION_PRESETS
-    case 'source':
-      return STYLE_PRESETS
-  }
-}
-
-/**
- * A name for a recipe's `presetId`, from whichever library holds it.
- *
- * Both real libraries are asked, because a recipe records one id per stage and
- * the readout showing it does not know which stage it came from. Only the
- * built-ins: a fork lives in app data behind TanStack Query, and this is a pure
- * lookup used while rendering.
- */
-export function presetById(id: string | null): PresetChoice | null {
-  if (id === null) return null
-  return (
-    stylePresetById(id) ??
-    motionPresetById(id) ??
-    STYLE_PRESETS.find(p => p.id === id) ??
-    null
-  )
-}
 
 // ── The seeded projects ─────────────────────────────────────────────────────
 
@@ -232,7 +142,7 @@ export const ATLAS: Project = {
       recipe({
         modelId: 'fal-ai/flux/dev/image-to-image',
         prompt: 'restyle',
-        presetId: 'editorial-noir',
+        presetId: 'brutalist-monochrome',
         params: { strength: 0.7 },
         inputGenerationId: 'gen-src-1',
       })
@@ -248,7 +158,7 @@ export const ATLAS: Project = {
       recipe({
         modelId: 'fal-ai/flux/dev/image-to-image',
         prompt: 'restyle',
-        presetId: 'editorial-noir',
+        presetId: 'brutalist-monochrome',
         seed: { mode: 'pinned', value: 640_213_889 },
         params: { strength: 0.7 },
         inputGenerationId: 'gen-src-2',
@@ -264,7 +174,7 @@ export const ATLAS: Project = {
       recipe({
         modelId: 'fal-ai/flux/dev/image-to-image',
         prompt: 'restyle',
-        presetId: 'sun-bleached-film',
+        presetId: 'soft-clay-render',
         seed: { mode: 'pinned', value: 640_213_889 },
         params: { strength: 0.7 },
         inputGenerationId: 'gen-src-2',
@@ -297,7 +207,7 @@ export const ATLAS: Project = {
     style: recipe({
       modelId: 'fal-ai/flux/dev/image-to-image',
       prompt: 'restyle',
-      presetId: 'sun-bleached-film',
+      presetId: 'soft-clay-render',
       seed: { mode: 'pinned', value: 640_213_889 },
       params: { strength: 0.7 },
     }),
@@ -335,7 +245,7 @@ export const LEDGER: Project = {
     style: recipe({
       modelId: 'fal-ai/flux/dev/image-to-image',
       prompt: 'restyle',
-      presetId: 'clean-product-studio',
+      presetId: 'glass-caustics',
       params: { strength: 0.7 },
     }),
     animate: recipe({

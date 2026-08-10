@@ -1,22 +1,23 @@
 # Motion Presets
 
-The second preset library — how a _movement_ reaches the animate form. Lives in
+The third preset library — how a _movement_ reaches the animate form. Lives in
 `src/lib/recipe/motion.ts` (schema and loader), `src/lib/recipe/motion-presets.json` (the
 committed built-ins), `src/services/motion.ts` (the user's own) and the `MotionPresetField`
 half of `src/components/editor/PresetField.tsx`.
 
-Read [style-presets.md](./style-presets.md) first. Everything it says about presets being
+Read [composing-presets.md](./composing-presets.md) first. Everything it says about presets being
 seeds, about the two halves of a library, and about forks living in app data applies here
 unchanged. This page is only about the differences.
 
-## Two libraries, because look and movement are orthogonal
+## Its own library, because scene, look and movement are orthogonal
 
-A recipe picks one style preset and one motion preset. Drifting clouds is worth having over
+A recipe picks one of each. Drifting clouds is worth having over
 a glass monolith and over a sun-bleached beach, so a combined library would be every look
 times every movement — and every new look would mean re-writing every movement.
 
-They are independent all the way down: separate JSON, separate loaders, separate commands,
-separate folders in app data. An id may exist in both and mean two different things.
+All three are independent all the way down: separate JSON, separate commands, separate
+folders in app data. Motion is the one with a loader of its own, because it is the one with
+a schema of its own.
 
 ## A deliberately smaller schema
 
@@ -51,16 +52,17 @@ that section's eight fragments restated as whole prompts.
 
 ## Where the user's own live
 
-`app_data_dir/presets/motion/*.json`, one file per preset — nested inside `presets/` and
-skipped by the style library's listing, which only ever reads files. `presets::store` takes
-the folder as a parameter rather than being duplicated: everything else about the two
-libraries on disk is identical, and a second copy of that module would be a second place to
-forget a path-traversal fix.
+`app_data_dir/presets/motion/*.json`, one file per preset — nested inside `presets/`
+alongside `presets/source/`, and skipped by the style library's listing, which only ever
+reads files. `presets::store` takes the folder as a parameter rather than being duplicated:
+everything else about the three libraries on disk is identical, and a second copy of that
+module would be a second place to forget a path-traversal fix.
 
-Commands mirror the style family one for one: `motion_presets_list`, `motion_preset_save`,
-`motion_preset_delete`. Six commands rather than three taking a library name, because a
-name crossing the boundary is a _folder_ crossing the boundary — `validate_id` guards the
-file name, not the directory.
+Commands mirror the other two families one for one: `motion_presets_list`,
+`motion_preset_save`, `motion_preset_delete`. Nine commands rather than three taking a
+library name, because a name crossing the boundary is a _folder_ crossing the boundary —
+`validate_id` guards the file name, not the directory. See
+[tauri-commands.md](./tauri-commands.md).
 
 ## Adding a built-in
 

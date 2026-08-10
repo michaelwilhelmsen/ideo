@@ -13,8 +13,6 @@
 
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import i18n from '@/i18n/config'
 import { logger } from '@/lib/logger'
 import {
   DEFAULT_BATCH_SIZES,
@@ -31,6 +29,7 @@ import {
   type JsonValue,
   type ProjectUsage,
 } from '@/lib/tauri-bindings'
+import { report } from './report'
 import { useEditorStore } from '@/store/editor-store'
 
 /**
@@ -182,18 +181,6 @@ export function useCleanupAssets() {
     },
     onError: error => report('editor.error.cleanUp', error),
   })
-}
-
-/**
- * Says what went wrong, and keeps the technical part out of it.
- *
- * `docs/developer/error-handling.md` — the log gets the path and the serde
- * message, the user gets a sentence. Non-React context, so `i18n.t` directly
- * rather than the hook (`docs/developer/i18n-patterns.md`).
- */
-function report(messageKey: string, error: unknown): void {
-  logger.error(messageKey, { error })
-  toast.error(i18n.t(messageKey))
 }
 
 /**

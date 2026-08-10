@@ -138,6 +138,11 @@ vi.mock('@/lib/tauri-bindings', () => ({
     motionPresetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     motionPresetSave: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     motionPresetDelete: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // Source presets (#47) — the third library, empty by default like the
+    // other two.
+    sourcePresetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    sourcePresetSave: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    sourcePresetDelete: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // Export (#31). ffmpeg present by default, because its absence is the
     // interesting case and the tests about it set it up themselves.
     ffmpegStatus: vi.fn().mockResolvedValue({

@@ -254,21 +254,31 @@ manifest entry and the file on disk agree by construction — the same shape a f
 job produces. Its error is a typed `ImportError` rather than a string, because the
 refusal is shown to the user and therefore has to be translated.
 
-User presets (#28). App-level, outside the repository, one JSON file per preset under
-`app_data_dir/presets/`, so a repo update to the committed built-ins can never clobber a
-fork:
+User presets (#28, #29, #47). App-level, outside the repository, one JSON file per preset,
+so a repo update to the committed built-ins can never clobber a fork. **Three libraries,
+three folders** — a scene, a look and a movement are three separate choices, and the same
+id may exist in all three and mean three different things:
 
-| Command            | Parameters                        | Returns                       | Description                       |
-| ------------------ | --------------------------------- | ----------------------------- | --------------------------------- |
-| `userPresetsList`  | none                              | `Result<JsonValue[], string>` | Every saved preset, stable order  |
-| `userPresetSave`   | `id: string, document: JsonValue` | `Result<null, string>`        | Create or update in place, atomic |
-| `userPresetDelete` | `id: string`                      | `Result<null, string>`        | Remove one; already-gone is fine  |
+| Library | Folder            | List                | Save               | Delete               |
+| ------- | ----------------- | ------------------- | ------------------ | -------------------- |
+| Style   | `presets/`        | `userPresetsList`   | `userPresetSave`   | `userPresetDelete`   |
+| Motion  | `presets/motion/` | `motionPresetsList` | `motionPresetSave` | `motionPresetDelete` |
+| Source  | `presets/source/` | `sourcePresetsList` | `sourcePresetSave` | `sourcePresetDelete` |
+
+Each list takes nothing and returns `Result<JsonValue[], string>` in a stable order; each
+save takes `id: string, document: JsonValue` and creates-or-updates atomically; each delete
+takes `id: string`, and deleting one that is already gone is not an error.
+
+Nine commands rather than three taking a library name, because a name crossing the boundary
+is a _folder_ crossing the boundary: the webview would then be choosing which directory
+under app data gets written to, and `validate_id` guards the file name, not the folder.
+Which folder is a `Library` enum, closed at compile time in `presets::store`.
 
 The documents are opaque to Rust: the preset schema lives in `src/lib/recipe/presets.ts`
 and is validated there — `readPresetLibrary` for the committed built-ins, which fails
 loudly, and `readUserPreset` per file for these, where one bad fork is skipped with a
 warning rather than costing the whole library (see
-[style-presets.md](./style-presets.md)). What Rust owns is the
+[composing-presets.md](./composing-presets.md)). What Rust owns is the
 part TypeScript cannot vouch for — the id becomes a file name, so anything that is not
 `[A-Za-z0-9_-]{1,64}` is **rejected** rather than sanitised (sanitising would let
 `../evil` and `evil` name the same file). A file that is not JSON at all is skipped with a

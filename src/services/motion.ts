@@ -1,7 +1,7 @@
 /**
  * The user's own motion library — the fork half of the second library (#29).
  *
- * Deliberately a mirror of `services/presets.ts` rather than a generalisation of
+ * Deliberately a mirror of `services/style-presets.ts` rather than a generalisation of
  * it. The two libraries share a *storage* shape and nothing else: different
  * schemas, different validators, different commands, and different reasons to
  * change. Folding them into one parameterised hook would put a `library` string
@@ -15,16 +15,15 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import i18n from '@/i18n/config'
 import { logger } from '@/lib/logger'
 import {
-  BUILT_IN_MOTION_PRESETS,
+  isBuiltInPresetId,
   readUserMotionPreset,
   writeUserMotionPreset,
   type MotionPreset,
 } from '@/lib/recipe'
 import { commands, type JsonValue } from '@/lib/tauri-bindings'
+import { report } from './report'
 
 export const motionPresetKeys = {
   all: ['motion-presets'] as const,
@@ -59,7 +58,6 @@ async function loadMotionPresets(): Promise<MotionPresetLibrary> {
     throw new Error(result.error)
   }
 
-  const builtInIds = new Set(BUILT_IN_MOTION_PRESETS.map(preset => preset.id))
   const presets: MotionPreset[] = []
   let unreadable = 0
 
@@ -70,7 +68,7 @@ async function loadMotionPresets(): Promise<MotionPresetLibrary> {
       // An id we also ship would shadow the built-in everywhere a recipe is
       // read back by id, which turns "which preset produced this" into a
       // question with two answers. Skipped rather than renamed.
-      if (builtInIds.has(preset.id)) {
+      if (isBuiltInPresetId(preset.id)) {
         throw new Error(`Motion preset "${preset.id}" is also a built-in`)
       }
 
@@ -127,13 +125,4 @@ export function useDeleteMotionPreset() {
     },
     onError: error => report('editor.error.deleteMotionPreset', error),
   })
-}
-
-/**
- * Says what went wrong, and keeps the technical part out of it —
- * `docs/developer/error-handling.md`. Non-React context, so `i18n.t` directly.
- */
-function report(messageKey: string, error: unknown): void {
-  logger.error(messageKey, { error })
-  toast.error(i18n.t(messageKey))
 }

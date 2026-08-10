@@ -51,7 +51,7 @@ describe('the open project and the disk', () => {
     await openAtlas()
 
     const project = useEditorStore.getState().state.project
-    expect(project?.drafts.style.presetId).toBe('sun-bleached-film')
+    expect(project?.drafts.style.presetId).toBe('soft-clay-render')
     expect(project?.generations).toHaveLength(ATLAS.generations.length)
   })
 

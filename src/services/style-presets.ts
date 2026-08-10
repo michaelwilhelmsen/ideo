@@ -1,5 +1,6 @@
 /**
- * The user's own preset library — the fork half of PRD §6.
+ * The user's own **style** presets — the fork half of PRD §6, for one of the
+ * three libraries.
  *
  * TanStack Query owns it, because it is exactly what the state onion puts there
  * (`docs/developer/state-management.md`): persistent data that lives outside the
@@ -9,9 +10,15 @@
  *
  * Why the two halves stay separate all the way up to the picker: a user preset
  * lives in **app-level** app data, not in a project and not in the repo, so a
- * repo update that rewrites every built-in (#34 will) cannot touch it. Rust
+ * repo update that rewrites every built-in (#48 will) cannot touch it. Rust
  * treats the documents as opaque — the schema is TypeScript's, so validating
  * them is TypeScript's job too, and it happens here, once, on the way in.
+ *
+ * Source forks are the same document in a different folder and live in
+ * `services/source-presets.ts`; movements are a different document again, in
+ * `services/motion.ts`. Everything named here says *style* for that reason: a
+ * "user preset" is three things now, and only the shape they share
+ * ({@link UserPresetLibrary}) can honestly be called that.
  *
  * A malformed file is *skipped*, not thrown. One hand-edited fork must not cost
  * the whole library, and the count is carried back so the picker can say so out
@@ -19,24 +26,24 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import i18n from '@/i18n/config'
 import { logger } from '@/lib/logger'
 import {
-  BUILT_IN_STYLE_PRESETS,
+  isBuiltInPresetId,
   readUserPreset,
   writeUserPreset,
-  type StylePreset,
 } from '@/lib/recipe'
+import type { Preset } from '@/lib/recipe'
 import { commands, type JsonValue } from '@/lib/tauri-bindings'
+import { report } from './report'
 
-export const userPresetKeys = {
-  all: ['user-presets'] as const,
-  list: () => [...userPresetKeys.all, 'list'] as const,
+export const stylePresetKeys = {
+  all: ['style-presets'] as const,
+  list: () => [...stylePresetKeys.all, 'list'] as const,
 }
 
+/** What a folder of forks reads back as — the shape all three libraries share. */
 export interface UserPresetLibrary {
-  readonly presets: readonly StylePreset[]
+  readonly presets: readonly Preset[]
   /**
    * How many files could not be read. Surfaced rather than logged only: a
    * library that is quietly one preset short looks like a preset that was
@@ -45,28 +52,27 @@ export interface UserPresetLibrary {
   readonly unreadable: number
 }
 
-export const EMPTY_USER_PRESETS: UserPresetLibrary = {
+export const EMPTY_STYLE_PRESETS: UserPresetLibrary = {
   presets: [],
   unreadable: 0,
 }
 
 /** Everything the user has saved, validated, worst files skipped. */
-export function useUserPresets() {
+export function useStylePresets() {
   return useQuery({
-    queryKey: userPresetKeys.list(),
-    queryFn: loadUserPresets,
+    queryKey: stylePresetKeys.list(),
+    queryFn: loadStylePresets,
   })
 }
 
-async function loadUserPresets(): Promise<UserPresetLibrary> {
+async function loadStylePresets(): Promise<UserPresetLibrary> {
   const result = await commands.userPresetsList()
   if (result.status === 'error') {
     logger.error('Could not list the saved presets', { error: result.error })
     throw new Error(result.error)
   }
 
-  const builtInIds = new Set(BUILT_IN_STYLE_PRESETS.map(preset => preset.id))
-  const presets: StylePreset[] = []
+  const presets: Preset[] = []
   let unreadable = 0
 
   for (const document of result.data) {
@@ -75,9 +81,11 @@ async function loadUserPresets(): Promise<UserPresetLibrary> {
 
       // An id we also ship would shadow the built-in everywhere a recipe is
       // read back by id, which turns "which preset produced this" into a
-      // question with two answers. Skipped rather than renamed — renaming
-      // someone's file is not this function's business.
-      if (builtInIds.has(preset.id)) {
+      // question with two answers. Asked of **all three** libraries, not this
+      // one: `presetById` searches all of them, so a style fork called
+      // `gn-monolith` shadows a source built-in just as surely. Skipped rather
+      // than renamed — renaming someone's file is not this function's business.
+      if (isBuiltInPresetId(preset.id)) {
         throw new Error(`Preset "${preset.id}" is also a built-in`)
       }
 
@@ -99,11 +107,11 @@ async function loadUserPresets(): Promise<UserPresetLibrary> {
  * existing one for an update. Built-ins never reach here, because a built-in's
  * id is not a file in the user's folder — it is in the repo, and read-only.
  */
-export function useSaveUserPreset() {
+export function useSaveStylePreset() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (preset: StylePreset) => {
+    mutationFn: async (preset: Preset) => {
       const result = await commands.userPresetSave(
         preset.id,
         writeUserPreset(preset) as unknown as JsonValue
@@ -112,13 +120,13 @@ export function useSaveUserPreset() {
       return preset
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: userPresetKeys.list() })
+      await queryClient.invalidateQueries({ queryKey: stylePresetKeys.list() })
     },
     onError: error => report('editor.error.savePreset', error),
   })
 }
 
-export function useDeleteUserPreset() {
+export function useDeleteStylePreset() {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -128,17 +136,8 @@ export function useDeleteUserPreset() {
       return presetId
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: userPresetKeys.list() })
+      await queryClient.invalidateQueries({ queryKey: stylePresetKeys.list() })
     },
     onError: error => report('editor.error.deletePreset', error),
   })
-}
-
-/**
- * Says what went wrong, and keeps the technical part out of it —
- * `docs/developer/error-handling.md`. Non-React context, so `i18n.t` directly.
- */
-function report(messageKey: string, error: unknown): void {
-  logger.error(messageKey, { error })
-  toast.error(i18n.t(messageKey))
 }

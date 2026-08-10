@@ -19,9 +19,10 @@ import { MODEL_REGISTRY } from './models'
 import { modelById } from './registry'
 import {
   composePreset,
+  sourcePresetById,
   stylePresetById,
   userPresetFrom,
-  type StylePreset,
+  type Preset,
 } from './presets'
 import { motionPresetById } from './motion'
 import { UPLOAD_MODEL_ID, isUploadRecipe, uploadFileName } from './upload'
@@ -51,7 +52,7 @@ function apply(state: EditorState, ...actions: EditorAction[]): EditorState {
 }
 
 /** A built-in by id, or a failure — the library is committed data. */
-function presetOf(id: string): StylePreset {
+function presetOf(id: string): Preset {
   const preset = stylePresetById(id)
   if (preset === null) throw new Error(`no built-in preset "${id}"`)
   return preset
@@ -251,7 +252,7 @@ describe('the recipe is the artefact (PRD §1)', () => {
 
     // gen-sty-1 was made from source 1, which is not what the stage was on.
     expect(project.selection.source).toBe('gen-src-1')
-    expect(project.drafts.style.presetId).toBe('editorial-noir')
+    expect(project.drafts.style.presetId).toBe('brutalist-monochrome')
   })
 })
 
@@ -352,18 +353,36 @@ describe('preset provenance', () => {
     expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
   })
 
-  it('claims nothing on the stage whose presets seed nothing', () => {
-    // Source still picks from a fixture list that composes no prompt and fills
-    // no field (`preset: null` on every selection), so an edit there cannot have
-    // moved away from a seeding that never happened. #34 gives it a library.
+  it('records an edited source prompt as having moved from its scene', () => {
+    // #47 — source has a real library now, so the same provenance claim holds
+    // there. Before it did, source was exempt: it picked from a fixture list
+    // that composed nothing, and a flag saying the form had drifted would have
+    // described a seeding that never happened.
+    const scene = sourcePresetById('gn-monolith')
+    if (scene === null) throw new Error('the source library lost a preset')
+
     const state = apply(
       fixtureEditorState(),
-      { type: 'choosePreset', stage: 'source', presetId: 'wide', preset: null },
-      { type: 'setPrompt', stage: 'source', prompt: 'a different subject' },
-      { type: 'setParam', stage: 'source', key: 'strength', value: 0.8 }
+      {
+        type: 'choosePreset',
+        stage: 'source',
+        presetId: scene.id,
+        preset: scene,
+      },
+      { type: 'setPrompt', stage: 'source', prompt: 'a different subject' }
     )
 
-    expect(openProjectOf(state).drafts.source.presetId).toBe('wide')
+    expect(openProjectOf(state).drafts.source.presetId).toBe(scene.id)
+    expect(openProjectOf(state).drafts.source.presetModified).toBe(true)
+  })
+
+  it('claims nothing on a source draft with no scene selected', () => {
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'choosePreset', stage: 'source', presetId: null, preset: null },
+      { type: 'setPrompt', stage: 'source', prompt: 'a different subject' }
+    )
+
     expect(openProjectOf(state).drafts.source.presetModified).toBe(false)
   })
 
@@ -539,6 +558,7 @@ describe('seeding the form from a preset', () => {
       prompt: 'plain and unopinionated',
       negative: null,
       strength: null,
+      aspect: null,
     })
 
     const state = apply(
@@ -567,6 +587,7 @@ describe('seeding the form from a preset', () => {
       prompt: 'a keyword list',
       negative: null,
       strength: null,
+      aspect: null,
     })
 
     const before = openProjectOf(fixtureEditorState()).drafts.style.prompt

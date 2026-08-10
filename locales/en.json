@@ -299,6 +299,8 @@
   "editor.preset.yours": "Yours",
   "editor.idiom.prose": "prose",
   "editor.idiom.tags": "a keyword list",
+  "editor.preset.aspectHint": "designed for {{aspect}}",
+  "editor.preset.sourceHint": "A source preset is a whole scene. Everything it seeds stays editable, and the ratio it names is a note about how it was composed — it cannot change this project's.",
   "editor.preset.noIdiom": "no {{idiom}} version",
   "editor.preset.unsupported": "This preset has no version written for {{idiom}}, so it cannot seed this model.",
   "editor.preset.reseed": "Seed again from the preset",

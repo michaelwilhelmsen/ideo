@@ -209,6 +209,8 @@
   "editor.preset.yours": "الخاصة بك",
   "editor.idiom.prose": "نصًّا وصفيًّا",
   "editor.idiom.tags": "قائمة كلمات مفتاحية",
+  "editor.preset.aspectHint": "مصمّم لـ {{aspect}}",
+  "editor.preset.sourceHint": "إعداد المصدر مشهد كامل. كل ما يملأه يبقى قابلاً للتحرير، والنسبة التي يذكرها مجرد ملاحظة عن طريقة تأليفه — ولا يمكنه تغيير نسبة هذا المشروع.",
   "editor.preset.noIdiom": "لا توجد صيغة مكتوبة بأسلوب {{idiom}}",
   "editor.preset.unsupported": "لا توجد لهذا الإعداد صيغة مكتوبة بأسلوب {{idiom}}، لذا لا يمكنه تهيئة هذا النموذج.",
   "editor.preset.reseed": "إعادة التهيئة من الإعداد",

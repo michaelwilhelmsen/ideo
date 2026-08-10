@@ -1,6 +1,16 @@
 /**
- * The style-preset library — PRD §6's version-controlled JSON, and the one
+ * The composing preset libraries — PRD §6's version-controlled JSON, and the one
  * function that turns a preset into a prompt.
+ *
+ * **Two libraries, one type, one loader** (#47). A source preset is a whole
+ * scene and a style preset is a transform applied to a composition somebody else
+ * already made, which is a real difference — but it is a difference in *data*,
+ * not in shape. Both carry per-idiom variants, a compose template, a negative
+ * and a strength, and both assemble a prompt around one block their library
+ * holds once: style has a **preserve** block, source has an **append** block.
+ * Two readers for that would be two places to forget the same fix. Motion keeps
+ * its own type in `motion.ts`, because it genuinely needs *less* — one whole
+ * prompt, nothing to assemble.
  *
  * A preset is a **seed, not a filter** (#28): selecting one pre-fills an
  * editable prompt box, and what is in the box is exactly what is sent. So the
@@ -33,9 +43,12 @@
  * a prompt that quietly says less than it meant to.
  */
 
+import { ASPECTS } from './aspects'
 import { asRecord, isRecord } from './json'
 import LIBRARY_DOCUMENT from './presets.json'
 import type { ModelCapabilities, PromptStyle } from './registry'
+import SOURCE_LIBRARY_DOCUMENT from './source-presets.json'
+import type { AspectId } from './types'
 
 /** Bumped when a library written today would be misread by an older build. */
 export const PRESET_LIBRARY_VERSION = 1
@@ -59,11 +72,12 @@ const PROMPT_STYLES: readonly PromptStyle[] = ['prose', 'tags']
  *
  * `transform` and `compose` are separate because only the second is a template:
  * the transform is the look, and the template says where it goes relative to the
- * preserve block. In the JSON its placeholders are `{preserve}` and
- * `{transform}`; the loader substitutes the library's preserve block once, so a
- * loaded variant is **self-contained** and `composePreset` needs nothing but the
- * preset and the model. That is also what makes a forked user preset stable: it
- * carries the preserve wording it was saved with rather than tracking ours.
+ * block its library holds. In the JSON its placeholders are `{preserve}`,
+ * `{append}` and `{transform}`; the loader substitutes the library's blocks
+ * once, so a loaded variant is **self-contained** and `composePreset` needs
+ * nothing but the preset and the model. That is also what makes a forked user
+ * preset stable: it carries the wording it was saved with rather than tracking
+ * ours.
  */
 export interface PresetVariant {
   /** The look itself, in this idiom. */
@@ -81,31 +95,59 @@ export interface PresetVariant {
 }
 
 /**
- * One look, in every idiom it has an opinion about.
+ * One look or one scene, in every idiom it has an opinion about.
  *
  * `name` is user data — presets are forkable (PRD §6), so the name a user gave
  * theirs is the name it has. No `t()` anywhere near it.
  */
-export interface StylePreset {
+export interface Preset {
   readonly id: string
   readonly name: string
-  /** The grouping the drafts use (`glass`, `gradient`, …). Free-form. */
+  /** The grouping the drafts use (`glass`, `product`, …). Free-form. */
   readonly family: string
+  /**
+   * The ratio this scene was composed for, or `null` where it says nothing.
+   *
+   * A **hint and never a setter** (#47): PRD §4.4 locks aspect at project
+   * creation and never edits it, so this is displayed and nothing more. It does
+   * not filter, sort or dim the picker either — every ratio the source library
+   * uses is already offered, so dimming the mismatches would hide most of the
+   * library on a wide project, and a strong filter dressed as a hint is worse
+   * than no hint at all.
+   */
+  readonly aspect: AspectId | null
   readonly variants: Readonly<Record<PromptStyle, PresetVariant | null>>
 }
 
+/** One library-level block, per idiom, explicitly null where there is none. */
+export type PresetBlock = Readonly<Record<PromptStyle, string | null>>
+
 /**
- * A whole library: presets plus the preserve blocks they share.
+ * A whole library: presets plus the one block they share.
  *
- * The preserve block lives at library level rather than on every preset because
- * it is the same clause 20 times over — the one that separates a restyle from a
- * reroll. A preset that does not want it simply leaves `{preserve}` out of its
- * template, which is also how #34's per-recipe override will land.
+ * A block lives at library level rather than on every preset because it is the
+ * same clause twenty times over. Which block a library declares is the whole
+ * difference between the two composing libraries:
+ *
+ * - **`preserve`** — the clause that separates a restyle from a reroll. Style's,
+ *   because only a transform applied to somebody else's composition has a
+ *   composition to preserve.
+ * - **`append`** — no text, no lettering, no logos, no watermarks. Source's,
+ *   because headline type belongs in HTML where it is selectable, translatable
+ *   and editable without paying to regenerate.
+ *
+ * Both are optional, and a library may declare neither: a preset that wants
+ * nothing shared is a preset whose compose template is entirely its own. That is
+ * also the opt-out — a preset leaves the placeholder out of its template and
+ * does not receive the block, which is how the one text-permitting source recipe
+ * keeps its lettering and how a stricter preserve clause is inlined by the one
+ * style recipe that wants it, with no second mechanism for either.
  */
 export interface PresetLibrary {
   readonly version: number
-  readonly preserve: Readonly<Record<PromptStyle, string | null>>
-  readonly presets: readonly StylePreset[]
+  readonly preserve: PresetBlock | null
+  readonly append: PresetBlock | null
+  readonly presets: readonly Preset[]
 }
 
 /** What a preset seeds a form with. */
@@ -135,7 +177,10 @@ export function readPresetLibrary(document: unknown): PresetLibrary {
     )
   }
 
-  const preserve = readPreserve(record.preserve)
+  const blocks: LibraryBlocks = {
+    preserve: readBlock(record, 'preserve'),
+    append: readBlock(record, 'append'),
+  }
 
   const documents = record.presets
   if (!Array.isArray(documents) || documents.length === 0) {
@@ -144,7 +189,7 @@ export function readPresetLibrary(document: unknown): PresetLibrary {
 
   const seen = new Set<string>()
   const presets = documents.map(entry => {
-    const preset = readPreset(entry, preserve)
+    const preset = readPreset(entry, blocks)
     if (seen.has(preset.id)) {
       throw new Error(`Preset "${preset.id}" is declared twice`)
     }
@@ -152,38 +197,55 @@ export function readPresetLibrary(document: unknown): PresetLibrary {
     return preset
   })
 
-  return { version, preserve, presets }
+  return { version, ...blocks, presets }
 }
 
-/** The preserve block per idiom, explicitly null where there is none. */
-function readPreserve(document: unknown): PresetLibrary['preserve'] {
-  const record = asRecord(document, 'preset library preserve blocks')
+/** Whatever a library shares with its presets — either block, or neither. */
+type LibraryBlocks = Pick<PresetLibrary, 'preserve' | 'append'>
+
+/**
+ * One library-level block per idiom, or `null` where the library has no such
+ * block at all.
+ *
+ * `preset-schema.md` §2's absent-versus-null rule applies *inside* a block and
+ * not to the block itself. Within one, an idiom that is silent has to say so
+ * with an explicit `null`, because there an omission really would mean nobody
+ * had looked. The block as a whole is a different question — "does this library
+ * share a clause of this kind at all?" — and `null` and absent are the same
+ * answer to it: source shares no preserve block because there is no composition
+ * to preserve, and writing that down either way is the author's choice rather
+ * than a mistake to crash on.
+ */
+function readBlock(
+  record: Record<string, unknown>,
+  kind: 'preserve' | 'append'
+): PresetBlock | null {
+  if (!(kind in record) || record[kind] === null) return null
+
+  const document = asRecord(record[kind], `preset library ${kind} blocks`)
   const blocks: Partial<Record<PromptStyle, string | null>> = {}
 
   for (const style of PROMPT_STYLES) {
-    if (!(style in record)) {
+    if (!(style in document)) {
       throw new Error(
-        `Preset library has no ${style} preserve block — state null rather than omitting it`
+        `Preset library has no ${style} ${kind} block — state null rather than omitting it`
       )
     }
-    const text = record[style]
+    const text = document[style]
     if (text === null) {
       blocks[style] = null
       continue
     }
     if (typeof text !== 'string' || text.trim() === '') {
-      throw new Error(`Preset library has an empty ${style} preserve block`)
+      throw new Error(`Preset library has an empty ${style} ${kind} block`)
     }
     blocks[style] = text
   }
 
-  return blocks as PresetLibrary['preserve']
+  return blocks as PresetBlock
 }
 
-function readPreset(
-  document: unknown,
-  preserve: PresetLibrary['preserve']
-): StylePreset {
+function readPreset(document: unknown, blocks: LibraryBlocks): Preset {
   const record = asRecord(document, 'preset')
   const id = typeof record.id === 'string' ? record.id.trim() : ''
   if (id === '') throw new Error('A preset has no id')
@@ -198,19 +260,45 @@ function readPreset(
   const family = typeof record.family === 'string' ? record.family.trim() : ''
   if (family === '') fail('has no family')
 
-  const variants = readVariants(record.variants, preserve, fail)
+  const aspect = readAspect(record.aspect, fail)
+
+  const variants = readVariants(record.variants, blocks, fail)
   if (PROMPT_STYLES.every(style => variants[style] === null)) {
     fail('supports no prompt idiom, so no model could ever use it')
   }
 
-  return { id, name, family, variants }
+  return { id, name, family, aspect, variants }
+}
+
+/**
+ * The aspect hint, held to the curated list, or `null` where there is none.
+ *
+ * Absent is allowed here where it is refused on a variant, and the difference is
+ * that this is not an idiom: a style preset restyles whatever it is given and
+ * has no ratio to have an opinion about, so writing `"aspect": null` on all
+ * twenty of them would be ceremony rather than information. A ratio that is
+ * *stated* is checked against `ASPECTS`, because a hint the aspect picker has
+ * never heard of would render as a ratio the project cannot be.
+ */
+function readAspect(
+  document: unknown,
+  fail: (problem: string) => never
+): AspectId | null {
+  if (document === undefined || document === null) return null
+  if (
+    typeof document !== 'string' ||
+    !ASPECTS.some(aspect => aspect.id === document)
+  ) {
+    fail(`has an aspect hint that is not a ratio we offer: ${String(document)}`)
+  }
+  return document as AspectId
 }
 
 function readVariants(
   document: unknown,
-  preserve: PresetLibrary['preserve'],
+  blocks: LibraryBlocks,
   fail: (problem: string) => never
-): StylePreset['variants'] {
+): Preset['variants'] {
   if (!isRecord(document)) fail('has no variants')
   const variants: Partial<Record<PromptStyle, PresetVariant | null>> = {}
 
@@ -222,16 +310,16 @@ function readVariants(
     }
     const entry = document[style]
     variants[style] =
-      entry === null ? null : readVariant(style, entry, preserve, fail)
+      entry === null ? null : readVariant(style, entry, blocks, fail)
   }
 
-  return variants as StylePreset['variants']
+  return variants as Preset['variants']
 }
 
 function readVariant(
   style: PromptStyle,
   document: unknown,
-  preserve: PresetLibrary['preserve'],
+  blocks: LibraryBlocks,
   fail: (problem: string) => never
 ): PresetVariant {
   if (!isRecord(document)) fail(`has a ${style} variant that is not a variant`)
@@ -246,11 +334,18 @@ function readVariant(
   if (!compose.includes(TRANSFORM_SLOT)) {
     fail(`has a ${style} compose template that never places ${TRANSFORM_SLOT}`)
   }
-  const preserveBlock = preserve[style]
-  if (compose.includes(PRESERVE_SLOT) && preserveBlock === null) {
-    fail(
-      `has a ${style} compose template asking for ${PRESERVE_SLOT}, which this library has none of`
-    )
+
+  const preserveBlock = blocks.preserve?.[style] ?? null
+  const appendBlock = blocks.append?.[style] ?? null
+  for (const [slot, block] of [
+    [PRESERVE_SLOT, preserveBlock],
+    [APPEND_SLOT, appendBlock],
+  ] as const) {
+    if (compose.includes(slot) && block === null) {
+      fail(
+        `has a ${style} compose template asking for ${slot}, which this library has none of`
+      )
+    }
   }
 
   if (!('negative' in document)) {
@@ -278,13 +373,16 @@ function readVariant(
 
   return {
     transform,
-    compose: compose.replaceAll(PRESERVE_SLOT, preserveBlock ?? ''),
+    compose: compose
+      .replaceAll(PRESERVE_SLOT, preserveBlock ?? '')
+      .replaceAll(APPEND_SLOT, appendBlock ?? ''),
     negative,
     strength,
   }
 }
 
 const PRESERVE_SLOT = '{preserve}'
+const APPEND_SLOT = '{append}'
 const TRANSFORM_SLOT = '{transform}'
 
 /** One variant's whole prompt — the template with the look dropped into it. */
@@ -308,7 +406,7 @@ function variantPrompt(variant: PresetVariant): string {
  * is where "the negative was folded into the prompt after all" comes from.
  */
 export function composePreset(
-  preset: StylePreset,
+  preset: Preset,
   model: ModelCapabilities
 ): ComposedPreset | null {
   const variant = preset.variants[model.promptStyle]
@@ -330,6 +428,12 @@ export function composePreset(
  * preset is a file someone edited, and 0.95 in it plainly means "as much style
  * as you can" — 0.8 is as much as this endpoint can give without discarding the
  * image (PRD §6.3).
+ *
+ * The window was measured on the *style* stage's one endpoint with a strength
+ * field, and this is now reached by source presets too. Inert there today —
+ * no source model in the registry has a strength parameter, so the branch above
+ * returns first — and if one ever appears, the number to hold it to is that
+ * model's own, measured, not this one.
  */
 function strengthFor(
   model: ModelCapabilities,
@@ -348,13 +452,13 @@ function strengthFor(
 }
 
 /**
- * The committed built-ins.
+ * The committed style built-ins.
  *
  * A small proving set (#28), drawn from the 22 drafts in
  * `docs/research/style-presets.md` and deliberately missing every texture-led
  * family: grain, dither, halftone, duotone and the analog-degradation looks are
  * #36's deterministic post-effect kernels, because PRD §6.2 measured that
- * asking a model for grain barely registers. #34 replaces this content with the
+ * asking a model for grain barely registers. #48 replaces this content with the
  * hero-recipes v4 library once the mechanics here are proven.
  *
  * Every preset carries both idioms: `tags` as the drafts were written (the
@@ -366,13 +470,47 @@ function strengthFor(
 export const STYLE_PRESET_LIBRARY: PresetLibrary =
   readPresetLibrary(LIBRARY_DOCUMENT)
 
-export const BUILT_IN_STYLE_PRESETS: readonly StylePreset[] =
+export const BUILT_IN_STYLE_PRESETS: readonly Preset[] =
   STYLE_PRESET_LIBRARY.presets
 
+/**
+ * The committed source built-ins.
+ *
+ * A proving set again, and for the same reason the style one was: five scenes
+ * from the hero-recipes v4 generate track, enough to exercise every mechanism
+ * this library has and no more. #48 authors the other nineteen.
+ *
+ * What the five are between them proving: the append block reaching a composed
+ * prompt, one preset (`gn-isometric-lineup`, the only recipe in v4 that wants
+ * lettering) opting out of it by leaving the placeholder out of its template,
+ * four different aspect hints, and the `{{…}}` template variables that #46 will
+ * resolve against a project palette. Until it does they seed **literally** —
+ * `{{subject}}` arrives in the prompt box as those nine characters, visible and
+ * editable like any other text, which is the same thing #46 settled on for a
+ * placeholder it cannot resolve.
+ */
+export const SOURCE_PRESET_LIBRARY: PresetLibrary = readPresetLibrary(
+  SOURCE_LIBRARY_DOCUMENT
+)
+
+export const BUILT_IN_SOURCE_PRESETS: readonly Preset[] =
+  SOURCE_PRESET_LIBRARY.presets
+
 /** Look-up by id, `null` for both "no id" and "no such preset". */
-export function stylePresetById(id: string | null): StylePreset | null {
+export function stylePresetById(id: string | null): Preset | null {
+  return presetIn(BUILT_IN_STYLE_PRESETS, id)
+}
+
+export function sourcePresetById(id: string | null): Preset | null {
+  return presetIn(BUILT_IN_SOURCE_PRESETS, id)
+}
+
+function presetIn(
+  library: readonly Preset[],
+  id: string | null
+): Preset | null {
   if (id === null) return null
-  return BUILT_IN_STYLE_PRESETS.find(preset => preset.id === id) ?? null
+  return library.find(preset => preset.id === id) ?? null
 }
 
 /**
@@ -386,7 +524,7 @@ export function stylePresetById(id: string | null): StylePreset | null {
  * refuse.
  */
 export function presetSupportsModel(
-  preset: StylePreset,
+  preset: Preset,
   model: ModelCapabilities
 ): boolean {
   return preset.variants[model.promptStyle] !== null
@@ -420,7 +558,7 @@ export type PresetSeedState =
 
 export function presetSeedState(
   prompt: string,
-  preset: StylePreset | null,
+  preset: Preset | null,
   model: ModelCapabilities
 ): PresetSeedState {
   if (preset === null) return { state: 'none' }
@@ -476,16 +614,23 @@ export function isPresetId(id: string): boolean {
 /**
  * One saved fork, from the file it was read out of.
  *
- * A user preset file *is* a preset — no `presets` array, no shared preserve
- * blocks — which is what makes each fork independent of the others and of ours.
- * Being self-contained is enforced rather than assumed: composing against no
- * preserve block means a template that still asks for `{preserve}` is refused
- * here, where the alternative is a prompt with a hole in it at the paid step.
+ * A user preset file *is* a preset — no `presets` array, no shared blocks —
+ * which is what makes each fork independent of the others and of ours. Being
+ * self-contained is enforced rather than assumed: composing against no blocks
+ * at all means a template that still asks for `{preserve}` or `{append}` is
+ * refused here, where the alternative is a prompt with a hole in it at the paid
+ * step.
+ *
+ * One reader for forks of both composing libraries, because a fork of a source
+ * preset and a fork of a style preset are the same document — they are kept in
+ * separate folders on disk (#29's rule, now three-way) so that ids cannot
+ * shadow each other, and that is a question about *where* a file is, which the
+ * caller already knows and this does not need to.
  *
  * Throws, naming what was wrong. The caller skips that one file and says so —
  * a hand-edited fork must never be able to take the library down (#28).
  */
-export function readUserPreset(document: unknown): StylePreset {
+export function readUserPreset(document: unknown): Preset {
   const record = asRecord(document, 'user preset')
 
   const version = record.version
@@ -495,7 +640,7 @@ export function readUserPreset(document: unknown): StylePreset {
     )
   }
 
-  const preset = readPreset(record, NO_PRESERVE)
+  const preset = readPreset(record, NO_BLOCKS)
 
   if (!isPresetId(preset.id)) {
     throw new Error(`Preset id "${preset.id}" is not one a file can be named`)
@@ -505,15 +650,16 @@ export function readUserPreset(document: unknown): StylePreset {
 }
 
 /** A fork carries its own wording, so there is nothing to substitute. */
-const NO_PRESERVE: PresetLibrary['preserve'] = { prose: null, tags: null }
+const NO_BLOCKS: LibraryBlocks = { preserve: null, append: null }
 
 /** The document written to app data — one preset, plus what version it is. */
-export function writeUserPreset(preset: StylePreset): Record<string, unknown> {
+export function writeUserPreset(preset: Preset): Record<string, unknown> {
   return {
     version: USER_PRESET_VERSION,
     id: preset.id,
     name: preset.name,
     family: preset.family,
+    aspect: preset.aspect,
     variants: preset.variants,
   }
 }
@@ -531,6 +677,16 @@ export interface PresetCapture {
   readonly negative: string | null
   /** The strength as set, or `null` on a model that has none. */
   readonly strength: number | null
+  /**
+   * The hint carried over from whatever seeded the form, or `null`.
+   *
+   * Not a field on the form — it is the one thing here the user did not type.
+   * It comes along anyway because the prompt does: a fork of a scene composed
+   * for 3:2 is still a scene composed for 3:2, and dropping the hint would make
+   * the fork say less than the text in it already knows. A fork saved from
+   * nothing carries `null`, which is the honest answer.
+   */
+  readonly aspect: AspectId | null
 }
 
 /**
@@ -555,8 +711,8 @@ export interface PresetCapture {
  */
 export function userPresetFrom(
   capture: PresetCapture,
-  base: StylePreset | null = null
-): StylePreset {
+  base: Preset | null = null
+): Preset {
   const negative = capture.negative?.trim() ?? ''
   const strength = capture.strength
 
@@ -574,6 +730,7 @@ export function userPresetFrom(
     id: capture.id,
     name: capture.name.trim(),
     family: USER_PRESET_FAMILY,
+    aspect: capture.aspect,
     variants: {
       prose:
         capture.promptStyle === 'prose'

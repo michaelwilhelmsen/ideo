@@ -318,6 +318,44 @@ async motionPresetDelete(id: string) : Promise<Result<null, string>> {
 }
 },
 /**
+ * Every source preset the user has saved, in a stable order.
+ * 
+ * A third library, independent of the other two (#47). A source preset is a
+ * whole scene where a style preset is a transform applied to somebody else's
+ * composition — so the same id may exist in both and mean two different things.
+ */
+async sourcePresetsList() : Promise<Result<JsonValue[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("source_presets_list") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Writes one source preset, by id — creating it, or updating one of the user's
+ * own in place.
+ */
+async sourcePresetSave(id: string, document: JsonValue) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("source_preset_save", { id, document }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Removes one source preset. Deleting one that is already gone is not an error.
+ */
+async sourcePresetDelete(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("source_preset_delete", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Whether there is an ffmpeg, from the answer taken at startup.
  * 
  * Cheap and cached, because the export panel asks on every render and the

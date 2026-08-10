@@ -5,11 +5,11 @@
 //! them (`src/lib/recipe/presets.ts` and `src/lib/recipe/motion.ts`). See
 //! `presets::store` for the rest.
 //!
-//! Two families of three, one per library (#29). Six commands rather than three
-//! taking a library name, because a name crossing the boundary is a folder
-//! crossing the boundary: the webview would then be choosing which directory
-//! under app data gets written to, and `validate_id` guards the file name and
-//! not the folder.
+//! Three families of three, one per library (#29, #47). Nine commands rather
+//! than three taking a library name, because a name crossing the boundary is a
+//! folder crossing the boundary: the webview would then be choosing which
+//! directory under app data gets written to, and `validate_id` guards the file
+//! name and not the folder.
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -66,4 +66,30 @@ pub async fn motion_preset_save(app: AppHandle, id: String, document: Value) -> 
 #[specta::specta]
 pub async fn motion_preset_delete(app: AppHandle, id: String) -> Result<(), String> {
     store::delete(&app_data(&app)?, Library::Motion, &id)
+}
+
+/// Every source preset the user has saved, in a stable order.
+///
+/// A third library, independent of the other two (#47). A source preset is a
+/// whole scene where a style preset is a transform applied to somebody else's
+/// composition — so the same id may exist in both and mean two different things.
+#[tauri::command]
+#[specta::specta]
+pub async fn source_presets_list(app: AppHandle) -> Result<Vec<Value>, String> {
+    store::list(&app_data(&app)?, Library::Source)
+}
+
+/// Writes one source preset, by id — creating it, or updating one of the user's
+/// own in place.
+#[tauri::command]
+#[specta::specta]
+pub async fn source_preset_save(app: AppHandle, id: String, document: Value) -> Result<(), String> {
+    store::save(&app_data(&app)?, Library::Source, &id, &document)
+}
+
+/// Removes one source preset. Deleting one that is already gone is not an error.
+#[tauri::command]
+#[specta::specta]
+pub async fn source_preset_delete(app: AppHandle, id: String) -> Result<(), String> {
+    store::delete(&app_data(&app)?, Library::Source, &id)
 }

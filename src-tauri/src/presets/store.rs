@@ -19,14 +19,17 @@ const PRESETS_DIR: &str = "presets";
 /// `presets/` is already skipped by the same filter that skips `notes.txt`.
 const MOTION_PRESETS_DIR: &str = "presets/motion";
 
-/// Which of the two libraries a call is about.
+/// And the third — scenes rather than looks (#47), nested for the same reason.
+const SOURCE_PRESETS_DIR: &str = "presets/source";
+
+/// Which of the three libraries a call is about.
 ///
 /// An enum rather than the folder name itself, because a folder name is a
 /// **path**. Threaded as `&str` through `dir`, `list`, `save` and `delete` it
 /// only takes one call site passing something else — a typo, or worse a string
 /// that came from outside — for presets to be read from or written to a
 /// directory this module does not own, and `validate_id` guards the file name
-/// and not the folder. Closed here, at the only place these two constants are
+/// and not the folder. Closed here, at the only place these constants are
 /// read, so the set of writable directories is fixed at compile time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Library {
@@ -34,6 +37,8 @@ pub enum Library {
     Style,
     /// Movements (#29) — `presets/motion/`.
     Motion,
+    /// Scenes (#47) — `presets/source/`.
+    Source,
 }
 
 impl Library {
@@ -42,6 +47,7 @@ impl Library {
         match self {
             Self::Style => PRESETS_DIR,
             Self::Motion => MOTION_PRESETS_DIR,
+            Self::Source => SOURCE_PRESETS_DIR,
         }
     }
 }
@@ -326,15 +332,28 @@ mod tests {
         json!({ "version": 1, "id": id, "name": "My drift", "prompt": "a slow drift" })
     }
 
+    fn scene(id: &str) -> Value {
+        json!({
+            "version": 1,
+            "id": id,
+            "name": "My monolith",
+            "family": "user",
+            "aspect": "3:2",
+            "variants": { "prose": null, "tags": null },
+        })
+    }
+
     #[test]
-    fn the_two_libraries_are_independent_even_when_ids_collide() {
-        // #29 — look and movement are orthogonal, so a fork called "warm" in one
-        // library must not be able to shadow or clobber a fork called "warm" in
-        // the other. Same id, two folders, two files.
+    fn the_three_libraries_are_independent_even_when_ids_collide() {
+        // #29, #47 — a scene, a look and a movement are three separate choices,
+        // so a fork called "warm" in one library must not be able to shadow or
+        // clobber a fork called "warm" in another. Same id, three folders,
+        // three files.
         let root = TempDir::new().unwrap();
 
         save(root.path(), Library::Style, "warm", &preset("warm")).unwrap();
         save(root.path(), Library::Motion, "warm", &motion("warm")).unwrap();
+        save(root.path(), Library::Source, "warm", &scene("warm")).unwrap();
 
         assert_eq!(
             list(root.path(), Library::Style).unwrap(),
@@ -344,6 +363,10 @@ mod tests {
             list(root.path(), Library::Motion).unwrap(),
             vec![motion("warm")]
         );
+        assert_eq!(
+            list(root.path(), Library::Source).unwrap(),
+            vec![scene("warm")]
+        );
 
         delete(root.path(), Library::Motion, "warm").unwrap();
 
@@ -351,18 +374,32 @@ mod tests {
             list(root.path(), Library::Style).unwrap(),
             vec![preset("warm")]
         );
+        assert_eq!(
+            list(root.path(), Library::Source).unwrap(),
+            vec![scene("warm")]
+        );
         assert!(list(root.path(), Library::Motion).unwrap().is_empty());
     }
 
     #[test]
-    fn the_motion_folder_is_not_mistaken_for_a_style_preset() {
-        // The motion library sits inside `presets/`, and `list` only reads
-        // files — so the folder is skipped by the same filter that skips a
-        // stray `notes.txt` rather than by a rule of its own.
+    fn the_nested_libraries_are_not_mistaken_for_style_presets() {
+        // Both nested libraries sit inside `presets/`, and `list` only reads
+        // files — so the folders are skipped by the same filter that skips a
+        // stray `notes.txt` rather than by a rule of their own.
         let root = TempDir::new().unwrap();
         save(root.path(), Library::Motion, "drift", &motion("drift")).unwrap();
+        save(root.path(), Library::Source, "monolith", &scene("monolith")).unwrap();
 
         assert!(list(root.path(), Library::Style).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_source_preset_id_cannot_walk_out_of_its_folder_either() {
+        let root = TempDir::new().unwrap();
+
+        assert!(save(root.path(), Library::Source, "../escape", &scene("escape")).is_err());
+        assert!(delete(root.path(), Library::Source, "a/b").is_err());
+        assert!(!root.path().join("presets").join("escape.json").exists());
     }
 
     #[test]

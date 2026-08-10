@@ -112,7 +112,7 @@ export function useExportGeneration() {
  *
  * The same shape `importErrorMessage` takes, one layer down: `i18n.t` rather
  * than a `t` handed in, because this is called from a mutation callback and not
- * from a component — the pattern `services/presets.ts` already uses.
+ * from a component — the pattern `services/style-presets.ts` already uses.
  *
  * Both details the error carries are spent rather than logged only. Which file
  * failed matters when three were asked for and one is missing, and ffmpeg's own

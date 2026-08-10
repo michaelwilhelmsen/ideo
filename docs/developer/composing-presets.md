@@ -1,13 +1,56 @@
-# Style Presets
+# Composing Presets — source and style
 
-How a look reaches the generation form. Lives in `src/lib/recipe/presets.ts` (schema,
-loader, compose), `src/lib/recipe/presets.json` (the committed built-ins),
-`src/services/presets.ts` (the user's own library) and
-`src/components/editor/PresetField.tsx` (the control).
+How a scene or a look reaches the generation form. One type and one loader in
+`src/lib/recipe/presets.ts`, over **two** committed libraries —
+`src/lib/recipe/source-presets.json` and `src/lib/recipe/presets.json`. The user's own
+forks are in `src/services/source-presets.ts` and `src/services/style-presets.ts`, and the
+control both stages share is `src/components/editor/PresetField.tsx`.
 
-There is a **second, independent library** for movement — see
-[motion-presets.md](./motion-presets.md). A recipe picks one of each, and neither knows the
-other exists.
+There is a **third, independent library** for movement — see
+[motion-presets.md](./motion-presets.md). It keeps its own type because it genuinely needs
+less. `src/lib/recipe/libraries.ts` is the only module that knows all three exist:
+`presetsForStage` and `presetById` live there.
+
+## Source and style are one shape, two libraries
+
+A **source** preset is a whole scene, carrying composition, subject framing and negative
+space. A **style** preset is a transform applied to a composition someone else already
+made. That is a real difference, and it is a difference in _data_ — both hold per-idiom
+variants, a compose template, a negative and a strength, so both are `Preset` and both are
+read by `readPresetLibrary` (#47).
+
+What each library declares is the difference:
+
+|                     | Source                               | Style                             |
+| ------------------- | ------------------------------------ | --------------------------------- |
+| Library-level block | `append` — no text, lettering, logos | `preserve` — keep the composition |
+| Aspect hint         | yes, per preset                      | no — a restyle inherits its frame |
+| Committed in        | `source-presets.json`                | `presets.json`                    |
+| Forks live in       | `app_data_dir/presets/source/*.json` | `app_data_dir/presets/*.json`     |
+
+Both blocks are optional, and a library may declare neither. **Opting out is omission**: a
+preset that leaves `{append}` out of its template does not get it, which is how the one
+scene that wants lettering keeps it, and a preset needing stricter preserve wording writes
+that wording into its own template rather than asking for a second library-level variant.
+
+Ids are unique across all three libraries, because a recipe records one `presetId` per
+stage and `presetById` resolves it without knowing which stage it came from.
+
+### The aspect hint is a hint
+
+A source preset names the ratio it was composed for. PRD §4.4 locks aspect at project
+creation, so this is **displayed and nothing more** — it does not filter, sort or dim the
+picker. Every ratio the library uses is already offered, so dimming the mismatches would
+hide most of the library on a wide project, and a strong filter dressed as a hint is worse
+than no hint.
+
+### Template variables are not resolved yet
+
+The source library carries `{{subject}}`, `{{brand_color}}` and friends. #46 owns the
+project palette and the resolution; until it lands they seed **literally** — visible in the
+prompt box and editable like any other text, which is also what #46 settled on for a
+placeholder it cannot fill. Note the brace count: `{single}` slots are the loader's and are
+always resolved at load; `{{double}}` ones are not this module's business.
 
 ## A preset is a seed, not a filter
 
@@ -68,7 +111,7 @@ the same `choosePreset` action again.
 
 |              | Built-ins                      | User presets                          |
 | ------------ | ------------------------------ | ------------------------------------- |
-| Lives in     | `presets.json`, in the repo    | `app_data_dir/presets/*.json`         |
+| Lives in     | the repo, as JSON              | `app_data_dir/presets/`, one per file |
 | Loaded by    | `readPresetLibrary`, at import | `readUserPreset`, per file, on demand |
 | A bad one is | a startup crash                | skipped, with a visible warning       |
 | Editable     | no — read-only                 | update in place, or delete            |
@@ -92,11 +135,19 @@ tracking ours. Ids are slugified from the name and suffixed on collision, becaus
 becomes a file name and Rust rejects anything outside `[A-Za-z0-9_-]{1,64}` — see
 [tauri-commands.md](./tauri-commands.md).
 
+Each library forks into its **own folder**, so a scene called "Warm" and a look called
+"Warm" are two files and neither can shadow the other. Which folder is a `Library` enum in
+`presets::store`, never a name crossing the boundary — see
+[tauri-commands.md](./tauri-commands.md).
+
 ## Adding a built-in
 
-1. Add an entry to `presets.json` with both variants filled in, or `null` where the look
-   genuinely has nothing to say in that idiom.
-2. Give every variant a `compose` template that places `{transform}`; use `{preserve}`
-   where the preserve block should go — the loader substitutes it once, at load.
+1. Add an entry to `source-presets.json` or `presets.json` with both variants filled in, or
+   `null` where the preset genuinely has nothing to say in that idiom.
+2. Give every variant a `compose` template that places `{transform}`; add `{preserve}` or
+   `{append}` where the library's block should go, and leave it out to opt out — the loader
+   substitutes once, at load, and refuses a placeholder the library has no block for.
 3. State `negative` and `strength` explicitly, `null` included.
-4. Run the tests. The loader names the preset it could not read.
+4. On a source preset, name the `aspect` it was composed for; omit it where there is no
+   opinion. It must be one of the curated ratios in `aspects.ts`.
+5. Run the tests. The loader names the preset it could not read.
