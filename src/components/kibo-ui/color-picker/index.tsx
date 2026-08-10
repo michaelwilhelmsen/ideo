@@ -25,7 +25,7 @@
  * Worth reporting upstream.
  */
 
-import Color from 'color'
+import { formatHex, hsl as toHsl, rgb as toRgb } from 'culori'
 import { PipetteIcon } from 'lucide-react'
 import { Slider } from 'radix-ui'
 import {
@@ -50,6 +50,64 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+
+/**
+ * PATCHED — this component shipped using the `color` package. Swapped onto
+ * `culori`, which this app already depends on for naming a palette colour and
+ * for measuring the lightness invariant (`lib/recipe/palette.ts`). Two colour
+ * libraries in one dialog is one too many, and the app's own is the one that
+ * should win.
+ *
+ * The three helpers below are the whole of the difference. They exist because
+ * the units disagree: this component keeps hue in degrees and saturation,
+ * lightness and alpha as 0–100, while culori uses 0–1 for everything but hue.
+ * Converting at the boundary keeps every slider, gradient and readout below
+ * exactly as it was.
+ */
+
+/** The component's units as a colour culori will accept. */
+function asHsl(hue: number, saturation: number, lightness: number) {
+  return {
+    mode: 'hsl',
+    h: hue,
+    s: saturation / 100,
+    l: lightness / 100,
+  } as const
+}
+
+/** 0–255 channels, rounded — what this component and the DOM both speak. */
+function channelsOf(
+  hue: number,
+  saturation: number,
+  lightness: number
+): [number, number, number] {
+  const { r, g, b } = toRgb(asHsl(hue, saturation, lightness))
+
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)]
+}
+
+/** Any CSS colour string, in the component's units. Unreadable input is black. */
+function readColour(input: string): {
+  hue: number
+  saturation: number
+  lightness: number
+  alpha: number
+} {
+  const parsed = toHsl(input)
+
+  if (parsed === undefined) {
+    return { hue: 0, saturation: 0, lightness: 0, alpha: 100 }
+  }
+
+  return {
+    // culori reports no hue at all for an achromatic colour, which is honest —
+    // a grey has none — but the hue slider still has to sit somewhere.
+    hue: parsed.h ?? 0,
+    saturation: parsed.s * 100,
+    lightness: parsed.l * 100,
+    alpha: (parsed.alpha ?? 1) * 100,
+  }
+}
 
 interface ColorPickerContextValue {
   hue: number
@@ -86,7 +144,8 @@ export type ColorPickerProps = Omit<
   HTMLAttributes<HTMLDivElement>,
   'onChange'
 > & {
-  defaultValue?: Parameters<typeof Color>[0]
+  /** Any CSS colour string. `#RRGGBB` in this app. */
+  defaultValue?: string
   onChange?: (value: ColorPickerValue) => void
 }
 
@@ -102,17 +161,17 @@ export const ColorPicker = ({
   className,
   ...props
 }: ColorPickerProps) => {
-  const initial = Color(defaultValue)
-
   // PATCHED — `hue() || 0`, `saturationl() || 100`, `lightness() || 50`.
   // Every one of those treats a legitimate 0 as "absent": a neutral grey has
   // saturation 0, so it opened at saturation 100 and #808080 arrived as
   // #FF0101. Black has lightness 0, so it opened at 50 and became pure red.
   // Greys and near-blacks are three of this app's six palette roles.
-  const [hue, setHue] = useState(initial.hue())
-  const [saturation, setSaturation] = useState(initial.saturationl())
-  const [lightness, setLightness] = useState(initial.lightness())
-  const [alpha, setAlpha] = useState(initial.alpha() * 100)
+  const initial = readColour(defaultValue)
+
+  const [hue, setHue] = useState(initial.hue)
+  const [saturation, setSaturation] = useState(initial.saturation)
+  const [lightness, setLightness] = useState(initial.lightness)
+  const [alpha, setAlpha] = useState(initial.alpha)
   const [mode, setMode] = useState('hex')
 
   // PATCHED — `onChange` was in this effect's dependency list, so any caller
@@ -128,10 +187,9 @@ export const ColorPicker = ({
 
   // Notify parent of changes
   useEffect(() => {
-    const color = Color.hsl(hue, saturation, lightness).alpha(alpha / 100)
-    const rgba = color.rgb().array()
+    const [red, green, blue] = channelsOf(hue, saturation, lightness)
 
-    notify.current?.([rgba[0] ?? 0, rgba[1] ?? 0, rgba[2] ?? 0, alpha / 100])
+    notify.current?.([red, green, blue, alpha / 100])
   }, [hue, saturation, lightness, alpha])
 
   return (
@@ -307,12 +365,11 @@ export const ColorPickerEyeDropper = ({
       // @ts-expect-error - EyeDropper API is experimental
       const eyeDropper = new EyeDropper()
       const result = await eyeDropper.open()
-      const color = Color(result.sRGBHex)
-      const [h, s, l] = color.hsl().array()
+      const picked = readColour(result.sRGBHex)
 
-      setHue(h ?? 0)
-      setSaturation(s ?? 0)
-      setLightness(l ?? 0)
+      setHue(picked.hue)
+      setSaturation(picked.saturation)
+      setLightness(picked.lightness)
       setAlpha(100)
     } catch (error) {
       console.error('EyeDropper failed:', error)
@@ -386,10 +443,9 @@ export const ColorPickerFormat = ({
   ...props
 }: ColorPickerFormatProps) => {
   const { hue, saturation, lightness, alpha, mode } = useColorPicker()
-  const color = Color.hsl(hue, saturation, lightness, alpha / 100)
 
   if (mode === 'hex') {
-    const hex = color.hex()
+    const hex = formatHex(asHsl(hue, saturation, lightness)).toUpperCase()
 
     return (
       <div
@@ -411,10 +467,7 @@ export const ColorPickerFormat = ({
   }
 
   if (mode === 'rgb') {
-    const rgb = color
-      .rgb()
-      .array()
-      .map(value => Math.round(value))
+    const rgb = channelsOf(hue, saturation, lightness)
 
     return (
       <div
@@ -443,10 +496,7 @@ export const ColorPickerFormat = ({
   }
 
   if (mode === 'css') {
-    const rgb = color
-      .rgb()
-      .array()
-      .map(value => Math.round(value))
+    const rgb = channelsOf(hue, saturation, lightness)
 
     return (
       <div className={cn('w-full rounded-md shadow-sm', className)} {...props}>
@@ -462,10 +512,9 @@ export const ColorPickerFormat = ({
   }
 
   if (mode === 'hsl') {
-    const hsl = color
-      .hsl()
-      .array()
-      .map(value => Math.round(value))
+    // Straight off the state rather than round-tripped through a colour
+    // object: these three *are* the component's hue, saturation and lightness.
+    const hsl = [hue, saturation, lightness].map(value => Math.round(value))
 
     return (
       <div
