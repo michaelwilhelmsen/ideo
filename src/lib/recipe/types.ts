@@ -10,6 +10,8 @@
  * #23 persists this as `project.json`, so the shape wants settling here.
  */
 
+import type { Palette } from './palette'
+
 /** The three stages of PRD §1, in order. */
 export type StageKind = 'source' | 'style' | 'animate'
 
@@ -182,6 +184,18 @@ export interface Project {
    * ratio these stay editable, because nothing already made depends on them.
    */
   readonly batchSizes: Readonly<Record<StageKind, number>>
+  /**
+   * The six colour roles this project's prompts speak in, plus extras (#46).
+   *
+   * Prompt data, not chrome — nothing here styles the app. A preset variable
+   * naming a role resolves to that colour's *name* when the preset is picked,
+   * and only the expanded prose is persisted, which is what makes this editable
+   * after creation: changing it cannot reach back into anything already
+   * generated, only into what the next pick seeds. Same argument `batchSizes`
+   * won on, and copied from the defaults at creation for the same reason
+   * (PRD §11).
+   */
+  readonly palette: Palette
   /** The editable form per stage — what a re-run would submit right now. */
   readonly drafts: Readonly<Record<StageKind, StageRecipe>>
   /** Flat and append-only. Stage membership is a field, not a bucket. */

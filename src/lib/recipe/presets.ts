@@ -31,6 +31,16 @@
  *    per-look — a strong art direction may need to lead rather than follow the
  *    preserve block — so a rule in code would be the wrong place for it.
  *
+ * A variant may also have **holes in it** (#46): `{{primary}}`, `{{subject}}`.
+ * Those resolve at *seed* time, against the project's palette and whatever the
+ * user typed into the picker's fields, and only the expanded prose is ever
+ * persisted — a recipe that resolves against a mutable library at read time is
+ * not a recipe. Which variables a variant has is **derived from its template**
+ * rather than declared beside it: the two cannot then disagree, and a fork
+ * whose prompt still contains a literal `{{` stays readable instead of failing
+ * the loader over legal prose. What *is* declared is `defaults`, the authored
+ * per-variable fallback.
+ *
  * Two things this module deliberately does *not* do. It never concatenates a
  * negative into the prompt: that was settled on 2026-08-09 (PRD §9), because
  * "no gradients" inside a positive prompt reads as a request for gradients. And
@@ -45,6 +55,12 @@
 
 import { ASPECTS } from './aspects'
 import { asRecord, isRecord } from './json'
+import {
+  colourNameOf,
+  namesPaletteSlot,
+  paletteEntryFor,
+  type Palette,
+} from './palette'
 import LIBRARY_DOCUMENT from './presets.json'
 import type { ModelCapabilities, PromptStyle } from './registry'
 import SOURCE_LIBRARY_DOCUMENT from './source-presets.json'
@@ -92,6 +108,21 @@ export interface PresetVariant {
   readonly negative: string | null
   /** An opinion about strength, or `null` to take the model's default. */
   readonly strength: number | null
+  /**
+   * What each `{{…}}` in the template falls back to, keyed by variable (#46).
+   *
+   * Only a fallback. A variable naming a palette slot takes its colour from the
+   * project and never from here, so this is what the *free text* holes are for
+   * — `{{subject}}` on a scene that reads well with a particular object in it —
+   * and what a colour hole the palette cannot fill drops to.
+   *
+   * Absent in the JSON is allowed where a variant's `negative` and `strength`
+   * must say `null` out loud. The absent-versus-null rule is about an idiom
+   * being *unanswered*; a variant with no defaults block has answered fully, and
+   * writing `"defaults": {}` on forty recipes would be ceremony rather than
+   * information.
+   */
+  readonly defaults: Readonly<Record<string, string>>
 }
 
 /**
@@ -158,7 +189,38 @@ export interface ComposedPreset {
   readonly negative: string | null
   /** `null` on the models with no strength field, which is most of them. */
   readonly strength: number | null
+  /**
+   * The holes this prompt has, resolved as far as anything can resolve them —
+   * one field each in the picker, in order of first appearance (#46).
+   *
+   * Returned alongside the prompt rather than from a second call, because they
+   * are two views of one answer: the prompt is these values substituted in, and
+   * a picker that asked for them separately could render fields that disagree
+   * with the box above them.
+   */
+  readonly variables: readonly PresetVariable[]
 }
+
+/** One `{{…}}` hole, and what it is filled with right now. */
+export interface PresetVariable {
+  readonly key: string
+  /**
+   * Whether the key addresses the palette at all — a role, or an `extraN` slot.
+   *
+   * True even where the slot is empty, because that is the case the field has
+   * to explain: `extra3` of a two-extra palette is a colour this project does
+   * not have, not a piece of free text nobody has typed yet.
+   */
+  readonly fromPalette: boolean
+  /** What it resolves to. Empty means unresolved — the literal stays visible. */
+  readonly value: string
+}
+
+/** Whatever the user typed into the picker's fields, keyed by variable. */
+export type PresetVariableValues = Readonly<Record<string, string>>
+
+/** No fields filled in — the state a freshly picked preset is seeded from. */
+export const NO_VARIABLE_VALUES: PresetVariableValues = {}
 
 /**
  * A library from an untrusted document, or a throw naming what was wrong.
@@ -371,23 +433,164 @@ function readVariant(
     fail(`has a ${style} variant with a strength outside 0–1`)
   }
 
-  return {
+  const variant: PresetVariant = {
     transform,
     compose: compose
       .replaceAll(PRESERVE_SLOT, preserveBlock ?? '')
       .replaceAll(APPEND_SLOT, appendBlock ?? ''),
     negative,
     strength,
+    defaults: readDefaults(document.defaults, style, fail),
   }
+
+  // A default for a hole the template does not have is a typo, and a silent one
+  // — the value never appears anywhere, so the recipe reads as if the author
+  // simply forgot to write it (#46).
+  const holes = new Set(variantHoles(variant))
+  for (const key of Object.keys(variant.defaults)) {
+    if (!holes.has(key)) {
+      fail(
+        `has a ${style} default for {{${key}}}, which its template never uses`
+      )
+    }
+  }
+
+  return variant
+}
+
+/** The authored per-variable fallbacks, or none at all. */
+function readDefaults(
+  document: unknown,
+  style: PromptStyle,
+  fail: (problem: string) => never
+): Readonly<Record<string, string>> {
+  if (document === undefined || document === null) return {}
+  if (!isRecord(document)) fail(`has ${style} defaults that are not a mapping`)
+
+  const defaults: Record<string, string> = {}
+  for (const [key, value] of Object.entries(document)) {
+    if (typeof value !== 'string' || value.trim() === '') {
+      fail(`has an empty ${style} default for {{${key}}}`)
+    }
+    defaults[key] = value.trim()
+  }
+
+  return defaults
 }
 
 const PRESERVE_SLOT = '{preserve}'
 const APPEND_SLOT = '{append}'
 const TRANSFORM_SLOT = '{transform}'
 
+/**
+ * A hole in a prompt: `{{subject}}`, `{{primary}}`.
+ *
+ * Two braces rather than the one the library-level slots use, and the
+ * difference is deliberate — `{preserve}` is substituted once at *load* and is
+ * never seen outside this module, while `{{…}}` survives into the prompt box,
+ * where the user may edit it, leave it, or type one of their own.
+ */
+const VARIABLE = /\{\{([A-Za-z0-9_]+)\}\}/g
+
 /** One variant's whole prompt — the template with the look dropped into it. */
 function variantPrompt(variant: PresetVariant): string {
   return variant.compose.replaceAll(TRANSFORM_SLOT, variant.transform).trim()
+}
+
+/**
+ * Every `{{…}}` in some text, deduped, in order of first appearance.
+ *
+ * One function for two readings of the same question, because they are the same
+ * scan. Over a *template* it lists the holes a variant has, which is what the
+ * picker renders a field for. Over the *form* it lists the holes still unfilled,
+ * which is what the run button warns on — and by that point the box is the only
+ * authority, since the text may have been edited, seeded from a preset since
+ * deleted, or typed from scratch with a `{{` in it.
+ *
+ * Warning rather than blocking is settled (#46): `{{` is legal prose in an
+ * editable box, so a hard block would be wrong, but silence is wrong too,
+ * because this is a paid click.
+ */
+export function unresolvedVariables(text: string): readonly string[] {
+  const keys = [...text.matchAll(VARIABLE)].flatMap(match =>
+    match[1] === undefined ? [] : [match[1]]
+  )
+  return [...new Set(keys)]
+}
+
+/**
+ * What each hole in this variant resolves to, in order of first appearance.
+ *
+ * The order of precedence, and every step of it is a settled rule:
+ *
+ * 1. **What the user typed.** The fields are editable, and an edited field that
+ *    lost to a palette entry would be a control that does nothing.
+ * 2. **The palette**, where the key names a role or a filled `extraN` slot. The
+ *    value is the colour's *name* — no hex ever reaches a prompt.
+ * 3. **The variant's authored default**, which is where `{{subject}}` gets a
+ *    concrete object and where a colour hole the palette cannot fill lands.
+ * 4. **Nothing**, which leaves the `{{…}}` literal visible in the box.
+ */
+function resolveVariables(
+  variant: PresetVariant,
+  palette: Palette,
+  values: PresetVariableValues
+): readonly PresetVariable[] {
+  return variantHoles(variant).map(key => {
+    const entry = paletteEntryFor(palette, key)
+    const authored = variant.defaults[key] ?? ''
+
+    // A field the user has touched wins outright, *including* when they have
+    // emptied it. Falling back to the palette there would refill a field the
+    // moment it was cleared, which is a control fighting the person using it —
+    // and would leave the field and the prompt box saying different things.
+    const typed = values[key]
+
+    return {
+      key,
+      fromPalette: namesPaletteSlot(key),
+      value:
+        typed !== undefined
+          ? typed.trim()
+          : entry !== null
+            ? colourNameOf(entry)
+            : authored,
+    }
+  })
+}
+
+/**
+ * Every hole in a variant — the prompt's and the negative's.
+ *
+ * The negative is in here because it goes on the wire too: a `{{…}}` left in one
+ * is a hole in something a model is paid to read, and a field the picker never
+ * offered is a hole nobody could have filled.
+ */
+function variantHoles(variant: PresetVariant): readonly string[] {
+  return unresolvedVariables(
+    `${variantPrompt(variant)} ${variant.negative ?? ''}`
+  )
+}
+
+/** The template with every resolved hole filled, and the rest left visible. */
+function expandVariables(
+  text: string,
+  variables: readonly PresetVariable[]
+): string {
+  const resolved = new Map(
+    variables
+      .filter(variable => variable.value !== '')
+      .map(variable => [variable.key, variable.value])
+  )
+
+  return text.replace(
+    VARIABLE,
+    (literal, key: string) =>
+      // The literal, deliberately: an unresolved hole is more use on screen than
+      // an empty gap, which would read as a sentence the preset simply forgot to
+      // finish.
+      resolved.get(key) ?? literal
+  )
 }
 
 /**
@@ -404,19 +607,38 @@ function variantPrompt(variant: PresetVariant): string {
  * strength field, what it defaults to, and whether there is anywhere to put a
  * negative. Splitting those out would mean every caller re-deriving them, which
  * is where "the negative was folded into the prompt after all" comes from.
+ *
+ * The palette is the third for the same reason (#46): expansion belongs at the
+ * layer that already refuses to fold a negative into a prompt, so that nothing
+ * downstream is ever handed a template and left to decide what to do with it.
+ * The string this returns is fully expanded, which is what makes it safe for
+ * the only thing that is ever persisted.
+ *
+ * The negative is expanded from the same values as the prompt, and its holes get
+ * fields like any other. No recipe in the library puts a variable in one today,
+ * but a negative goes on the wire exactly as a prompt does, and a hole the
+ * picker never offered a field for is one nobody could have filled.
  */
 export function composePreset(
   preset: Preset,
-  model: ModelCapabilities
+  model: ModelCapabilities,
+  palette: Palette,
+  values: PresetVariableValues = NO_VARIABLE_VALUES
 ): ComposedPreset | null {
   const variant = preset.variants[model.promptStyle]
   if (variant === null) return null
 
+  const variables = resolveVariables(variant, palette, values)
+
   return {
-    prompt: variantPrompt(variant),
+    prompt: expandVariables(variantPrompt(variant), variables),
     // Dropped where the model has no field for it, never folded in (PRD §9).
-    negative: model.negativePromptParam === null ? null : variant.negative,
+    negative:
+      model.negativePromptParam === null || variant.negative === null
+        ? null
+        : expandVariables(variant.negative, variables),
     strength: strengthFor(model, variant),
+    variables,
   }
 }
 
@@ -483,11 +705,13 @@ export const BUILT_IN_STYLE_PRESETS: readonly Preset[] =
  * What the five are between them proving: the append block reaching a composed
  * prompt, one preset (`gn-isometric-lineup`, the only recipe in v4 that wants
  * lettering) opting out of it by leaving the placeholder out of its template,
- * four different aspect hints, and the `{{…}}` template variables that #46 will
- * resolve against a project palette. Until it does they seed **literally** —
- * `{{subject}}` arrives in the prompt box as those nine characters, visible and
- * editable like any other text, which is the same thing #46 settled on for a
- * placeholder it cannot resolve.
+ * four different aspect hints, and both kinds of `{{…}}` template variable
+ * (#46) — `{{primary}}` and `{{secondary}}`, which resolve to the names of the
+ * project palette's roles, and free-text holes like `{{subject}}`, which the
+ * picker asks for. None of the five carries a `defaults` block: choosing a
+ * concrete value for a hole is an authoring judgement about what a look is
+ * *for*, which is #48's, and a literal `{{subject}}` is the honest state until
+ * it is made.
  */
 export const SOURCE_PRESET_LIBRARY: PresetLibrary = readPresetLibrary(
   SOURCE_LIBRARY_DOCUMENT
@@ -559,19 +783,26 @@ export type PresetSeedState =
 export function presetSeedState(
   prompt: string,
   preset: Preset | null,
-  model: ModelCapabilities
+  model: ModelCapabilities,
+  palette: Palette,
+  values: PresetVariableValues = NO_VARIABLE_VALUES
 ): PresetSeedState {
   if (preset === null) return { state: 'none' }
 
-  const composed = composePreset(preset, model)
+  const composed = composePreset(preset, model, palette, values)
   if (composed === null) return { state: 'unsupported' }
   if (composed.prompt === prompt) return { state: 'seeded' }
 
+  // Against the other idiom expanded the same way, so a model switch is still
+  // told apart from an edit on a preset with holes in it. Comparing against the
+  // raw template would report every variable-carrying preset as hand-edited.
   const strandedByModelSwitch = PROMPT_STYLES.filter(
     style => style !== model.promptStyle
   ).some(style => {
     const variant = preset.variants[style]
-    return variant !== null && variantPrompt(variant) === prompt
+    if (variant === null) return false
+    const other = resolveVariables(variant, palette, values)
+    return expandVariables(variantPrompt(variant), other) === prompt
   })
 
   return {
@@ -724,6 +955,11 @@ export function userPresetFrom(
     // strength field arrives here as 0, which is not an opinion about strength.
     strength:
       strength !== null && strength > 0 && strength <= 1 ? strength : null,
+    // None, always. What was captured is the *expanded* prompt — resolution
+    // happened at seed time — so any `{{…}}` still in it is one the user chose
+    // to leave, and inheriting the original's defaults would put words back
+    // into a hole they deliberately left open (#46).
+    defaults: {},
   }
 
   return {

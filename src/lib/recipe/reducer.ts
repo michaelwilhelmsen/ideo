@@ -11,7 +11,13 @@
  */
 
 import { isMotionPreset, type MotionPreset } from './motion'
-import { composePreset, type Preset } from './presets'
+import type { Palette } from './palette'
+import {
+  composePreset,
+  NO_VARIABLE_VALUES,
+  type Preset,
+  type PresetVariableValues,
+} from './presets'
 import {
   loopsOnEndFrame,
   modelById,
@@ -135,13 +141,21 @@ export type EditorAction =
    *
    * Re-seeding after a model switch is this same action with the same preset:
    * seeding is idempotent and always starts the provenance flag clean, which is
-   * precisely what "start again from the preset" means.
+   * precisely what "start again from the preset" means. Changing a template
+   * variable is the same action too, with a different `values` — which is what
+   * makes a variable field a re-seed rather than a second kind of edit.
    */
   | {
       readonly type: 'choosePreset'
       readonly stage: StageKind
       readonly presetId: string | null
       readonly preset: Preset | MotionPreset | null
+      /**
+       * What the picker's variable fields say (#46). Absent where there is
+       * nothing to resolve — a deselection, a re-point after a save, or the
+       * motion library, whose presets are one whole prompt with no holes in it.
+       */
+      readonly values?: PresetVariableValues
     }
   | {
       readonly type: 'chooseModel'
@@ -237,6 +251,7 @@ export type EditorAction =
       readonly generationId: string
       readonly verdict: Generation['verdict']
     }
+  | { readonly type: 'setPalette'; readonly palette: Palette }
   | { readonly type: 'restoreRecipe'; readonly generationId: string }
   | { readonly type: 'toggleShowRejected' }
 
@@ -289,9 +304,25 @@ export function createEditorReducer(
 
       // A fresh selection is a fresh seed, so nothing has been changed yet.
       case 'choosePreset':
-        return editDraft(state, action.stage, draft =>
-          seedFromPreset(registry, draft, action.presetId, action.preset)
+        return editDraft(state, action.stage, (draft, project) =>
+          seedFromPreset(
+            registry,
+            project.palette,
+            draft,
+            action.presetId,
+            action.preset,
+            action.values ?? NO_VARIABLE_VALUES
+          )
         )
+
+      // Prompt data, not chrome (#46) — and editable after creation precisely
+      // because it cannot reach backwards: every recipe already persisted its
+      // expanded prose, so this only changes what the next pick seeds.
+      case 'setPalette':
+        return editProject(state, project => ({
+          ...project,
+          palette: action.palette,
+        }))
 
       case 'chooseModel':
         return editDraft(state, action.stage, draft => {
@@ -513,9 +544,11 @@ export function createEditorReducer(
  */
 function seedFromPreset(
   registry: readonly ModelCapabilities[],
+  palette: Palette,
   draft: StageRecipe,
   presetId: string | null,
-  preset: Preset | MotionPreset | null
+  preset: Preset | MotionPreset | null,
+  values: PresetVariableValues
 ): StageRecipe {
   const chosen: StageRecipe = { ...draft, presetId, presetModified: false }
   if (preset === null) return chosen
@@ -523,7 +556,10 @@ function seedFromPreset(
   if (isMotionPreset(preset)) return { ...chosen, prompt: preset.prompt }
 
   const model = modelById(registry, draft.modelId)
-  const composed = composePreset(preset, model)
+  // Expanded here and nowhere later: what lands in the draft is the prose that
+  // gets persisted, so no unresolved placeholder can be resolved against a
+  // library that has since been edited (#46).
+  const composed = composePreset(preset, model, palette, values)
   if (composed === null) return chosen
 
   const params = { ...draft.params }
@@ -946,11 +982,16 @@ function forgetOldRuns(runs: readonly RunRecord[]): readonly RunRecord[] {
 function editDraft(
   state: EditorState,
   stage: StageKind,
-  change: (draft: StageRecipe) => StageRecipe
+  // The project comes along because one edit needs something the draft does not
+  // carry: seeding a preset resolves its variables against the project palette.
+  change: (draft: StageRecipe, project: Project) => StageRecipe
 ): EditorState {
   return editProject(state, project => ({
     ...project,
-    drafts: { ...project.drafts, [stage]: change(project.drafts[stage]) },
+    drafts: {
+      ...project.drafts,
+      [stage]: change(project.drafts[stage], project),
+    },
   }))
 }
 

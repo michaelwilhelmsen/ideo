@@ -25,6 +25,7 @@ import {
   type Preset,
 } from './presets'
 import { motionPresetById } from './motion'
+import { colourNameOf, DEFAULT_PALETTE } from './palette'
 import { UPLOAD_MODEL_ID, isUploadRecipe, uploadFileName } from './upload'
 import {
   activeProject,
@@ -504,7 +505,8 @@ describe('seeding the form from a preset', () => {
     const draft = openProjectOf(state).drafts.style
 
     expect(draft.prompt).toBe(
-      composePreset(presetOf('glass-caustics'), FLUX_I2I)?.prompt
+      composePreset(presetOf('glass-caustics'), FLUX_I2I, DEFAULT_PALETTE)
+        ?.prompt
     )
     expect(draft.prompt).toContain('Keep the composition exactly as it is')
     expect(draft.presetId).toBe('glass-caustics')
@@ -527,7 +529,8 @@ describe('seeding the form from a preset', () => {
 
     expect(params.strength).toBeUndefined()
     expect(
-      composePreset(presetOf('topographic-contour'), QWEN)?.strength
+      composePreset(presetOf('topographic-contour'), QWEN, DEFAULT_PALETTE)
+        ?.strength
     ).toBeNull()
   })
 
@@ -630,7 +633,7 @@ describe('seeding the form from a preset', () => {
     const draft = openProjectOf(state).drafts.style
 
     expect(draft.prompt).toBe(
-      composePreset(presetOf('glass-caustics'), QWEN)?.prompt
+      composePreset(presetOf('glass-caustics'), QWEN, DEFAULT_PALETTE)?.prompt
     )
     expect(draft.presetModified).toBe(false)
   })
@@ -648,7 +651,8 @@ describe('seeding the form from a preset', () => {
 
     expect(draft.presetId).toBeNull()
     expect(draft.prompt).toBe(
-      composePreset(presetOf('glass-caustics'), FLUX_I2I)?.prompt
+      composePreset(presetOf('glass-caustics'), FLUX_I2I, DEFAULT_PALETTE)
+        ?.prompt
     )
   })
 })
@@ -1493,5 +1497,97 @@ describe('the frozen recipe records the loop that will happen (#30)', () => {
     expect(
       frozenAnimate(animatingWith(luma, { loop: false })).options.loop
     ).toBe(false)
+  })
+})
+
+/**
+ * The project palette (#46).
+ *
+ * Two claims worth pinning. Seeding resolves the holes *here*, so the draft
+ * holds expanded prose and nothing downstream is ever handed a template. And
+ * editing the palette reaches forwards only — which is the whole reason it is
+ * allowed to be editable at all, where the aspect ratio is not (PRD §11).
+ */
+describe('the palette (#46)', () => {
+  /** Choosing a source scene with its holes filled, as the picker does. */
+  function chooseScene(
+    id: string,
+    values: Record<string, string> = {}
+  ): EditorAction {
+    const preset = sourcePresetById(id)
+    if (preset === null) throw new Error(`no source preset "${id}"`)
+    return {
+      type: 'choosePreset',
+      stage: 'source',
+      presetId: id,
+      preset,
+      values,
+    }
+  }
+
+  it('expands the holes into the draft, so only prose is ever persisted', () => {
+    const state = apply(
+      fixtureEditorState(),
+      chooseScene('gn-monolith', { subject: 'a brushed steel kettle' })
+    )
+    const draft = openProjectOf(state).drafts.source
+
+    expect(draft.prompt).toContain('a brushed steel kettle')
+    expect(draft.prompt).toContain(colourNameOf(ATLAS.palette.roles.primary))
+    expect(draft.prompt).not.toContain('{{')
+  })
+
+  it('resolves against this project’s palette rather than the default', () => {
+    const recoloured: Project = {
+      ...ATLAS,
+      palette: {
+        ...ATLAS.palette,
+        roles: {
+          ...ATLAS.palette.roles,
+          primary: { hex: '#D9662C', name: 'House orange' },
+        },
+      },
+    }
+
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'openProject', project: recoloured, directory: '/tmp/atlas' },
+      chooseScene('gn-monolith')
+    )
+
+    expect(openProjectOf(state).drafts.source.prompt).toContain('House orange')
+  })
+
+  it('leaves a hole it cannot fill visible in the box', () => {
+    const state = apply(fixtureEditorState(), chooseScene('gn-monolith'))
+
+    expect(openProjectOf(state).drafts.source.prompt).toContain('{{subject}}')
+  })
+
+  it('changes what the next pick seeds, and nothing already generated', () => {
+    const before = apply(fixtureEditorState(), chooseScene('gn-monolith'))
+    const generations = openProjectOf(before).generations
+
+    const after = apply(before, {
+      type: 'setPalette',
+      palette: {
+        ...ATLAS.palette,
+        roles: {
+          ...ATLAS.palette.roles,
+          primary: { hex: '#2FB6BF', name: 'turquoise' },
+        },
+      },
+    })
+
+    // The draft seeded before the edit is untouched — it is prose now, not a
+    // reference to a palette.
+    expect(openProjectOf(after).drafts.source.prompt).toBe(
+      openProjectOf(before).drafts.source.prompt
+    )
+    expect(openProjectOf(after).generations).toBe(generations)
+
+    // The next pick says the new colour.
+    const reseeded = apply(after, chooseScene('gn-monolith'))
+    expect(openProjectOf(reseeded).drafts.source.prompt).toContain('turquoise')
   })
 })

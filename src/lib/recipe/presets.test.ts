@@ -14,9 +14,18 @@ import { describe, expect, it } from 'vitest'
 import { ASPECTS } from './aspects'
 import { DEFAULT_MODEL_IDS, MODEL_REGISTRY } from './models'
 import {
+  colourNameOf,
+  DEFAULT_PALETTE,
+  namesPaletteSlot,
+  nearestColourName,
+  readPalette,
+  type Palette,
+} from './palette'
+import {
   BUILT_IN_SOURCE_PRESETS,
   BUILT_IN_STYLE_PRESETS,
   composePreset,
+  unresolvedVariables,
   isPresetId,
   PRESET_STRENGTH_WINDOW,
   presetIdFrom,
@@ -290,7 +299,7 @@ describe('the built-in source library', () => {
     for (const model of models) {
       for (const source of BUILT_IN_SOURCE_PRESETS) {
         const where = `${source.id} on ${model.id}`
-        const composed = composePreset(source, model)
+        const composed = composePreset(source, model, DEFAULT_PALETTE)
 
         if (composed === null) throw new Error(`${where} seeded nothing`)
 
@@ -299,9 +308,14 @@ describe('the built-in source library', () => {
         expect(composed.prompt.replaceAll(/\{\{|\}\}/g, ''), where).not.toMatch(
           /[{}]/
         )
-        expect(composed.prompt, where).toContain(
-          source.variants[model.promptStyle]?.transform ?? ''
-        )
+        // The transform, with its holes filled — so this checks the wording
+        // survived composition without asserting that a variable did not
+        // resolve, which is the neighbouring test's job.
+        const transform = source.variants[model.promptStyle]?.transform ?? ''
+        for (const fragment of transform.split(/\{\{[a-z0-9_]+\}\}/)) {
+          if (fragment.trim() === '') continue
+          expect(composed.prompt, where).toContain(fragment)
+        }
 
         // Never in the body — routed or dropped, per the registry (PRD §9).
         const negative = source.variants[model.promptStyle]?.negative ?? null
@@ -312,24 +326,265 @@ describe('the built-in source library', () => {
     }
   })
 
-  it('seeds a template variable literally, until #46 can resolve it', () => {
-    // #46 owns the palette and the resolution; this library only has to carry
-    // the holes. Unresolved, `{{subject}}` arrives in the prompt box as those
-    // nine characters — visible and editable like any other text, which is what
-    // #46 settled on for a placeholder it cannot fill either.
-    const withVariables = BUILT_IN_SOURCE_PRESETS.filter(source =>
-      Object.values(source.variants).some(carried =>
-        carried?.transform.includes('{{')
-      )
-    )
-    expect(withVariables.length).toBeGreaterThan(0)
-
+  it('resolves its colour holes against the palette, and leaves the rest', () => {
     const monolith = sourcePresetById('gn-monolith')
     if (monolith === null) throw new Error('the proving set lost a scene')
 
-    expect(composePreset(monolith, SOURCE_DEFAULT)?.prompt).toContain(
-      '{{subject}}'
+    const composed = composePreset(monolith, SOURCE_DEFAULT, DEFAULT_PALETTE)
+
+    // A colour hole becomes a *word* — never the hex, which text encoders read
+    // erratically and silently (#46).
+    expect(composed?.prompt).toContain(
+      colourNameOf(DEFAULT_PALETTE.roles.primary)
     )
+    expect(composed?.prompt).not.toContain('{{primary}}')
+    expect(composed?.prompt).not.toContain('#')
+
+    // A free-text hole nobody has filled stays visible, because a gap would
+    // read as a sentence the preset forgot to finish.
+    expect(composed?.prompt).toContain('{{subject}}')
+  })
+
+  it('names every colour hole after a role this app actually has', () => {
+    // A `{{brand_color}}` would compose as a literal in a paid prompt and never
+    // say so — the failure is silent, so the check has to be at load.
+    const holes = new Set<string>()
+    for (const source of BUILT_IN_SOURCE_PRESETS) {
+      for (const carried of Object.values(source.variants)) {
+        for (const match of (carried?.transform ?? '').matchAll(
+          /\{\{([a-z0-9_]+)\}\}/g
+        )) {
+          holes.add(match[1] ?? '')
+        }
+      }
+    }
+
+    expect(holes.size).toBeGreaterThan(0)
+    for (const hole of holes) {
+      // `{{brand_color}}` is the shape this is looking for: a hole plainly
+      // about colour that the palette cannot answer.
+      if (!/colou?r/i.test(hole)) continue
+      expect(namesPaletteSlot(hole), hole).toBe(true)
+    }
+  })
+})
+
+/**
+ * Template variables (#46).
+ *
+ * The rule that matters most is the one about *what is persisted*: only the
+ * expanded prose ever reaches a recipe, because a recipe that resolves against
+ * a library we can still edit is not a recipe. Everything else here is the
+ * order of precedence, which is what decides whether the prompt says what the
+ * project's colours say or what the preset's author guessed.
+ */
+describe('template variables', () => {
+  /** A palette with two unroled extras, for the positional cases. */
+  const withExtras: Palette = readPalette({
+    roles: {
+      primary: { hex: '#D9662C', name: 'burnt orange' },
+      secondary: { hex: '#1F4E79', name: 'deep cobalt' },
+      accent: { hex: '#B5352A', name: 'scarlet' },
+      ink: { hex: '#14110F' },
+      paper: { hex: '#F4EFE6' },
+      neutral: { hex: '#8A8079' },
+    },
+    extras: [{ hex: '#A3B18A', name: 'sage' }, { hex: '#12384F' }],
+  })
+
+  function holed(transform: string, defaults?: Record<string, string>): Preset {
+    return tagsPreset({ transform, compose: '{transform}', ...{ defaults } })
+  }
+
+  it('resolves a role to the colour’s name', () => {
+    const composed = composePreset(holed('{{primary}} walls'), QWEN, withExtras)
+
+    expect(composed?.prompt).toBe('burnt orange walls')
+  })
+
+  it('resolves an extra by position, and never wraps back to the first', () => {
+    // Wrapping would assign one colour to both sides of a distinction the look
+    // is built on, which is exactly what a recipe wanting many colours wants
+    // kept apart.
+    const composed = composePreset(
+      holed('{{extra1}} and {{extra3}}'),
+      QWEN,
+      withExtras
+    )
+
+    expect(composed?.prompt).toBe('sage and {{extra3}}')
+  })
+
+  it('names an unnamed colour from the curated table', () => {
+    const composed = composePreset(holed('{{extra2}} sky'), QWEN, withExtras)
+
+    expect(composed?.prompt).toBe(`${nearestColourName('#12384F')} sky`)
+  })
+
+  it('falls back to the authored default where the palette has nothing', () => {
+    const composed = composePreset(
+      holed('{{subject}} on a plinth', { subject: 'a ceramic vase' }),
+      QWEN,
+      withExtras
+    )
+
+    expect(composed?.prompt).toBe('a ceramic vase on a plinth')
+  })
+
+  it('prefers a typed value to both the palette and the default', () => {
+    const composed = composePreset(
+      holed('{{primary}} and {{subject}}', { subject: 'a vase' }),
+      QWEN,
+      withExtras,
+      { primary: 'oxblood', subject: 'a kettle' }
+    )
+
+    expect(composed?.prompt).toBe('oxblood and a kettle')
+  })
+
+  it('leaves a hole nothing can fill visible, and reports it', () => {
+    const composed = composePreset(
+      holed('{{subject}} on a plinth'),
+      QWEN,
+      withExtras
+    )
+
+    expect(composed?.prompt).toBe('{{subject}} on a plinth')
+    expect(composed?.variables).toEqual([
+      { key: 'subject', fromPalette: false, value: '' },
+    ])
+    expect(unresolvedVariables(composed?.prompt ?? '')).toEqual(['subject'])
+  })
+
+  it('says a palette hole is a palette hole even when the slot is empty', () => {
+    // The difference the field has to explain: `extra3` is a colour this
+    // project does not have, not free text nobody has typed yet.
+    const composed = composePreset(holed('{{extra3}}'), QWEN, withExtras)
+
+    expect(composed?.variables).toEqual([
+      { key: 'extra3', fromPalette: true, value: '' },
+    ])
+  })
+
+  it('lists each hole once, in the order it first appears', () => {
+    const composed = composePreset(
+      holed('{{subject}} in {{primary}}, {{subject}} again'),
+      QWEN,
+      withExtras
+    )
+
+    expect(composed?.variables.map(variable => variable.key)).toEqual([
+      'subject',
+      'primary',
+    ])
+  })
+
+  it('counts a preset that is seeded with its holes filled as seeded', () => {
+    // Otherwise every variable-carrying preset would report as hand-edited the
+    // moment it was picked, and offer a re-seed that changes nothing.
+    const preset = holed('{{subject}} on a plinth')
+    const values = { subject: 'a kettle' }
+    const composed = composePreset(preset, QWEN, withExtras, values)
+
+    expect(
+      presetSeedState(composed?.prompt ?? '', preset, QWEN, withExtras, values)
+    ).toEqual({ state: 'seeded' })
+  })
+
+  it('expands the negative from the same values, and offers it a field', () => {
+    // A negative goes on the wire exactly as a prompt does, so a hole in one is
+    // a hole in something a model is paid to read.
+    const preset = tagsPreset({
+      transform: 'a plinth',
+      compose: '{transform}',
+      negative: 'no {{secondary}} anywhere',
+    })
+    const composed = composePreset(preset, QWEN, withExtras)
+
+    expect(composed?.negative).toBe('no deep cobalt anywhere')
+    expect(composed?.variables.map(variable => variable.key)).toContain(
+      'secondary'
+    )
+  })
+
+  it('treats a field the user emptied as an answer, not as untouched', () => {
+    // Otherwise clearing a palette-backed field would refill it from the
+    // palette, and the field and the prompt box would say different things.
+    const preset = holed('{{primary}} walls')
+
+    expect(
+      composePreset(preset, QWEN, withExtras, { primary: '' })?.prompt
+    ).toBe('{{primary}} walls')
+  })
+
+  it('refuses a default for a hole the template does not have', () => {
+    // A silent typo otherwise: the value never appears anywhere, and the recipe
+    // reads as if the author simply forgot to write it.
+    expect(() =>
+      readPresetLibrary(
+        document({
+          presets: [
+            preset({
+              variants: {
+                tags: variant({
+                  transform: '{{subject}} on a plinth',
+                  compose: '{transform}',
+                  defaults: { subjekt: 'a vase' },
+                } as Partial<PresetVariant>),
+                prose: null,
+              },
+            }),
+          ],
+        })
+      )
+    ).toThrow(/subjekt/)
+  })
+
+  it('refuses an empty default', () => {
+    expect(() =>
+      readPresetLibrary(
+        document({
+          presets: [
+            preset({
+              variants: {
+                tags: variant({
+                  transform: '{{subject}}',
+                  compose: '{transform}',
+                  defaults: { subject: '  ' },
+                } as Partial<PresetVariant>),
+                prose: null,
+              },
+            }),
+          ],
+        })
+      )
+    ).toThrow(/subject/)
+  })
+
+  it('reads a variant with no defaults block at all', () => {
+    // Unlike `negative` and `strength`, absent is allowed: the absent-versus-
+    // null rule is about an idiom being unanswered, and a variant with no
+    // defaults has answered fully.
+    const only = tagsPreset({ transform: '{{subject}}' })
+
+    expect(only.variants.tags?.defaults).toEqual({})
+  })
+
+  it('keeps no defaults on a fork, because the capture is already expanded', () => {
+    const fork = userPresetFrom({
+      id: 'mine',
+      name: 'Mine',
+      promptStyle: 'tags',
+      prompt: 'a kettle, {{subject}} left open on purpose',
+      negative: null,
+      strength: null,
+      aspect: null,
+    })
+
+    expect(fork.variants.tags?.defaults).toEqual({})
+    // And it still loads: a `{{` somebody left in an editable box is legal
+    // prose, not a malformed file.
+    expect(() => readUserPreset(writeUserPreset(fork))).not.toThrow()
   })
 })
 
@@ -535,9 +790,13 @@ describe('a preset document that is not what we expect', () => {
     const only = library.presets[0]
     if (only === undefined) throw new Error('the fixture has no presets')
 
-    expect(composePreset(only, QWEN)?.prompt).toBe(`${strict} a look`)
+    expect(composePreset(only, QWEN, DEFAULT_PALETTE)?.prompt).toBe(
+      `${strict} a look`
+    )
     // And the library's standard block is nowhere in it.
-    expect(composePreset(only, QWEN)?.prompt).not.toContain('same composition')
+    expect(composePreset(only, QWEN, DEFAULT_PALETTE)?.prompt).not.toContain(
+      'same composition'
+    )
   })
 
   it('refuses an aspect hint that is not a ratio we offer', () => {
@@ -571,7 +830,7 @@ describe('a preset document that is not what we expect', () => {
 
 describe('composePreset', () => {
   it('puts the preserve block in front of the transform, per the template', () => {
-    const composed = composePreset(tagsPreset(), QWEN)
+    const composed = composePreset(tagsPreset(), QWEN, DEFAULT_PALETTE)
 
     expect(composed?.prompt).toBe('same composition, a look')
   })
@@ -581,7 +840,8 @@ describe('composePreset', () => {
     // can lead with the style.
     const composed = composePreset(
       tagsPreset({ compose: '{transform}. {preserve}' }),
-      QWEN
+      QWEN,
+      DEFAULT_PALETTE
     )
 
     expect(composed?.prompt).toBe('a look. same composition')
@@ -591,7 +851,7 @@ describe('composePreset', () => {
     // Not an error and not a fallback: an explicit null means the preset has
     // nothing to say to a prose model, and the caller offers a re-seed instead
     // of composing something in the wrong idiom.
-    expect(composePreset(tagsPreset(), FLUX_I2I)).toBeNull()
+    expect(composePreset(tagsPreset(), FLUX_I2I, DEFAULT_PALETTE)).toBeNull()
   })
 
   it('never folds the negative into the prompt', () => {
@@ -599,7 +859,8 @@ describe('composePreset', () => {
     // prompt is a request for gradients.
     const composed = composePreset(
       tagsPreset({ negative: 'flat colour' }),
-      QWEN
+      QWEN,
+      DEFAULT_PALETTE
     )
 
     expect(composed?.negative).toBe('flat colour')
@@ -610,7 +871,8 @@ describe('composePreset', () => {
     const model = tagsModelWithStrength({ negativePromptParam: null })
     const composed = composePreset(
       tagsPreset({ negative: 'flat colour' }),
-      model
+      model,
+      DEFAULT_PALETTE
     )
 
     expect(composed?.negative).toBeNull()
@@ -619,16 +881,21 @@ describe('composePreset', () => {
 
   it('takes the strength the registry defaults to when the preset has none', () => {
     // PRD §6.3 — 0.7, never fal's 0.95.
-    const composed = composePreset(tagsPreset(), tagsModelWithStrength())
+    const composed = composePreset(
+      tagsPreset(),
+      tagsModelWithStrength(),
+      DEFAULT_PALETTE
+    )
 
     expect(composed?.strength).toBe(0.7)
   })
 
   it('has no strength at all on a model with no strength field', () => {
     // Only one endpoint of 33 has one, so null is the normal answer.
-    expect(composePreset(tagsPreset({ strength: 0.7 }), QWEN)?.strength).toBe(
-      null
-    )
+    expect(
+      composePreset(tagsPreset({ strength: 0.7 }), QWEN, DEFAULT_PALETTE)
+        ?.strength
+    ).toBe(null)
   })
 
   it('clamps a preset’s override to the verified window', () => {
@@ -636,15 +903,18 @@ describe('composePreset', () => {
     // the input is discarded (PRD §6.3). A preset may not ask for either.
     const model = tagsModelWithStrength()
 
-    expect(composePreset(tagsPreset({ strength: 0.95 }), model)?.strength).toBe(
-      PRESET_STRENGTH_WINDOW.max
-    )
-    expect(composePreset(tagsPreset({ strength: 0.2 }), model)?.strength).toBe(
-      PRESET_STRENGTH_WINDOW.min
-    )
-    expect(composePreset(tagsPreset({ strength: 0.75 }), model)?.strength).toBe(
-      0.75
-    )
+    expect(
+      composePreset(tagsPreset({ strength: 0.95 }), model, DEFAULT_PALETTE)
+        ?.strength
+    ).toBe(PRESET_STRENGTH_WINDOW.max)
+    expect(
+      composePreset(tagsPreset({ strength: 0.2 }), model, DEFAULT_PALETTE)
+        ?.strength
+    ).toBe(PRESET_STRENGTH_WINDOW.min)
+    expect(
+      composePreset(tagsPreset({ strength: 0.75 }), model, DEFAULT_PALETTE)
+        ?.strength
+    ).toBe(0.75)
   })
 
   /**
@@ -660,7 +930,7 @@ describe('composePreset', () => {
     for (const model of models) {
       for (const style of BUILT_IN_STYLE_PRESETS) {
         const where = `${style.id} on ${model.id}`
-        const composed = composePreset(style, model)
+        const composed = composePreset(style, model, DEFAULT_PALETTE)
 
         if (composed === null) throw new Error(`${where} seeded nothing`)
 
@@ -694,7 +964,7 @@ describe('composePreset', () => {
     const glass = stylePresetById('glass-caustics')
     if (glass === null) throw new Error('the built-in library lost a preset')
 
-    const composed = composePreset(glass, QWEN)
+    const composed = composePreset(glass, QWEN, DEFAULT_PALETTE)
 
     expect(composed?.prompt).toContain('caustic light patterns')
     expect(composed?.prompt.startsWith('same composition')).toBe(true)
@@ -719,25 +989,32 @@ describe('whether the form still says what the preset says', () => {
   })
 
   it('is seeded while the box holds the composed prompt', () => {
-    const composed = composePreset(tagsPreset(), QWEN)
+    const composed = composePreset(tagsPreset(), QWEN, DEFAULT_PALETTE)
 
-    expect(presetSeedState(composed?.prompt ?? '', tagsPreset(), QWEN)).toEqual(
-      {
-        state: 'seeded',
-      }
-    )
+    expect(
+      presetSeedState(
+        composed?.prompt ?? '',
+        tagsPreset(),
+        QWEN,
+        DEFAULT_PALETTE
+      )
+    ).toEqual({
+      state: 'seeded',
+    })
   })
 
   it('has nothing to say when no preset is selected', () => {
-    expect(presetSeedState('anything', null, QWEN)).toEqual({ state: 'none' })
+    expect(presetSeedState('anything', null, QWEN, DEFAULT_PALETTE)).toEqual({
+      state: 'none',
+    })
   })
 
   it('reports the model’s idiom as unsupported rather than offering a re-seed', () => {
     // Cross-sending is what the null variant exists to prevent, so there is no
     // re-seed to offer here — the picker disables the preset and says why.
-    expect(presetSeedState('anything', tagsPreset(), FLUX_I2I).state).toBe(
-      'unsupported'
-    )
+    expect(
+      presetSeedState('anything', tagsPreset(), FLUX_I2I, DEFAULT_PALETTE).state
+    ).toBe('unsupported')
   })
 
   it('knows a box stranded by a model switch from one the user edited', () => {
@@ -760,13 +1037,20 @@ describe('whether the form still says what the preset says', () => {
 
     // Seeded on Qwen, then switched to a prose model: the text is kept, and the
     // offer explains itself with the reason it is being made.
-    const stranded = presetSeedState('a look', bothIdioms, FLUX_I2I)
+    const stranded = presetSeedState(
+      'a look',
+      bothIdioms,
+      FLUX_I2I,
+      DEFAULT_PALETTE
+    )
     expect(stranded).toEqual({
       state: 'stale',
       reasonKey: 'editor.preset.staleIdiom',
     })
 
-    expect(presetSeedState('my own words', bothIdioms, FLUX_I2I)).toEqual({
+    expect(
+      presetSeedState('my own words', bothIdioms, FLUX_I2I, DEFAULT_PALETTE)
+    ).toEqual({
       state: 'stale',
       reasonKey: 'editor.preset.staleEdited',
     })
@@ -804,15 +1088,19 @@ describe('a saved fork', () => {
     expect(fork.variants.tags?.transform).toBe(capture.prompt)
     // Self-contained: what was captured is the whole composed prompt, so
     // composing it again must not re-apply a preserve block on top of one.
-    expect(composePreset(fork, QWEN)?.prompt).toBe(capture.prompt)
+    expect(composePreset(fork, QWEN, DEFAULT_PALETTE)?.prompt).toBe(
+      capture.prompt
+    )
   })
 
   it('carries the seeded fields the model had a place for', () => {
     const fork = userPresetFrom(capture)
 
-    expect(composePreset(fork, QWEN)?.negative).toBe('cold light')
+    expect(composePreset(fork, QWEN, DEFAULT_PALETTE)?.negative).toBe(
+      'cold light'
+    )
     // Qwen has no strength field, so the saved opinion is simply not routed.
-    expect(composePreset(fork, QWEN)?.strength).toBeNull()
+    expect(composePreset(fork, QWEN, DEFAULT_PALETTE)?.strength).toBeNull()
   })
 
   /**
@@ -832,6 +1120,7 @@ describe('a saved fork', () => {
           compose: '{transform}',
           negative: 'cold light',
           strength: 0.7,
+          defaults: {},
         },
       },
     }
@@ -860,7 +1149,7 @@ describe('a saved fork', () => {
       )
 
       expect(taught.variants.tags?.transform).toBe(capture.prompt)
-      expect(composePreset(taught, prose)?.prompt).toBe(
+      expect(composePreset(taught, prose, DEFAULT_PALETTE)?.prompt).toBe(
         'Grade it towards a warm dusk.'
       )
     })

@@ -15,7 +15,9 @@
  * which is why `activeProject` is nullable.
  */
 
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   activeProject,
@@ -35,6 +37,7 @@ import {
   SeedComparison,
 } from './shared'
 import { useGenerationName } from './naming'
+import { PaletteDialog } from './PaletteDialog'
 import { RunGrid } from './RunGrid'
 import { SourceUpload } from './SourceUpload'
 
@@ -43,6 +46,7 @@ export function StageEditor() {
   const state = useEditorStore(store => store.state)
   const dispatch = useEditorStore(store => store.dispatch)
   const nameOf = useGenerationName()
+  const [editingPalette, setEditingPalette] = useState(false)
 
   const project = activeProject(state)
 
@@ -69,7 +73,25 @@ export function StageEditor() {
       <header className="flex items-baseline gap-3 border-b border-border px-6 py-3">
         <h1 className="text-base font-semibold">{project.name}</h1>
         <span className="text-xs text-muted-foreground">{project.aspect}</span>
+        {/* Here rather than in the right sidebar because the palette is the
+            project's and the sidebar is a stage's (#46). It sits next to the
+            other two project-wide facts for the same reason. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ms-auto"
+          onClick={() => setEditingPalette(true)}
+        >
+          {t('editor.palette.title')}
+        </Button>
       </header>
+
+      {editingPalette && (
+        <PaletteDialog
+          project={project}
+          onClose={() => setEditingPalette(false)}
+        />
+      )}
 
       <nav
         className="flex gap-1 border-b border-border px-6"

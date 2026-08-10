@@ -33,6 +33,7 @@ import {
   modelById,
   modelsForStage,
   selectedGeneration,
+  unresolvedVariables,
   type AspectId,
   type ControlAvailability,
   type ControlId,
@@ -410,6 +411,19 @@ export function StageParameters({
           batch={batch}
         />
 
+        {/* #46 — a `{{…}}` still in what is about to be sent is said out loud
+            and nothing more. PRD §10.1's disabled-with-a-reason is for "you
+            can't do this yet"; this is merely probably-wrong, and `{{` is legal
+            prose in an editable box. Silence would be wrong too: paid click. */}
+        <UnresolvedWarning
+          texts={[
+            draft.prompt,
+            model.negativePromptParam === null
+              ? ''
+              : String(draft.params[model.negativePromptParam] ?? ''),
+          ]}
+        />
+
         <Button
           className="w-full"
           disabled={blocked !== null || isRunning}
@@ -433,6 +447,34 @@ export function StageParameters({
         <RunningJobs jobs={inFlight} projectId={project.id} />
       </div>
     </div>
+  )
+}
+
+/**
+ * A hole still left in what is about to be sent, immediately above the button
+ * that pays for it (#46).
+ *
+ * Read off the fields rather than off the selected preset, because by now the
+ * boxes are the only authority: the text may have been edited, seeded from a
+ * preset since deleted, or typed with a `{{` in it on purpose. Both the prompt
+ * and the negative, because both go on the wire — and the keys are listed, since
+ * "something is unresolved" is not something anyone can act on.
+ */
+function UnresolvedWarning({ texts }: { texts: readonly string[] }) {
+  const { t } = useTranslation()
+
+  const unresolved = [
+    ...new Set(texts.flatMap(text => unresolvedVariables(text))),
+  ]
+  if (unresolved.length === 0) return null
+
+  return (
+    <p className="text-xs text-destructive">
+      {t('editor.prompt.unresolved', {
+        count: unresolved.length,
+        keys: unresolved.map(key => `{{${key}}}`).join(', '),
+      })}
+    </p>
   )
 }
 

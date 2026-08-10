@@ -14,7 +14,9 @@ import userEvent from '@testing-library/user-event'
 import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils'
 import {
   ATLAS,
+  colourNameOf,
   composePreset,
+  DEFAULT_PALETTE,
   MODEL_REGISTRY,
   modelById,
   motionPresetById,
@@ -50,6 +52,7 @@ const PROSE_VARIANT = {
   compose: '{transform}',
   negative: null,
   strength: 0.7,
+  defaults: {},
 } as const
 
 /**
@@ -147,7 +150,9 @@ describe('picking a look', () => {
     pick('glass-caustics')
 
     await waitFor(() =>
-      expect(styleDraft().prompt).toBe(composePreset(GLASS, FLUX_I2I)?.prompt)
+      expect(styleDraft().prompt).toBe(
+        composePreset(GLASS, FLUX_I2I, DEFAULT_PALETTE)?.prompt
+      )
     )
     expect(styleDraft().presetId).toBe('glass-caustics')
     expect(styleDraft().presetModified).toBe(false)
@@ -248,7 +253,9 @@ describe('after switching models', () => {
 
     await userEvent.setup().click(offer)
 
-    expect(styleDraft().prompt).toBe(composePreset(GLASS, QWEN)?.prompt)
+    expect(styleDraft().prompt).toBe(
+      composePreset(GLASS, QWEN, DEFAULT_PALETTE)?.prompt
+    )
     expect(styleDraft().presetModified).toBe(false)
   })
 
@@ -320,14 +327,16 @@ describe('saving a fork', () => {
     const variants = document.variants as Record<string, unknown>
     expect(variants.tags).toBeNull()
     expect(variants.prose).toMatchObject({
-      transform: composePreset(GLASS, FLUX_I2I)?.prompt,
+      transform: composePreset(GLASS, FLUX_I2I, DEFAULT_PALETTE)?.prompt,
       strength: 0.7,
     })
 
     // The fork is what the draft points at afterwards, and the form is
     // untouched: it already says exactly this.
     expect(styleDraft().presetId).toBe('warm-dusk')
-    expect(styleDraft().prompt).toBe(composePreset(GLASS, FLUX_I2I)?.prompt)
+    expect(styleDraft().prompt).toBe(
+      composePreset(GLASS, FLUX_I2I, DEFAULT_PALETTE)?.prompt
+    )
   })
 
   it('suffixes an id rather than overwriting an earlier fork', async () => {
@@ -711,11 +720,70 @@ describe('picking a scene', () => {
 
     pick(MONOLITH.id)
 
-    const composed = composePreset(MONOLITH, SOURCE_MODEL)?.prompt ?? ''
+    const composed =
+      composePreset(MONOLITH, SOURCE_MODEL, DEFAULT_PALETTE)?.prompt ?? ''
     await waitFor(() => expect(sourceDraft().prompt).toBe(composed))
     expect(sourceDraft().prompt).toContain('No text, no lettering')
-    // Unresolved until #46, and visible rather than silently dropped.
+    // The colour hole resolved against the project's palette, by *name* — the
+    // one thing a prompt may never contain is a hex (#46).
+    expect(sourceDraft().prompt).toContain(
+      colourNameOf(ATLAS.palette.roles.primary)
+    )
+    expect(sourceDraft().prompt).not.toContain('#')
+    // The free-text one did not, and is visible rather than silently dropped.
     expect(sourceDraft().prompt).toContain('{{subject}}')
+  })
+
+  it('asks for the holes the scene has, pre-filled from the palette', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    pick(MONOLITH.id)
+    await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
+
+    // One field per `{{…}}`, named by the key so the field and the hole in the
+    // prompt box above are recognisably the same thing.
+    const subject = screen.getByLabelText('subject')
+    expect(screen.getByLabelText('primary')).toHaveValue(
+      colourNameOf(ATLAS.palette.roles.primary)
+    )
+    expect(subject).toHaveValue('')
+
+    fireEvent.change(subject, { target: { value: 'a brushed steel kettle' } })
+
+    // Filling one re-seeds the box, and what lands there is expanded prose —
+    // the literal is gone, and only this ever reaches a recipe.
+    await waitFor(() =>
+      expect(sourceDraft().prompt).toContain('a brushed steel kettle')
+    )
+    expect(sourceDraft().prompt).not.toContain('{{subject}}')
+  })
+
+  it('offers a re-seed rather than spending an edit the user made', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    pick(MONOLITH.id)
+    await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
+
+    // The prompt is theirs now (#28's settled rule), so a variable change must
+    // not rewrite it underneath them.
+    useEditorStore.getState().dispatch({
+      type: 'setPrompt',
+      stage: 'source',
+      prompt: 'my own words',
+    })
+
+    // The offer appears, which is also what says the control has caught up.
+    expect(
+      await screen.findByRole('button', { name: /seed again from the preset/i })
+    ).toBeVisible()
+
+    fireEvent.change(screen.getByLabelText('subject'), {
+      target: { value: 'a brushed steel kettle' },
+    })
+
+    expect(sourceDraft().prompt).toBe('my own words')
   })
 
   it('leaves the scene that wants lettering without the append block', async () => {

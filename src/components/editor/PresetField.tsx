@@ -63,6 +63,7 @@ import {
   NativeSelectOption,
 } from '@/components/ui/native-select'
 import {
+  composePreset,
   MODEL_REGISTRY,
   modelById,
   motionPresetFrom,
@@ -77,6 +78,9 @@ import {
   type MotionPreset,
   type Preset,
   type PresetCapture,
+  NO_VARIABLE_VALUES,
+  type PresetVariable,
+  type PresetVariableValues,
   type Project,
   type StageKind,
   type StageRecipe,
@@ -133,6 +137,10 @@ function StylePresetField({ project }: { project: Project }) {
 
   return (
     <ComposingPresetField
+      // Remounted per project, which is what clears the variable fields when
+      // one is swapped for another (#46): a value typed for this project's
+      // `{{subject}}` says nothing about the next project's.
+      key={project.id}
       project={project}
       stage="style"
       library={data ?? EMPTY_STYLE_PRESETS}
@@ -148,6 +156,7 @@ function SourcePresetField({ project }: { project: Project }) {
 
   return (
     <ComposingPresetField
+      key={project.id}
       project={project}
       stage="source"
       // Said once, in the one place a ratio appears next to a control: the hint
@@ -203,23 +212,63 @@ function ComposingPresetField({
   const selected = library.find(preset => preset.id === draft.presetId) ?? null
   /** Only your own can be updated in place or deleted. */
   const yours = userPresets.some(preset => preset.id === draft.presetId)
-  const seed = presetSeedState(draft.prompt, selected, model)
 
   const [savingAs, setSavingAs] = useState(false)
   const [deleting, setDeleting] = useState<Preset | null>(null)
 
-  const choose = (preset: Preset | null): void => {
+  /**
+   * What the variable fields say (#46).
+   *
+   * Session state, and deliberately not on the project: only the *expanded*
+   * prose is ever persisted, so keeping the inputs would be a second copy of
+   * something the prompt already contains — and `subject` in particular varies
+   * per look, so a stale one carried across projects would be a confident wrong
+   * answer offered 21 times.
+   *
+   * Reset whenever the preset changes, because a value typed for one scene's
+   * `{{subject}}` is not an answer about the next one's.
+   */
+  const [values, setValues] = useState<PresetVariableValues>(NO_VARIABLE_VALUES)
+
+  const composed =
+    selected === null
+      ? null
+      : composePreset(selected, model, project.palette, values)
+  const seed = presetSeedState(
+    draft.prompt,
+    selected,
+    model,
+    project.palette,
+    values
+  )
+
+  const choose = (preset: Preset | null, next = values): void => {
     dispatch({
       type: 'choosePreset',
       stage,
       presetId: preset?.id ?? null,
       preset,
+      values: next,
     })
   }
 
   /** The pointer only — used after a save, when the form already agrees. */
   const point = (presetId: string | null): void => {
     dispatch({ type: 'choosePreset', stage, presetId, preset: null })
+  }
+
+  /**
+   * A variable field changed.
+   *
+   * Re-seeds the prompt box, unless the box has been edited by hand — in which
+   * case the existing "Re-seed" offer appears instead and the user's text
+   * stands. #28's settled rule, applied to the one control that would otherwise
+   * spend an edit on their behalf: seeding is offered, never forced.
+   */
+  const setValue = (key: string, value: string): void => {
+    const next: PresetVariableValues = { ...values, [key]: value }
+    setValues(next)
+    if (seed.state === 'seeded') choose(selected, next)
   }
 
   const option = (preset: Preset) => {
@@ -300,10 +349,14 @@ function ComposingPresetField({
         value={draft.presetId ?? ''}
         onChange={event => {
           const id = event.target.value
+          // A value typed for one scene's `{{subject}}` says nothing about the
+          // next one's, so the fields start empty again with every pick.
+          setValues(NO_VARIABLE_VALUES)
           choose(
             id === ''
               ? null
-              : (library.find(preset => preset.id === id) ?? null)
+              : (library.find(preset => preset.id === id) ?? null),
+            NO_VARIABLE_VALUES
           )
         }}
       >
@@ -323,6 +376,12 @@ function ComposingPresetField({
       {hintKey !== null && (
         <p className="text-xs text-muted-foreground">{t(hintKey)}</p>
       )}
+
+      <PresetVariableFields
+        variables={composed?.variables ?? []}
+        values={values}
+        onChange={setValue}
+      />
 
       {/* The selected preset cannot seed the selected model — usually because a
           model switch landed on an idiom this fork was never saved in. */}
@@ -636,6 +695,67 @@ function MotionPresetField({ project }: { project: Project }) {
           })
         }}
       />
+    </div>
+  )
+}
+
+/**
+ * The holes in the selected preset's prompt, as editable fields (#46).
+ *
+ * One per `{{…}}`, pre-filled with whatever it resolves to — a colour's name
+ * where the variable addresses the project palette, the preset's own authored
+ * default where it does not. What is in these fields is not stored anywhere: it
+ * is spent on the prompt box the moment it changes, and the *expanded* prose is
+ * the only thing that reaches a recipe.
+ *
+ * An empty field is a real state and not an error, which is why nothing here is
+ * disabled or marked red. It means the prompt still carries the literal
+ * `{{key}}`, which is visible in the box above and warned about next to the run
+ * button — hard-blocking would be too strong for text somebody may have meant.
+ */
+function PresetVariableFields({
+  variables,
+  values,
+  onChange,
+}: {
+  variables: readonly PresetVariable[]
+  values: PresetVariableValues
+  onChange: (key: string, value: string) => void
+}) {
+  const { t } = useTranslation()
+
+  if (variables.length === 0) return null
+
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3">
+      <p className="text-xs text-muted-foreground">
+        {t('editor.preset.variablesHint')}
+      </p>
+
+      {variables.map(variable => (
+        <div key={variable.key} className="space-y-1">
+          {/* The key itself, not a translated label: it is the author's word
+              and it is what the user sees in the prompt box as `{{subject}}`,
+              so renaming it here would break the one link between the field
+              and the hole it fills. */}
+          <Label htmlFor={`preset-variable-${variable.key}`}>
+            {variable.key}
+          </Label>
+          <Input
+            id={`preset-variable-${variable.key}`}
+            value={values[variable.key] ?? variable.value}
+            placeholder={`{{${variable.key}}}`}
+            onChange={event => onChange(variable.key, event.target.value)}
+          />
+          {variable.fromPalette && (
+            <p className="text-xs text-muted-foreground">
+              {variable.value === ''
+                ? t('editor.preset.variableNoColour')
+                : t('editor.preset.variableFromPalette')}
+            </p>
+          )}
+        </div>
+      ))}
     </div>
   )
 }

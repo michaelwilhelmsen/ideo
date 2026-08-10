@@ -12,7 +12,13 @@ import { render, screen, waitFor } from '@/test/test-utils'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
-import { ATLAS, readManifest, summaryOf, writeManifest } from '@/lib/recipe'
+import {
+  ATLAS,
+  DEFAULT_PALETTE,
+  readManifest,
+  summaryOf,
+  writeManifest,
+} from '@/lib/recipe'
 import { commands, type JsonValue } from '@/lib/tauri-bindings'
 import { newProject } from '@/services/projects'
 import { useEditorStore } from '@/store/editor-store'
@@ -102,6 +108,36 @@ describe('runs and batch sizes reach the disk (#26)', () => {
     const project = newProject('Something new', '16:9')
 
     expect(project.batchSizes).toEqual({ source: 4, style: 4, animate: 1 })
+
+    // The palette too (#46, PRD §11). Copied deeply, so editing this project's
+    // colours cannot reach the constant and through it every other project.
+    expect(project.palette).toEqual(DEFAULT_PALETTE)
+    expect(project.palette.roles.primary).not.toBe(
+      DEFAULT_PALETTE.roles.primary
+    )
+  })
+
+  it('writes back an edited palette, so it survives a restart', async () => {
+    await openAtlas()
+
+    act(() => {
+      useEditorStore.getState().dispatch({
+        type: 'setPalette',
+        palette: {
+          ...ATLAS.palette,
+          roles: {
+            ...ATLAS.palette.roles,
+            primary: { hex: '#2FB6BF', name: 'turquoise' },
+          },
+        },
+      })
+    })
+
+    await waitFor(
+      () =>
+        expect(lastSavedProject().palette.roles.primary.name).toBe('turquoise'),
+      { timeout: 3000 }
+    )
   })
 
   it('writes back a changed batch size', async () => {

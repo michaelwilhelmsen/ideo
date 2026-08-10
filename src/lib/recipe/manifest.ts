@@ -20,6 +20,7 @@
 
 import { isAspectId } from './aspects'
 import { isRecord } from './json'
+import { readPalette, type Palette } from './palette'
 import { clampBatchSize, DEFAULT_BATCH_SIZES } from './selectors'
 import type {
   Generation,
@@ -75,6 +76,20 @@ export interface ProjectManifest {
    * nothing about an existing project changes by being opened.
    */
   readonly batchSizes: Readonly<Record<string, number>>
+  /**
+   * #46. **Required**, and reading throws without it — the one field here with
+   * no tolerant fallback.
+   *
+   * Deliberately unlike `batchSizes`, and the difference is what the absence
+   * would mean. A missing batch size is a preference nobody expressed, and the
+   * default is the same number a project created today would get. A missing
+   * palette is six colours the prompts are about to be written in: quietly
+   * substituting ours would make an unopenable project into one that opens and
+   * says something different. This is initial development, there are no
+   * manifests in the wild to stay compatible with, and a fallback would only
+   * ever hide the bug it exists to survive.
+   */
+  readonly palette: Palette
 }
 
 /** The project, as the bytes that go to disk. */
@@ -87,6 +102,7 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
     createdAt: project.createdAt,
     updatedAt: now,
     batchSizes: project.batchSizes,
+    palette: project.palette,
     drafts: project.drafts,
     selection: project.selection,
     generations: project.generations.map(generation => ({
@@ -136,6 +152,8 @@ export function readManifest(document: unknown): Project {
     aspect,
     createdAt: asNumber(manifest.createdAt, 'createdAt'),
     batchSizes: readBatchSizes(manifest.batchSizes),
+    // Throws, and takes the project with it — see `ProjectManifest.palette`.
+    palette: readPalette(manifest.palette),
     drafts: readDrafts(manifest.drafts),
     generations,
     selection: readSelection(manifest.selection, known),

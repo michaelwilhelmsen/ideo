@@ -16,6 +16,7 @@
  * rather than a stage that cannot generate.
  */
 
+import { DEFAULT_PALETTE } from './palette'
 import { DEFAULT_BATCH_SIZES } from './selectors'
 import type {
   EditorState,
@@ -95,6 +96,7 @@ export const ATLAS: Project = {
   aspect: '21:9',
   createdAt: T0,
   batchSizes: DEFAULT_BATCH_SIZES,
+  palette: DEFAULT_PALETTE,
   generations: [
     // One click, three candidates (#26) — the strip groups them under the run
     // that produced them, and the style candidates below deliberately do not
@@ -236,6 +238,7 @@ export const LEDGER: Project = {
   aspect: '16:9',
   createdAt: T0 + 40 * MINUTE,
   batchSizes: DEFAULT_BATCH_SIZES,
+  palette: DEFAULT_PALETTE,
   generations: [
     generation('gen-led-1', 'source', 1, 55_120_777, 41, ledgerSource),
   ],

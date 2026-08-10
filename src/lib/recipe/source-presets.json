@@ -12,13 +12,13 @@
       "aspect": "3:2",
       "variants": {
         "tags": {
-          "transform": "{{subject}} resting on a raw poured-concrete plinth, large empty room, {{brand_color}} walls, one hard directional light from high camera-left, long sharp shadow thrown across the floor to the right, everything else in deep shade, vast negative space above and to the right, cool neutral grade, matte surfaces, visible concrete aggregate, architectural photography, 50mm, eye level, dead-on symmetrical framing",
+          "transform": "{{subject}} resting on a raw poured-concrete plinth, large empty room, {{primary}} walls, one hard directional light from high camera-left, long sharp shadow thrown across the floor to the right, everything else in deep shade, vast negative space above and to the right, cool neutral grade, matte surfaces, visible concrete aggregate, architectural photography, 50mm, eye level, dead-on symmetrical framing",
           "compose": "{transform}, {append}",
           "negative": "multiple objects, props, plants, people, soft diffused lighting, glossy studio sweep, floating, drop shadow, busy background, warm grade, tilted camera",
           "strength": null
         },
         "prose": {
-          "transform": "{{subject}} resting on a raw poured-concrete plinth in a large empty room with {{brand_color}} walls. One hard directional light from high camera-left throws a long sharp shadow across the floor to the right. Everything else falls into shade. Vast negative space above and to the right. Cool neutral grade, matte surfaces, visible concrete aggregate texture. Architectural photography, 50mm, eye level, dead-on symmetrical framing.",
+          "transform": "{{subject}} resting on a raw poured-concrete plinth in a large empty room with {{primary}} walls. One hard directional light from high camera-left throws a long sharp shadow across the floor to the right. Everything else falls into shade. Vast negative space above and to the right. Cool neutral grade, matte surfaces, visible concrete aggregate texture. Architectural photography, 50mm, eye level, dead-on symmetrical framing.",
           "compose": "{transform} {append}",
           "negative": "multiple objects, props, plants, people, soft diffused lighting, glossy studio sweep, floating, drop shadow",
           "strength": null
@@ -52,13 +52,13 @@
       "aspect": "21:9",
       "variants": {
         "tags": {
-          "transform": "abstract soft gradient field, {{brand_color}} blending into {{secondary_color}}, slow organic asymmetric transition, subtle volumetric depth as if light diffuses through frosted glass or thick fog, one faint darker fold running diagonally to give the field structure, extremely fine tonal steps",
+          "transform": "abstract soft gradient field, {{primary}} blending into {{secondary}}, slow organic asymmetric transition, subtle volumetric depth as if light diffuses through frosted glass or thick fog, one faint darker fold running diagonally to give the field structure, extremely fine tonal steps",
           "compose": "{transform}, {append}",
           "negative": "banding, harsh edges, mesh grid, blobs, shapes, neon, high saturation, rainbow, straight linear ramp, objects, subject",
           "strength": null
         },
         "prose": {
-          "transform": "An abstract soft gradient field built from {{brand_color}} blending into {{secondary_color}}. The transition slow, organic and asymmetric, never a straight linear ramp. Subtle volumetric depth as if light diffuses through frosted glass or thick fog. One faint darker fold running diagonally to give the field structure. Extremely fine tonal steps with no banding. No objects, no shapes.",
+          "transform": "An abstract soft gradient field built from {{primary}} blending into {{secondary}}. The transition slow, organic and asymmetric, never a straight linear ramp. Subtle volumetric depth as if light diffuses through frosted glass or thick fog. One faint darker fold running diagonally to give the field structure. Extremely fine tonal steps with no banding. No objects, no shapes.",
           "compose": "{transform} {append}",
           "negative": "banding, harsh edges, mesh grid, blobs, shapes, neon, high saturation, rainbow",
           "strength": null

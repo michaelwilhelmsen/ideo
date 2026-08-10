@@ -15,8 +15,10 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { logger } from '@/lib/logger'
 import {
+  copyPalette,
   DEFAULT_BATCH_SIZES,
   DEFAULT_MODEL_IDS,
+  DEFAULT_PALETTE,
   readManifest,
   writeManifest,
   type AspectId,
@@ -297,6 +299,10 @@ export function newProject(name: string, aspect: AspectId): Project {
     // Copied, not referenced (PRD §11): raising the default later must not
     // make an existing project's next click cost four times as much.
     batchSizes: { ...DEFAULT_BATCH_SIZES },
+    // Copied for the same reason, and it is the reason the palette is allowed
+    // to stay editable: nothing already generated references it, because every
+    // recipe persists its expanded prose (#46).
+    palette: copyPalette(DEFAULT_PALETTE),
     drafts: {
       // From the registry (#25), not written out here: a draft naming a model
       // with no capability entry is a recipe nothing can build a request for,

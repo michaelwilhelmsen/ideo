@@ -410,3 +410,49 @@ function animatingWith(modelId: string, options: StageParams = {}) {
     },
   }
 }
+
+/**
+ * An unresolved template variable (#46).
+ *
+ * Settled as a warning rather than a block: `{{` is legal prose in an editable
+ * box, so refusing the run would be too strong — but this is a paid click, and
+ * silence is the wrong default for a prompt with a hole in it.
+ */
+describe('StageParameters — an unfinished prompt', () => {
+  function withPrompt(prompt: string) {
+    return {
+      ...ATLAS,
+      drafts: { ...ATLAS.drafts, source: { ...ATLAS.drafts.source, prompt } },
+    }
+  }
+
+  it('warns about a blank left in the prompt, naming it', () => {
+    render(
+      <StageParameters
+        project={withPrompt('{{subject}} on a plinth')}
+        stage="source"
+      />
+    )
+
+    expect(
+      screen.getByText(/still has a blank in it: \{\{subject\}\}/)
+    ).toBeVisible()
+  })
+
+  it('does not block the run over it', () => {
+    render(
+      <StageParameters
+        project={withPrompt('{{subject}} on a plinth')}
+        stage="source"
+      />
+    )
+
+    expect(screen.getByRole('button', { name: /^Generate/ })).toBeEnabled()
+  })
+
+  it('says nothing about a prompt that has no blanks', () => {
+    render(<StageParameters project={withPrompt('a kettle')} stage="source" />)
+
+    expect(screen.queryByText(/still has/i)).not.toBeInTheDocument()
+  })
+})

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { ATLAS } from './fixtures'
 import { MANIFEST_VERSION, readManifest, writeManifest } from './manifest'
 import { UPLOAD_MODEL_ID, uploadRecipe } from './upload'
-import type { Generation } from './types'
+import type { Generation, Project } from './types'
 
 describe('a manifest round-trips', () => {
   it('comes back as the project that went in', () => {
@@ -331,5 +331,62 @@ describe('an upload survives the manifest (#27)', () => {
     // The point of the reserved id: nothing in the reader branches on it.
     expect(project.generations).toHaveLength(1)
     expect(project.generations[0]?.stage).toBe('source')
+  })
+})
+
+/**
+ * The palette is the one field with no tolerant fallback (#46).
+ *
+ * Everything else here is read leniently on the argument that the recipe is
+ * the expensive artefact and losing it over one bad field is the wrong trade.
+ * A palette is different in kind: it is what the *next* prompt will be written
+ * in, so substituting ours would turn an unopenable project into one that opens
+ * and quietly says something else.
+ */
+describe('the palette (#46)', () => {
+  it('round-trips, names and all', () => {
+    const named: Project = {
+      ...ATLAS,
+      palette: {
+        roles: {
+          ...ATLAS.palette.roles,
+          primary: { hex: '#D9662C', name: 'House orange' },
+        },
+        extras: [{ hex: '#A3B18A', name: null }],
+      },
+    }
+
+    const project = readManifest(
+      JSON.parse(JSON.stringify(writeManifest(named, 1))) as unknown
+    )
+
+    expect(project.palette).toEqual(named.palette)
+  })
+
+  it('refuses a manifest with no palette at all', () => {
+    const manifest = writeManifest(ATLAS, 1) as unknown as Record<
+      string,
+      unknown
+    >
+    delete manifest.palette
+
+    expect(() => readManifest(manifest)).toThrow(/palette/i)
+  })
+
+  it('refuses a palette that would turn a two-ink recipe to mud', () => {
+    const flat: Project = {
+      ...ATLAS,
+      palette: {
+        ...ATLAS.palette,
+        roles: {
+          ...ATLAS.palette.roles,
+          accent: { ...ATLAS.palette.roles.primary },
+        },
+      },
+    }
+
+    expect(() => readManifest(writeManifest(flat, 1))).toThrow(
+      /primary|accent/i
+    )
   })
 })

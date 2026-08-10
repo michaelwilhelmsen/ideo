@@ -44,13 +44,36 @@ picker. Every ratio the library uses is already offered, so dimming the mismatch
 hide most of the library on a wide project, and a strong filter dressed as a hint is worse
 than no hint.
 
-### Template variables are not resolved yet
+### Template variables
 
-The source library carries `{{subject}}`, `{{brand_color}}` and friends. #46 owns the
-project palette and the resolution; until it lands they seed **literally** — visible in the
-prompt box and editable like any other text, which is also what #46 settled on for a
-placeholder it cannot fill. Note the brace count: `{single}` slots are the loader's and are
-always resolved at load; `{{double}}` ones are not this module's business.
+A variant may have holes in it: `{{primary}}`, `{{subject}}`. Note the brace count —
+`{single}` slots are the loader's and are always substituted at load, `{{double}}` ones
+survive into the prompt box.
+
+Which variables a variant has is **derived from its template**, not declared beside it.
+The two can then never disagree, and a fork whose prompt still holds a literal `{{`
+stays readable rather than failing the loader over legal prose. What _is_ declared is
+`defaults` — the authored per-variable fallback, optional and absent on most recipes.
+
+Resolution happens at **seed** time, in `composePreset`, over the prompt **and** the
+negative — both go on the wire, so a hole in either gets a field and both are expanded from
+the same values. Only the expanded prose is ever persisted. A recipe that resolved against a library we can still edit would not be a
+recipe. Precedence:
+
+1. **What the user typed** into the picker's field.
+2. **The project palette**, where the key names a role (`primary`, `ink`, …) or a filled
+   extra slot (`extra1`, `extra2`, …). The value is the colour's **name** — see
+   [palette.md](./palette.md).
+3. **The variant's `defaults` entry**.
+4. **Nothing** — the `{{…}}` literal stays visible in the box, and the run button warns
+   without blocking (`unresolvedVariables`). `{{` is legal prose in an editable box, so a
+   hard block would be too strong; silence would be wrong too, because this is a paid
+   click.
+
+Changing a field re-seeds the prompt box, unless the box has been hand-edited — then the
+existing re-seed offer appears instead and the user's text stands. The values themselves
+are session state in `PresetField`, never on the project: `{{subject}}` varies per look,
+and a stale one carried across recipes is a confident wrong answer.
 
 ## A preset is a seed, not a filter
 
@@ -80,18 +103,18 @@ through every preset.
 that idiom" and is a real answer; absent means nobody wrote it down, and the loader
 refuses it. Same for a variant's `negative` and `strength`.
 
-Nothing is ever cross-sent. `composePreset(preset, model)` returns `null` when the model's
+Nothing is ever cross-sent. `composePreset(preset, model, palette, values)` returns `null` when the model's
 idiom is one the preset does not speak — a tag list sent to a prose encoder reads as
 malformed English (PRD §6.2). The picker disables such a preset with its reason attached
 (PRD §10.1), and the reducer seeds nothing if one arrives anyway.
 
 ## What seeding fills, and what gates it
 
-| Field    | Gate                                             |
-| -------- | ------------------------------------------------ |
-| prompt   | always — the whole composed string               |
-| strength | only where the model has a `strengthParam`       |
-| negative | only where the model has a `negativePromptParam` |
+| Field    | Gate                                                             |
+| -------- | ---------------------------------------------------------------- |
+| prompt   | always — the whole composed string, holes expanded               |
+| strength | only where the model has a `strengthParam`                       |
+| negative | only where the model has a `negativePromptParam`, holes expanded |
 
 A negative is **never** folded into the positive prompt (PRD §9): "no gradients" inside a
 positive prompt is a request for gradients. Where there is no field for one it is dropped,
@@ -102,7 +125,7 @@ unless the preset overrode it, and an override is clamped to `PRESET_STRENGTH_WI
 ## Switching models
 
 The user's text is kept — always. A re-seed is **offered**, never forced:
-`presetSeedState(prompt, preset, model)` answers `none`, `seeded`, `unsupported` or
+`presetSeedState(prompt, preset, model, palette, values)` answers `none`, `seeded`, `unsupported` or
 `stale`, and `stale` carries the reason key. It is derived from what is on screen rather
 than recorded, so nothing new has to round-trip through the manifest. Taking the offer is
 the same `choosePreset` action again.
@@ -150,4 +173,8 @@ Each library forks into its **own folder**, so a scene called "Warm" and a look 
 3. State `negative` and `strength` explicitly, `null` included.
 4. On a source preset, name the `aspect` it was composed for; omit it where there is no
    opinion. It must be one of the curated ratios in `aspects.ts`.
-5. Run the tests. The loader names the preset it could not read.
+5. Name any colour hole after a palette role or an `extraN` slot — `{{brand_color}}` would
+   compose as a literal in a paid prompt and never say so. Add `defaults` only for the
+   free-text holes worth answering in advance; a default for a hole the template does not
+   have is refused at load.
+6. Run the tests. The loader names the preset it could not read.
