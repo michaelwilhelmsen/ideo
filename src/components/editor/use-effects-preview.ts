@@ -62,6 +62,8 @@ export function useEffectsPreview({
 }): EffectsPreview {
   const canvas = useRef<HTMLCanvasElement>(null)
   const renderer = useRef<EffectsRenderer | null>(null)
+  /** Which canvas the renderer's context belongs to — see the rebind below. */
+  const boundTo = useRef<HTMLCanvasElement | null>(null)
   const media = useRef<EffectSource | null>(null)
   const drawn = useRef<string | null>(null)
 
@@ -126,8 +128,22 @@ export function useEffectsPreview({
       const surface = canvas.current
 
       if (from !== null && surface !== null) {
-        if (renderer.current === null) {
+        // Bound to the element, not merely to "there is one". The canvas is
+        // unmounted whenever the picture stops coming from the shader — no look
+        // at all shows the original, and a diffusion kernel shows what Rust
+        // sent back — so choosing a look again mounts a *different* canvas.
+        // A renderer kept from the old one goes on drawing into a detached
+        // element, which is a preview that silently stays blank until the tab
+        // is closed and reopened.
+        if (renderer.current === null || boundTo.current !== surface) {
+          renderer.current?.dispose()
           renderer.current = createEffectsRenderer(surface)
+          boundTo.current = surface
+          // A fresh context has drawn nothing, whatever the last one drew.
+          // Without this, returning to a look with the same values as before
+          // matches the signature below and skips the only draw that would
+          // have filled the new canvas.
+          drawn.current = null
         }
 
         const active = renderer.current
@@ -163,6 +179,7 @@ export function useEffectsPreview({
     () => () => {
       renderer.current?.dispose()
       renderer.current = null
+      boundTo.current = null
     },
     []
   )
