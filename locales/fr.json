@@ -317,5 +317,7 @@
   "export.bakeTreatment": "Intégrer {{name}}",
   "export.treatment.hint": "Rendu à la résolution d’export, dans chaque fichier. Désactivez-le pour obtenir l’image brute.",
   "export.baking": "Traitement de l’image {{done}} sur {{total}}…",
-  "export.cancelBake": "Annuler"
+  "export.cancelBake": "Annuler",
+  "effects.title": "Effets",
+  "effects.treating": "Traitement de {{name}}"
 }

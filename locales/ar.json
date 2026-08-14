@@ -317,5 +317,7 @@
   "export.bakeTreatment": "تضمين {{name}}",
   "export.treatment.hint": "يُصيَّر بدقة التصدير في كل ملف. أوقفه للحصول على الصورة الأصلية.",
   "export.baking": "معالجة الإطار {{done}} من {{total}}…",
-  "export.cancelBake": "إلغاء"
+  "export.cancelBake": "إلغاء",
+  "effects.title": "التأثيرات",
+  "effects.treating": "معالجة {{name}}"
 }

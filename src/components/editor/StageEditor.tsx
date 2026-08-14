@@ -139,7 +139,7 @@ export function StageEditor() {
 
       {effectsOpen ? (
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
-          <EffectsTab project={project} stage={stage} />
+          <EffectsTab />
           {/* The strip stays: the tab follows the selection, so the way to
               treat something else is to select it here. */}
           <CandidateStrip project={project} stage={stage} />

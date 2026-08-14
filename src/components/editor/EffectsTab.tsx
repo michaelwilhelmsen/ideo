@@ -5,16 +5,20 @@
  * four, no verdicts. Effects are instant, free and deterministic, so "generate
  * four and pick one" is the wrong interaction: you turn a knob and watch.
  *
+ * **The picture is here; the controls are in the right sidebar.** That is the
+ * layout every other tab already keeps — parameters live in one column and the
+ * result lives in the other, so which pane to reach for never depends on which
+ * tab you are on. See `EffectsParameters`, which is what the sidebar renders in
+ * place of a stage's form while this tab is open.
+ *
  * **What it operates on.** The current selection by default; "Treat this" pins a
  * specific candidate, and the pin is sticky — changing your selection elsewhere
  * must not silently move you onto a different generation's treatment mid-edit.
  *
- * **Where it renders.** WebGL2, in the webview, for the preview *and* (later)
- * the bake — one program, so the exported file cannot disagree with what was on
- * screen. The two error-diffusion kernels are the deliberate exception: they
- * decide each pixel from pixels already decided, so they go to Rust, stills
- * only, and the picker disables them on a clip with the reason attached rather
- * than hiding them or silently substituting blue noise.
+ * **Where it renders.** WebGL2, in the webview, for the preview *and* the bake —
+ * one program, so the exported file cannot disagree with what was on screen. The
+ * two error-diffusion kernels are the deliberate exception: they decide each
+ * pixel from pixels already decided, so they go to Rust, stills only.
  *
  * **Fit by default, 1:1 on demand.** Composition is judged at fit; a dither cell
  * is only judged honestly at pixel scale. The shader re-renders at whatever
@@ -25,115 +29,80 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { FieldDescription } from '@/components/ui/field'
 import { cn } from '@/lib/utils'
 import { isVideoAsset } from '@/lib/export'
 import {
-  BUILT_IN_LOOKS,
-  inksForValues,
   isDiffusionKernel,
-  lookFor,
-  resolveTreatment,
   seedTreatmentFrom,
   type EffectsLook,
   type Ink,
   type KnobValue,
 } from '@/lib/effects'
 import {
-  generationById,
-  selectedGeneration,
   sourcePresetById,
   stylePresetById,
   type Generation,
   type Preset,
-  type Project,
-  type StageKind,
 } from '@/lib/recipe'
-import { useLookLibrary, useTreatedStill } from '@/services/effects'
+import { useTreatedStill } from '@/services/effects'
 import { useEditorStore } from '@/store/editor-store'
-import { EffectKnob } from './EffectKnobs'
 import { useEffectsPreview } from './use-effects-preview'
+import { useTreatmentTarget } from './use-treatment-target'
 import { useGenerationName } from './naming'
 import { assetSource } from './assets'
 import { EmptyPreview } from './shared'
 
-export function EffectsTab({
-  project,
-  stage,
-}: {
-  project: Project
-  stage: StageKind
-}) {
+export function EffectsTab() {
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
   const directory = useEditorStore(store => store.state.directory)
-  const pinned = useEditorStore(store => store.state.treatmentTarget)
   const nameOf = useGenerationName()
-  const library = useLookLibrary()
+  const target = useTreatmentTarget()
 
   const [actualSize, setActualSize] = useState(false)
-
-  // The pin wins where it names something this project still has; otherwise the
-  // tab follows the selection, which is what it does before anybody pins
-  // anything.
-  const target =
-    (pinned === null ? null : generationById(project, pinned)) ??
-    selectedGeneration(project, stage)
-
-  const treatment = target?.treatment ?? null
-  const look = lookFor(treatment, library)
 
   // Offered on every render, and refused by the reducer wherever a treatment
   // already exists — which is what makes "a seed, never a lock" a property of
   // the reducer rather than of this effect's dependency array.
-  useEffect(() => {
-    if (target === null || target.treatment !== null) return
+  //
+  // Here rather than in the shared hook, because this component is only mounted
+  // while the tab is open: a sidebar that seeded a candidate the user was not
+  // looking at would be a lock wearing a seed's clothes.
+  const generation = target?.generation ?? null
+  const library = target?.library
+  const palette = target?.project.palette
 
-    const seed = seedTreatmentFrom(
-      presetOfRecipe(target),
-      library,
-      project.palette
-    )
+  useEffect(() => {
+    if (generation === null || generation.treatment !== null) return
+    if (library === undefined || palette === undefined) return
+
+    const seed = seedTreatmentFrom(presetOfRecipe(generation), library, palette)
     if (seed === null) return
 
     dispatch({
       type: 'seedTreatment',
-      generationId: target.id,
+      generationId: generation.id,
       treatment: seed,
     })
-  }, [target, library, project.palette, dispatch])
+  }, [generation, library, palette, dispatch])
 
-  if (target === null) {
+  if (target === null) return null
+
+  if (target.generation === null) {
     return (
       <EmptyPreview
-        aspect={project.aspect}
+        aspect={target.project.aspect}
         messageKey="effects.nothingSelected"
       />
     )
   }
 
-  const values =
-    treatment !== null && look !== null
-      ? resolveTreatment(treatment, look, project.palette)
-      : null
-
-  const source = assetSource(directory, target.asset)
-  const isClip = isVideoAsset(target.asset)
-
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-center gap-3">
-        <h2 className="text-sm font-medium">{nameOf(target)}</h2>
-        {pinned === target.id ? (
+        <h2 className="text-sm font-medium">{nameOf(target.generation)}</h2>
+        {target.pinned ? (
           <Button
             size="sm"
             variant="secondary"
@@ -146,7 +115,10 @@ export function EffectsTab({
             size="sm"
             variant="outline"
             onClick={() =>
-              dispatch({ type: 'pinTreatment', generationId: target.id })
+              dispatch({
+                type: 'pinTreatment',
+                generationId: target.generation?.id ?? '',
+              })
             }
           >
             {t('effects.treatThis')}
@@ -163,61 +135,15 @@ export function EffectsTab({
       </header>
 
       <TreatedPreview
-        generation={target}
-        source={source}
-        look={look}
-        values={values}
-        inks={values === null ? [] : inksForValues(project.palette, values)}
-        projectId={project.id}
-        aspect={project.aspect}
+        generation={target.generation}
+        source={assetSource(directory, target.generation.asset)}
+        look={target.look}
+        values={target.values}
+        inks={target.inks}
+        projectId={target.project.id}
+        aspect={target.project.aspect}
         actualSize={actualSize}
       />
-
-      <LookPicker
-        library={library}
-        look={look}
-        modified={treatment?.lookModified === true}
-        onChoose={next =>
-          dispatch({
-            type: 'chooseLook',
-            generationId: target.id,
-            look: next,
-          })
-        }
-      />
-
-      {look !== null && values !== null && (
-        <div className="space-y-3">
-          {look.knobs.map(knob => (
-            <EffectKnob
-              key={knob.key}
-              knob={knob}
-              value={values[knob.key] as KnobValue}
-              refused={
-                // Error diffusion crawls between frames; blue noise holds
-                // still. Disabled with the reason rather than hidden or
-                // silently substituted — an export that did not match the
-                // control on screen would be the worse failure.
-                knob.kind === 'choice' && knob.key === 'kernel' && isClip
-                  ? {
-                      values: knob.options.filter(isDiffusionKernel),
-                      reasonKey: 'effects.reason.diffusionOnClip',
-                    }
-                  : undefined
-              }
-              onChange={value =>
-                dispatch({
-                  type: 'setKnob',
-                  generationId: target.id,
-                  look,
-                  key: knob.key,
-                  value,
-                })
-              }
-            />
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -328,77 +254,6 @@ function TreatedPreview({
     </div>
   )
 }
-
-function LookPicker({
-  library,
-  look,
-  modified,
-  onChoose,
-}: {
-  library: readonly EffectsLook[]
-  look: EffectsLook | null
-  modified: boolean
-  onChoose: (look: EffectsLook | null) => void
-}) {
-  const { t } = useTranslation()
-
-  const mine = library.filter(
-    entry => !BUILT_IN_LOOKS.some(builtIn => builtIn.id === entry.id)
-  )
-
-  return (
-    <Field>
-      <FieldLabel htmlFor="effects-look">
-        {t('effects.look')}
-        {modified && (
-          <span className="ms-auto text-xs text-muted-foreground">
-            {t('effects.modified')}
-          </span>
-        )}
-      </FieldLabel>
-      <Select
-        value={look?.id ?? NONE}
-        onValueChange={id =>
-          onChoose(
-            id === NONE ? null : (library.find(e => e.id === id) ?? null)
-          )
-        }
-      >
-        <SelectTrigger id="effects-look" className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {/* "None" is a look you can choose rather than a clear button, so
-              "give me the untreated plate" is one gesture in the same control
-              that took you away from it. */}
-          <SelectItem value={NONE}>{t('effects.none')}</SelectItem>
-          <SelectGroup>
-            <SelectLabel>{t('effects.builtIn')}</SelectLabel>
-            {BUILT_IN_LOOKS.map(entry => (
-              <SelectItem key={entry.id} value={entry.id}>
-                {entry.name}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-          {mine.length > 0 && (
-            <SelectGroup>
-              <SelectLabel>{t('effects.yours')}</SelectLabel>
-              {mine.map(entry => (
-                <SelectItem key={entry.id} value={entry.id}>
-                  {entry.name}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          )}
-        </SelectContent>
-      </Select>
-      {look?.blurb != null && <FieldDescription>{look.blurb}</FieldDescription>}
-    </Field>
-  )
-}
-
-/** A `Select` cannot hold an empty value, so "no look" needs a word. */
-const NONE = 'none'
 
 /**
  * The preset a candidate's recipe names, from whichever composing library holds

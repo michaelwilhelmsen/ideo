@@ -23,6 +23,18 @@ no verdicts — so "generate four and pick one" is the wrong interaction. Wideni
 `StageKind`. The pin is sticky so a selection change elsewhere cannot move you
 onto a different generation's treatment mid-edit.
 
+**The picture is in the main pane; the knobs are in the right sidebar.** That is
+the layout every other tab keeps, so which column to reach for never depends on
+which tab you are on. `EffectsParameters` replaces `StageParameters` while the
+tab is open — an effect has no model, no seed and no price, so a stage form
+under the knobs would be a form about something you are not looking at. The
+export panel stays put, because export is available from every tab and is what a
+treatment is for.
+
+Both panes are siblings in the layout rather than parent and child, so they
+share `useTreatmentTarget()` rather than passing the target down through a
+component that owns neither.
+
 ## A look
 
 One authored effect with knobs — **not a stack the user assembles**. That is

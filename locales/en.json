@@ -456,5 +456,7 @@
   "export.bakeTreatment": "Bake in {{name}}",
   "export.treatment.hint": "Rendered at the export resolution, into every file. Switch it off for the clean plate.",
   "export.baking": "Treating frame {{done}} of {{total}}…",
-  "export.cancelBake": "Cancel"
+  "export.cancelBake": "Cancel",
+  "effects.title": "Effects",
+  "effects.treating": "Treating {{name}}"
 }
