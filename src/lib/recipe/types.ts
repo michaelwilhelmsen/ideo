@@ -60,6 +60,51 @@ export type ParamValue = string | number | boolean | PixelSize
 export type StageParams = Readonly<Record<string, ParamValue>>
 
 /**
+ * One knob of an effect, as a generation records it (#36).
+ *
+ * Scalars only, and no `PixelSize`: an effect's geometry is a cell size or an
+ * angle, never an output dimension — the treatment is applied *to* whatever the
+ * model returned and never decides how big it is.
+ */
+export type TreatmentValue = string | number | boolean
+
+/**
+ * The effect applied to a generation, and everything needed to reproduce it.
+ *
+ * Here rather than in `lib/effects` because this file is what a project *is*,
+ * and a treatment is now part of that — the same reason `Palette` is reachable
+ * from `Project`. What a look is, which knobs it has and how a value is held to
+ * one all live in `lib/effects`, which is where the shaders are.
+ *
+ * Deliberately outside {@link StageRecipe}: a recipe is the frozen record of
+ * what was sent to a model, and an effect was never sent to anything. It is
+ * chosen while looking at the result, which is why #36 is a tab and not a fourth
+ * stage.
+ */
+export interface Treatment {
+  /** Which look, by id — from the built-ins or from the user's own folder. */
+  readonly lookId: string
+  /**
+   * Every knob's **resolved** value.
+   *
+   * Resolved, never a reference: a colour knob that started as the palette role
+   * `ink` is stored as the hex it resolved to, so editing the project's palette
+   * cannot reach back into an image somebody already approved. Same argument
+   * #46 settled for `{{primary}}`.
+   */
+  readonly values: Readonly<Record<string, TreatmentValue>>
+  /**
+   * Whether any knob was turned after the look was chosen.
+   *
+   * Provenance rather than a diff, exactly like {@link StageRecipe.presetModified}
+   * — one flag is enough to say "this is Halftone, nudged", and cheaper than
+   * storing what the look said at the time, which is a second copy of a library
+   * the user can edit.
+   */
+  readonly lookModified: boolean
+}
+
+/**
  * Everything needed to re-run one stage. This is the artefact PRD §1 calls
  * expensive — the thing worth persisting, restoring, and paying attention to.
  */
@@ -151,6 +196,14 @@ export interface Generation {
    * cleanup pass must not count as an orphan.
    */
   readonly asset: string | null
+  /**
+   * The effect applied to this candidate, or `null` for an untreated one (#36).
+   *
+   * One treatment per generation. Several treatments of one frame, held side by
+   * side, is a follow-up — with live preview and instant look switching the
+   * comparison is currently made by flipping, not by baking.
+   */
+  readonly treatment: Treatment | null
 }
 
 /**
@@ -238,6 +291,28 @@ export interface EditorState {
   /** Where the open project's manifest lives — assets hang off it. */
   readonly directory: string | null
   readonly activeStage: StageKind
+  /**
+   * Whether the effects tab is the one on screen (#36).
+   *
+   * A flag beside `activeStage` rather than a fourth value *in* it, because the
+   * two answer different questions and both still have to be answered while the
+   * tab is open: `activeStage` says which stage's form the right sidebar edits
+   * and which stage's selection the export panel would send, and an effect is
+   * not a stage — it has no model, no seed and no price. Widening `StageKind`
+   * instead would reach `readDrafts`, `modelById`, `DEFAULT_MODEL_IDS` and
+   * `validateRegistry`, none of which a modelless tab can answer.
+   */
+  readonly effectsOpen: boolean
+  /**
+   * The candidate the effects tab is pinned to, or `null` to follow the
+   * selection.
+   *
+   * Sticky on purpose: without it, changing your selection elsewhere would
+   * silently move you onto a different generation's treatment mid-edit. Session
+   * state, because a pin is a thing you are doing rather than a thing the
+   * project holds.
+   */
+  readonly treatmentTarget: string | null
   /** PRD §10.3 — rejected candidates stay reachable behind one toggle. */
   readonly showRejected: boolean
   /**

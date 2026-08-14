@@ -36,6 +36,7 @@ import {
   RecipeReadout,
   SeedComparison,
 } from './shared'
+import { EffectsTab } from './EffectsTab'
 import { useGenerationName } from './naming'
 import { PaletteDialog } from './PaletteDialog'
 import { RunGrid } from './RunGrid'
@@ -62,6 +63,7 @@ export function StageEditor() {
   }
 
   const stage = state.activeStage
+  const effectsOpen = state.effectsOpen
   const selected = selectedGeneration(project, stage)
 
   // The run this stage is still offering a choice from, if any — see
@@ -102,10 +104,10 @@ export function StageEditor() {
             key={candidate}
             type="button"
             onClick={() => dispatch({ type: 'selectStage', stage: candidate })}
-            aria-current={candidate === stage}
+            aria-current={!effectsOpen && candidate === stage}
             className={cn(
               'cursor-pointer border-b-2 px-3 py-2 text-sm transition-colors',
-              candidate === stage
+              !effectsOpen && candidate === stage
                 ? 'border-primary font-medium text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             )}
@@ -116,39 +118,65 @@ export function StageEditor() {
             </span>
           </button>
         ))}
+        {/* The fourth tab (#36), and the one place this strip stops being a
+            pure map over `STAGE_ORDER`. It carries no count, because an effect
+            is not a thing you accumulate candidates of — there is one treatment
+            per generation and no batch of four to choose between. */}
+        <button
+          type="button"
+          onClick={() => dispatch({ type: 'openEffects' })}
+          aria-current={effectsOpen}
+          className={cn(
+            'cursor-pointer border-b-2 px-3 py-2 text-sm transition-colors',
+            effectsOpen
+              ? 'border-primary font-medium text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          )}
+        >
+          {t('effects.tab')}
+        </button>
       </nav>
 
-      <div className="flex-1 space-y-4 overflow-y-auto p-6">
-        <InputSummary project={project} stage={stage} />
+      {effectsOpen ? (
+        <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          <EffectsTab project={project} stage={stage} />
+          {/* The strip stays: the tab follows the selection, so the way to
+              treat something else is to select it here. */}
+          <CandidateStrip project={project} stage={stage} />
+        </div>
+      ) : (
+        <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          <InputSummary project={project} stage={stage} />
 
-        {/* Only the source stage takes pixels from outside the project (#27). */}
-        {stage === 'source' && <SourceUpload project={project} />}
+          {/* Only the source stage takes pixels from outside the project (#27). */}
+          {stage === 'source' && <SourceUpload project={project} />}
 
-        {/* While a run is in flight the stage is the run: every candidate at
+          {/* While a run is in flight the stage is the run: every candidate at
             the same size, rather than a hero showing whichever landed first
             (#26). The strip stays below — history does not go away because
             something is generating. */}
-        {run !== null ? (
-          <RunGrid project={project} run={run} />
-        ) : selected === null ? (
-          <EmptyPreview
-            aspect={project.aspect}
-            messageKey="editor.nothingSelected"
-          />
-        ) : (
-          <div className="space-y-3">
-            <Preview generation={selected} aspect={project.aspect} />
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-medium">{nameOf(selected)}</h2>
-              <GenerationBadges project={project} generation={selected} />
+          {run !== null ? (
+            <RunGrid project={project} run={run} />
+          ) : selected === null ? (
+            <EmptyPreview
+              aspect={project.aspect}
+              messageKey="editor.nothingSelected"
+            />
+          ) : (
+            <div className="space-y-3">
+              <Preview generation={selected} aspect={project.aspect} />
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-medium">{nameOf(selected)}</h2>
+                <GenerationBadges project={project} generation={selected} />
+              </div>
+              <RecipeReadout generation={selected} />
+              <SeedComparison project={project} generation={selected} />
             </div>
-            <RecipeReadout generation={selected} />
-            <SeedComparison project={project} generation={selected} />
-          </div>
-        )}
+          )}
 
-        <CandidateStrip project={project} stage={stage} />
-      </div>
+          <CandidateStrip project={project} stage={stage} />
+        </div>
+      )}
     </div>
   )
 }

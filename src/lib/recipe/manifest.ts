@@ -18,6 +18,7 @@
  * candidate is the wrong trade.
  */
 
+import { readTreatment, writeTreatment } from '@/lib/effects/treatment'
 import { isAspectId } from './aspects'
 import { isRecord } from './json'
 import { readPalette, type Palette } from './palette'
@@ -57,6 +58,8 @@ export interface ManifestGeneration {
   readonly recipe: unknown
   /** #26. Absent in manifests older than the slice, which read as `null`. */
   readonly runId: string | null
+  /** #36. Absent in manifests older than the slice, which read as `null`. */
+  readonly treatment: unknown
 }
 
 export interface ProjectManifest {
@@ -115,6 +118,10 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
       asset: generation.asset,
       recipe: generation.recipe,
       runId: generation.runId,
+      treatment:
+        generation.treatment === null
+          ? null
+          : writeTreatment(generation.treatment),
     })),
   }
 }
@@ -192,6 +199,10 @@ function readGeneration(document: unknown): Generation | null {
     // `null` says. Losing the grouping costs a divider in the strip; refusing
     // the candidate over it would cost the recipe.
     runId: typeof document.runId === 'string' ? document.runId : null,
+    // #36. Read whole rather than through `readParams`, and *not* resolved
+    // against the effects library — see `lib/effects/treatment.ts`. A candidate
+    // from before the slice carries none, which is what `null` says.
+    treatment: readTreatment(document.treatment),
   }
 }
 

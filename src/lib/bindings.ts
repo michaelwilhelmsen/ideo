@@ -356,6 +356,43 @@ async sourcePresetDelete(id: string) : Promise<Result<null, string>> {
 }
 },
 /**
+ * Every effects look the user has saved, in a stable order.
+ * 
+ * A fourth library, independent of the other three (#36). A look is not a
+ * prompt at all — it seeds no stage and composes no text — so nothing about it
+ * can shadow or be shadowed by a preset that shares its id.
+ */
+async effectsLooksList() : Promise<Result<JsonValue[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("effects_looks_list") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Writes one look, by id — creating it, or updating one of the user's own.
+ */
+async effectsLookSave(id: string, document: JsonValue) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("effects_look_save", { id, document }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Removes one look. Deleting one that is already gone is not an error.
+ */
+async effectsLookDelete(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("effects_look_delete", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Every palette the user has saved, in a stable order.
  * 
  * A fourth library over the same store (#49), and the one that is not a preset
@@ -389,6 +426,25 @@ async userPaletteSave(id: string, document: JsonValue) : Promise<Result<null, st
 async userPaletteDelete(id: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("user_palette_delete", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * One still, treated, as PNG bytes.
+ * 
+ * Runs on a blocking thread: #52 measured error diffusion at ~81 ms for a
+ * full-resolution frame, which is fine for a debounced preview and is not fine
+ * on an async runtime thread.
+ * 
+ * A PNG rather than raw pixels, because a 2560×1440 frame is ~11 MB raw and
+ * dithered output compresses hard — the encode pays for itself several times
+ * over on the way through IPC.
+ */
+async renderTreatedStill(projectId: string, generationId: string, effect: CpuEffect) : Promise<Result<number[], EffectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("render_treated_still", { projectId, generationId, effect }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -613,6 +669,55 @@ export_directory?: string | null }
  * "done".
  */
 export type CleanupOutcome = { removedCount: number; freedBytes: number }
+/**
+ * What one CPU render was asked for.
+ * 
+ * The **inks are resolved before they get here**, darkest first: a duotone
+ * arrives as a ramp between its two colours and a palette reduction arrives as
+ * the project's own entries. Which colours a look uses is a question about the
+ * look and the project, and this module's business is where the levels sit and
+ * how the error moves.
+ */
+export type CpuEffect = { 
+/**
+ * `#RRGGBB`, darkest first, at least two.
+ */
+inks: string[]; kernel: DiffusionKernel; 
+/**
+ * Whether the levels sit where the inks' luminances actually are.
+ * 
+ * `false` spaces them evenly across the range, which is the
+ * higher-contrast reading — and what #52 measured losing up to 0.22 of
+ * mean linear luminance on Studio's four inks, because both interior steps
+ * land in the one gap that palette has no ink for. Inert on a ramp, whose
+ * luminances are already evenly spaced, which is why a duotone never has
+ * to answer this question.
+ */
+paletteShaped: boolean }
+/**
+ * Which diffusion. The ordered screens live in the shaders, not here.
+ */
+export type DiffusionKernel = "floydSteinberg" | "atkinson"
+/**
+ * Why a CPU render produced nothing.
+ */
+export type EffectError = 
+/**
+ * The candidate has no file, or the file is not on disk.
+ */
+{ reason: "noAsset" } | 
+/**
+ * The bytes are not a picture this build can decode.
+ */
+{ reason: "undecodable"; detail: string } | 
+/**
+ * The treatment names fewer than two inks, or a colour that is not one.
+ */
+{ reason: "unusableInks" } | 
+/**
+ * The PNG could not be written back.
+ */
+{ reason: "encodeFailed"; detail: string }
 /**
  * Why an export produced nothing.
  * 

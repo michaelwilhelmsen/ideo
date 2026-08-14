@@ -70,6 +70,7 @@ function generation(
     // No file behind a fixture — which is also the state of a real generation
     // whose stage has no model call yet, so nothing special-cases it.
     asset: null,
+    treatment: null,
   }
 }
 
@@ -276,6 +277,8 @@ export function fixtureEditorState(): EditorState {
     project: ATLAS,
     directory: `/tmp/ideo-fixture/${ATLAS.id}`,
     activeStage: 'style',
+    effectsOpen: false,
+    treatmentTarget: null,
     showRejected: false,
     // Nothing in flight — a project as it looks when it has just been opened.
     runs: [],

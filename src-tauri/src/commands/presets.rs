@@ -68,6 +68,31 @@ pub async fn motion_preset_delete(app: AppHandle, id: String) -> Result<(), Stri
     store::delete(&app_data(&app)?, Library::Motion, &id)
 }
 
+/// Every effects look the user has saved, in a stable order.
+///
+/// A fourth library, independent of the other three (#36). A look is not a
+/// prompt at all — it seeds no stage and composes no text — so nothing about it
+/// can shadow or be shadowed by a preset that shares its id.
+#[tauri::command]
+#[specta::specta]
+pub async fn effects_looks_list(app: AppHandle) -> Result<Vec<Value>, String> {
+    store::list(&app_data(&app)?, Library::Effects)
+}
+
+/// Writes one look, by id — creating it, or updating one of the user's own.
+#[tauri::command]
+#[specta::specta]
+pub async fn effects_look_save(app: AppHandle, id: String, document: Value) -> Result<(), String> {
+    store::save(&app_data(&app)?, Library::Effects, &id, &document)
+}
+
+/// Removes one look. Deleting one that is already gone is not an error.
+#[tauri::command]
+#[specta::specta]
+pub async fn effects_look_delete(app: AppHandle, id: String) -> Result<(), String> {
+    store::delete(&app_data(&app)?, Library::Effects, &id)
+}
+
 /// Every source preset the user has saved, in a stable order.
 ///
 /// A third library, independent of the other two (#47). A source preset is a

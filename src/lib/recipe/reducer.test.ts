@@ -25,6 +25,12 @@ import {
   type Preset,
 } from './presets'
 import { motionPresetById } from './motion'
+import {
+  BUILT_IN_LOOKS,
+  lookById,
+  seedTreatmentFrom,
+  type EffectsLook,
+} from '@/lib/effects'
 import { colourNameOf } from './palette'
 import { DEFAULT_PALETTE } from './palettes'
 import { UPLOAD_MODEL_ID, isUploadRecipe, uploadFileName } from './upload'
@@ -1598,5 +1604,202 @@ describe('the palette (#46)', () => {
     // The next pick says the new colour.
     const reseeded = apply(after, chooseScene('gn-monolith'))
     expect(openProjectOf(reseeded).drafts.source.prompt).toContain('turquoise')
+  })
+})
+
+describe('the effects tab (#36)', () => {
+  const HALFTONE = lookById('fx-halftone') as EffectsLook
+  const DUOTONE = lookById('fx-duotone-dither') as EffectsLook
+
+  /** A candidate of the open project, for the tab to be pointed at. */
+  function candidateOf(state: EditorState): string {
+    const id = openProjectOf(state).generations[0]?.id
+    if (id === undefined) throw new Error('the fixture has no candidates')
+    return id
+  }
+
+  function treatmentOf(state: EditorState, generationId: string) {
+    return (
+      openProjectOf(state).generations.find(
+        generation => generation.id === generationId
+      )?.treatment ?? null
+    )
+  }
+
+  it('is a fourth tab rather than a fourth stage', () => {
+    // Opening it does not move `activeStage`, because the right sidebar still
+    // has a form to edit and an export panel that needs a selection — neither
+    // of which an effect can answer.
+    const opened = apply(fixtureEditorState(), { type: 'openEffects' })
+
+    expect(opened.effectsOpen).toBe(true)
+    expect(opened.activeStage).toBe(fixtureEditorState().activeStage)
+  })
+
+  it('closes when another tab is picked', () => {
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'openEffects' },
+      { type: 'selectStage', stage: 'animate' }
+    )
+
+    expect(state.effectsOpen).toBe(false)
+    expect(state.activeStage).toBe('animate')
+  })
+
+  it('pins a candidate, and the pin outlives a tab change', () => {
+    // Without the pin, changing your selection elsewhere would move you onto a
+    // different generation's treatment mid-edit.
+    const state = fixtureEditorState()
+    const id = candidateOf(state)
+    const pinned = apply(
+      state,
+      { type: 'pinTreatment', generationId: id },
+      { type: 'selectStage', stage: 'style' }
+    )
+
+    expect(pinned.treatmentTarget).toBe(id)
+    expect(pinned.effectsOpen).toBe(false)
+    expect(apply(pinned, { type: 'unpinTreatment' }).treatmentTarget).toBeNull()
+  })
+
+  it('drops the pin when the project it named goes away', () => {
+    const state = fixtureEditorState()
+    const pinned = apply(state, {
+      type: 'pinTreatment',
+      generationId: candidateOf(state),
+    })
+
+    expect(apply(pinned, { type: 'closeProject' }).treatmentTarget).toBeNull()
+    expect(
+      apply(pinned, {
+        type: 'openProject',
+        project: LEDGER,
+        directory: '/tmp/ledger',
+      }).treatmentTarget
+    ).toBeNull()
+  })
+
+  it('treats one candidate and leaves every other one alone', () => {
+    const state = fixtureEditorState()
+    const id = candidateOf(state)
+    const after = apply(state, {
+      type: 'chooseLook',
+      generationId: id,
+      look: HALFTONE,
+    })
+
+    expect(treatmentOf(after, id)?.lookId).toBe('fx-halftone')
+    expect(
+      openProjectOf(after).generations.filter(
+        generation => generation.treatment !== null
+      )
+    ).toHaveLength(1)
+  })
+
+  it('starts every knob at what the look says, and the palette at what the project says', () => {
+    const state = fixtureEditorState()
+    const id = candidateOf(state)
+    const after = apply(state, {
+      type: 'chooseLook',
+      generationId: id,
+      look: DUOTONE,
+    })
+
+    expect(treatmentOf(after, id)?.values.kernel).toBe('bayer8')
+    expect(treatmentOf(after, id)?.values.inkDark).toBe(
+      openProjectOf(state).palette.roles.ink.hex
+    )
+    // Choosing a look is not itself a nudge.
+    expect(treatmentOf(after, id)?.lookModified).toBe(false)
+  })
+
+  it('records a knob turn as a nudge, and clears the treatment on demand', () => {
+    const state = fixtureEditorState()
+    const id = candidateOf(state)
+    const turned = apply(
+      state,
+      { type: 'chooseLook', generationId: id, look: HALFTONE },
+      {
+        type: 'setKnob',
+        generationId: id,
+        look: HALFTONE,
+        key: 'angle',
+        value: 15,
+      }
+    )
+
+    expect(turned.effectsOpen).toBe(false)
+    expect(treatmentOf(turned, id)?.values.angle).toBe(15)
+    expect(treatmentOf(turned, id)?.lookModified).toBe(true)
+
+    const cleared = apply(turned, {
+      type: 'chooseLook',
+      generationId: id,
+      look: null,
+    })
+    expect(treatmentOf(cleared, id)).toBeNull()
+  })
+
+  it('seeds a candidate that has no treatment', () => {
+    const state = fixtureEditorState()
+    const id = candidateOf(state)
+    const seed = seedTreatmentFrom(
+      presetOf('rs-duotone-dither'),
+      BUILT_IN_LOOKS,
+      openProjectOf(state).palette
+    )
+    if (seed === null) throw new Error('#53 declares a kernel for that recipe')
+
+    const seeded = apply(state, {
+      type: 'seedTreatment',
+      generationId: id,
+      treatment: seed,
+    })
+
+    expect(treatmentOf(seeded, id)?.values.kernel).toBe('atkinson')
+  })
+
+  it('never seeds over a value the user has touched', () => {
+    // The rule #53 states about its own fields: a seed, never a lock. The
+    // caller may dispatch this on every render, which is why the rule lives
+    // here rather than in the component.
+    const state = fixtureEditorState()
+    const id = candidateOf(state)
+    const seed = seedTreatmentFrom(
+      presetOf('rs-duotone-dither'),
+      BUILT_IN_LOOKS,
+      openProjectOf(state).palette
+    )
+    if (seed === null) throw new Error('#53 declares a kernel for that recipe')
+
+    const chosen = apply(
+      state,
+      { type: 'chooseLook', generationId: id, look: HALFTONE },
+      {
+        type: 'setKnob',
+        generationId: id,
+        look: HALFTONE,
+        key: 'angle',
+        value: 15,
+      },
+      { type: 'seedTreatment', generationId: id, treatment: seed },
+      { type: 'seedTreatment', generationId: id, treatment: seed }
+    )
+
+    expect(treatmentOf(chosen, id)?.lookId).toBe('fx-halftone')
+    expect(treatmentOf(chosen, id)?.values.angle).toBe(15)
+  })
+
+  it('arrives untreated on a candidate a run just produced', () => {
+    const state = fixtureEditorState()
+    const after = apply(state, {
+      type: 'runStage',
+      stage: 'source',
+      runs: [{ id: 'gen-new', seed: 7, asset: null, runId: 'run-new' }],
+      at: 1,
+    })
+
+    expect(treatmentOf(after, 'gen-new')).toBeNull()
   })
 })

@@ -22,6 +22,15 @@ const MOTION_PRESETS_DIR: &str = "presets/motion";
 /// And the third — scenes rather than looks (#47), nested for the same reason.
 const SOURCE_PRESETS_DIR: &str = "presets/source";
 
+/// And the fourth — looks rather than prompts (#36), nested for the same reason.
+///
+/// An effects look is a preset in every way that matters to this module: one
+/// validated-id JSON document per file, forkable, living in app data so a repo
+/// update that rewrites every built-in cannot touch it. What it is *not* is a
+/// prompt — it seeds no stage and composes no text — which is why it gets its
+/// own folder rather than sharing the style one.
+const EFFECTS_PRESETS_DIR: &str = "presets/effects";
+
 /// Where saved palettes go (#49) — beside `presets/`, not inside it.
 ///
 /// The one folder here that is not nested, because a palette is not a preset: it
@@ -48,6 +57,8 @@ pub enum Library {
     Motion,
     /// Scenes (#47) — `presets/source/`.
     Source,
+    /// Looks (#36) — `presets/effects/`.
+    Effects,
     /// Palettes (#49) — `palettes/`, beside the presets rather than under them.
     Palette,
 }
@@ -59,6 +70,7 @@ impl Library {
             Self::Style => PRESETS_DIR,
             Self::Motion => MOTION_PRESETS_DIR,
             Self::Source => SOURCE_PRESETS_DIR,
+            Self::Effects => EFFECTS_PRESETS_DIR,
             Self::Palette => PALETTES_DIR,
         }
     }
@@ -401,8 +413,60 @@ mod tests {
         let root = TempDir::new().unwrap();
         save(root.path(), Library::Motion, "drift", &motion("drift")).unwrap();
         save(root.path(), Library::Source, "monolith", &scene("monolith")).unwrap();
+        save(
+            root.path(),
+            Library::Effects,
+            "newsprint",
+            &look("newsprint"),
+        )
+        .unwrap();
 
         assert!(list(root.path(), Library::Style).unwrap().is_empty());
+    }
+
+    fn look(id: &str) -> Value {
+        json!({
+            "version": 1,
+            "id": id,
+            "name": "My halftone",
+            "shader": "halftone",
+            "knobs": [],
+        })
+    }
+
+    #[test]
+    fn a_look_is_a_fourth_library_that_shadows_nothing() {
+        // #36 — a look seeds no stage and composes no prompt, so an id it
+        // shares with a scene, a style or a movement means four different
+        // things in four folders.
+        let root = TempDir::new().unwrap();
+
+        save(root.path(), Library::Style, "warm", &preset("warm")).unwrap();
+        save(root.path(), Library::Effects, "warm", &look("warm")).unwrap();
+
+        assert_eq!(
+            list(root.path(), Library::Effects).unwrap(),
+            vec![look("warm")]
+        );
+        assert_eq!(
+            list(root.path(), Library::Style).unwrap(),
+            vec![preset("warm")]
+        );
+
+        delete(root.path(), Library::Effects, "warm").unwrap();
+        assert_eq!(
+            list(root.path(), Library::Style).unwrap(),
+            vec![preset("warm")]
+        );
+    }
+
+    #[test]
+    fn a_look_id_cannot_walk_out_of_its_folder_either() {
+        let root = TempDir::new().unwrap();
+
+        assert!(save(root.path(), Library::Effects, "../escape", &look("escape")).is_err());
+        assert!(delete(root.path(), Library::Effects, "a/b").is_err());
+        assert!(!root.path().join("presets").join("escape.json").exists());
     }
 
     #[test]

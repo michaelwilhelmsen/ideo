@@ -2,7 +2,8 @@ use tauri_specta::{collect_commands, Builder};
 
 pub fn generate_bindings() -> Builder<tauri::Wry> {
     use crate::commands::{
-        api_key, export, jobs, notifications, preferences, presets, projects, quick_pane, recovery,
+        api_key, effects, export, jobs, notifications, preferences, presets, projects, quick_pane,
+        recovery,
     };
 
     Builder::<tauri::Wry>::new()
@@ -33,9 +34,13 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             presets::source_presets_list,
             presets::source_preset_save,
             presets::source_preset_delete,
+            presets::effects_looks_list,
+            presets::effects_look_save,
+            presets::effects_look_delete,
             presets::user_palettes_list,
             presets::user_palette_save,
             presets::user_palette_delete,
+            effects::render_treated_still,
             export::ffmpeg_status,
             export::recheck_ffmpeg,
             export::export_generation,

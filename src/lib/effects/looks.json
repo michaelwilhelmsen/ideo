@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "looks": [
+    {
+      "id": "fx-duotone-dither",
+      "name": "Duotone dither",
+      "shader": "duotone",
+      "blurb": "Two inks, with the tone between them carried by the dither rather than by a gradient. The kernel is the whole character: Bayer reads as a printed screen, Atkinson as a 1984 Macintosh.",
+      "knobs": [
+        { "key": "inkDark", "kind": "colour", "value": "ink" },
+        { "key": "inkLight", "kind": "colour", "value": "paper" },
+        {
+          "key": "levels",
+          "kind": "slider",
+          "min": 2,
+          "max": 6,
+          "step": 1,
+          "value": 2
+        },
+        {
+          "key": "kernel",
+          "kind": "choice",
+          "options": [
+            "bayer4",
+            "bayer8",
+            "clustered8",
+            "blueNoise",
+            "floydSteinberg",
+            "atkinson"
+          ],
+          "value": "bayer8"
+        }
+      ]
+    },
+    {
+      "id": "fx-halftone",
+      "name": "Halftone",
+      "shader": "halftone",
+      "blurb": "A real rotated screen: dots that grow with the tone, on a grid turned off the horizontal so the pattern reads as print rather than as pixels. 45 degrees is the classic single-screen angle.",
+      "knobs": [
+        { "key": "inkDark", "kind": "colour", "value": "ink" },
+        { "key": "inkLight", "kind": "colour", "value": "paper" },
+        {
+          "key": "cell",
+          "kind": "slider",
+          "min": 2,
+          "max": 32,
+          "step": 0.5,
+          "value": 6
+        },
+        { "key": "angle", "kind": "angle", "value": 45 },
+        {
+          "key": "shape",
+          "kind": "choice",
+          "options": ["round", "square", "line"],
+          "value": "round"
+        }
+      ]
+    },
+    {
+      "id": "fx-palette-reduced",
+      "name": "Palette reduced",
+      "shader": "paletteReduced",
+      "blurb": "Down to the project's own inks, taken darkest-first. Palette-shaped spacing puts the levels where the palette actually has colours; even spacing is the higher-contrast reading and will crush a palette with a gap in it.",
+      "knobs": [
+        {
+          "key": "entries",
+          "kind": "slider",
+          "min": 2,
+          "max": 6,
+          "step": 1,
+          "value": 4
+        },
+        {
+          "key": "kernel",
+          "kind": "choice",
+          "options": [
+            "bayer4",
+            "bayer8",
+            "clustered8",
+            "blueNoise",
+            "floydSteinberg",
+            "atkinson"
+          ],
+          "value": "bayer8"
+        },
+        {
+          "key": "levelPlacement",
+          "kind": "choice",
+          "options": ["paletteShaped", "even"],
+          "value": "paletteShaped"
+        }
+      ]
+    },
+    {
+      "id": "fx-posterised",
+      "name": "Posterised",
+      "shader": "posterised",
+      "blurb": "Each channel flattened to a few steps, with no dither at all. The banding is the look — it is what separates a poster from a photograph of one.",
+      "knobs": [
+        {
+          "key": "levels",
+          "kind": "slider",
+          "min": 2,
+          "max": 12,
+          "step": 1,
+          "value": 5
+        }
+      ]
+    },
+    {
+      "id": "fx-pixelated",
+      "name": "Pixelated",
+      "shader": "pixelated",
+      "blurb": "Averaged into square cells, in linear light so the blocks are the mean of what was under them rather than the mean of their encoded bytes.",
+      "knobs": [
+        {
+          "key": "cell",
+          "kind": "slider",
+          "min": 2,
+          "max": 64,
+          "step": 1,
+          "value": 8
+        }
+      ]
+    },
+    {
+      "id": "fx-grained",
+      "name": "Grained",
+      "shader": "grained",
+      "blurb": "Film grain, strongest in the midtones and falling away at both ends the way real grain does. The seed is exposed so a still and its own animation can be given the same grain, or deliberately different grain.",
+      "knobs": [
+        {
+          "key": "amount",
+          "kind": "slider",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "value": 0.25
+        },
+        {
+          "key": "seed",
+          "kind": "slider",
+          "min": 0,
+          "max": 999,
+          "step": 1,
+          "value": 1
+        },
+        { "key": "monochrome", "kind": "toggle", "value": true }
+      ]
+    }
+  ]
+}

@@ -10,6 +10,7 @@
  * because it is repo-committed data (PRD §5) that no action can change.
  */
 
+import { treatmentFor, withKnob, type EffectsLook } from '@/lib/effects'
 import { isMotionPreset, type MotionPreset } from './motion'
 import type { Palette } from './palette'
 import {
@@ -36,6 +37,8 @@ import type {
   RunRecord,
   StageKind,
   StageRecipe,
+  Treatment,
+  TreatmentValue,
 } from './types'
 
 /**
@@ -89,6 +92,8 @@ export function emptyEditorState(): EditorState {
     project: null,
     directory: null,
     activeStage: 'source',
+    effectsOpen: false,
+    treatmentTarget: null,
     showRejected: false,
     runs: [],
   }
@@ -254,6 +259,53 @@ export type EditorAction =
   | { readonly type: 'setPalette'; readonly palette: Palette }
   | { readonly type: 'restoreRecipe'; readonly generationId: string }
   | { readonly type: 'toggleShowRejected' }
+  /** The effects tab is the one on screen now (#36). */
+  | { readonly type: 'openEffects' }
+  /**
+   * Treat this candidate, and keep treating it.
+   *
+   * The pin is what stops a selection change elsewhere in the app moving you
+   * onto a different generation's treatment mid-edit. Opens the tab too, because
+   * "Treat this" is one gesture and the alternative is a button whose effect is
+   * on a tab you cannot see.
+   */
+  | { readonly type: 'pinTreatment'; readonly generationId: string }
+  /** Back to following the selection. */
+  | { readonly type: 'unpinTreatment' }
+  /**
+   * A look was chosen for one candidate — or `null` to leave it untreated.
+   *
+   * The look rides on the action rather than being looked up here, for the
+   * reason `choosePreset` carries its preset: half the library lives in app data
+   * behind TanStack Query, so the reducer would have to know about the disk or
+   * work from a stale copy of it.
+   */
+  | {
+      readonly type: 'chooseLook'
+      readonly generationId: string
+      readonly look: EffectsLook | null
+    }
+  /** One knob turned. The look comes along so the value can be held to it. */
+  | {
+      readonly type: 'setKnob'
+      readonly generationId: string
+      readonly look: EffectsLook
+      readonly key: string
+      readonly value: TreatmentValue
+    }
+  /**
+   * What #53's declarations ask for, offered to a candidate that has none.
+   *
+   * A **seed, never a lock**: this is refused outright where a treatment already
+   * exists, which is what keeps a re-seed from ever overwriting a value the user
+   * has touched. The caller may dispatch it on every render without checking —
+   * that is the point of putting the rule here rather than in the component.
+   */
+  | {
+      readonly type: 'seedTreatment'
+      readonly generationId: string
+      readonly treatment: Treatment
+    }
 
 export type EditorReducer = (
   state: EditorState,
@@ -276,16 +328,29 @@ export function createEditorReducer(
           // Land on the stage the project has actually got to, so opening an
           // untouched project does not start on a stage it cannot run.
           activeStage: furthestStage(action.project),
+          // A pin names a candidate of whichever project was open, so opening
+          // another drops it rather than pointing it at nothing.
+          treatmentTarget: null,
           // The runs stay, and so does what has been decided about them: a job
           // goes on running whichever project is in front of you, and a choice
           // made before switching away is still that project's choice.
         }
 
       case 'closeProject':
-        return { ...state, project: null, directory: null }
+        // The pin names a candidate of the project that is going away, so it
+        // goes with it — a pin that survived would point at nothing.
+        return {
+          ...state,
+          project: null,
+          directory: null,
+          treatmentTarget: null,
+        }
 
       case 'selectStage':
-        return { ...state, activeStage: action.stage }
+        // Picking a stage is picking a tab, and the effects tab is one of the
+        // four — so choosing another closes it. The pin stays: it is about a
+        // candidate, not about which tab is in front of you.
+        return { ...state, activeStage: action.stage, effectsOpen: false }
 
       case 'toggleShowRejected':
         return { ...state, showRejected: !state.showRejected }
@@ -509,8 +574,66 @@ export function createEditorReducer(
         return editProject(state, project =>
           restoreRecipe(project, action.generationId)
         )
+
+      case 'openEffects':
+        return { ...state, effectsOpen: true }
+
+      case 'pinTreatment':
+        return {
+          ...state,
+          effectsOpen: true,
+          treatmentTarget: action.generationId,
+        }
+
+      case 'unpinTreatment':
+        return { ...state, treatmentTarget: null }
+
+      case 'chooseLook':
+        return editTreatment(state, action.generationId, (_, project) =>
+          action.look === null
+            ? null
+            : treatmentFor(action.look, project.palette)
+        )
+
+      case 'setKnob':
+        return editTreatment(state, action.generationId, treatment =>
+          treatment === null
+            ? null
+            : withKnob(treatment, action.look, action.key, action.value)
+        )
+
+      // Refused where there is already one, which is the whole rule: #53
+      // declares what a recipe *wants*, and what the user has since done to it
+      // outranks that every time.
+      case 'seedTreatment':
+        return editTreatment(state, action.generationId, treatment =>
+          treatment === null ? action.treatment : treatment
+        )
     }
   }
+}
+
+/**
+ * Rewrite one candidate's treatment, leaving every other candidate alone.
+ *
+ * Here rather than open-coded four times because all four transitions are the
+ * same fold with a different middle, and because getting the "leave the others
+ * alone" half wrong is the sort of bug that only shows up on a project with two
+ * treated candidates in it.
+ */
+function editTreatment(
+  state: EditorState,
+  generationId: string,
+  next: (treatment: Treatment | null, project: Project) => Treatment | null
+): EditorState {
+  return editProject(state, project => ({
+    ...project,
+    generations: project.generations.map(generation =>
+      generation.id === generationId
+        ? { ...generation, treatment: next(generation.treatment, project) }
+        : generation
+    ),
+  }))
 }
 
 /**
@@ -661,6 +784,8 @@ function runStage(
       ordinal: ordinal++,
       asset: run.asset,
       runId: run.runId,
+      // Untreated until somebody opens the effects tab on it (#36).
+      treatment: null,
     }
   })
 
@@ -897,6 +1022,7 @@ export function withCollectedGenerations(
       ordinal,
       asset: entry.asset,
       runId: entry.runId,
+      treatment: null,
     }
   })
 

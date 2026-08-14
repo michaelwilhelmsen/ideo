@@ -25,6 +25,9 @@ export { commands, type Result } from './bindings'
 export type {
   AppPreferences,
   CleanupOutcome,
+  CpuEffect,
+  DiffusionKernel,
+  EffectError,
   ExportError,
   ExportOutcome,
   ExportRequest,

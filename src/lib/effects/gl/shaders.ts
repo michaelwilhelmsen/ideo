@@ -1,0 +1,425 @@
+/**
+ * The six programs, as GLSL ES 3.00 source.
+ *
+ * **WebGL2, not WebGPU.** Three webview engines ship — WKWebView on macOS,
+ * WebView2 on Windows, WebKitGTK 4.1 on Linux — and `minimumSystemVersion` is
+ * 10.15. GLSL ES 3.00 is the baseline that exists everywhere. A Rust `wgpu`
+ * backend would mean WGSL, and every effect written twice in two shading
+ * languages.
+ *
+ * **One implementation renders the preview and the bake**, which is what makes
+ * "the exported file cannot disagree with what was on screen" a property of the
+ * code rather than something to test for.
+ *
+ * ## The working space
+ *
+ * The source texture is uploaded as `SRGB8_ALPHA8`, so `texture()` hands back
+ * **linear light** for free, and — more importantly — the hardware's own
+ * filtering happens in linear space, which is the thing you give up if you do
+ * the transfer in shader maths instead. Every kernel below therefore works in
+ * linear light, and the one thing each of them has to remember is to encode on
+ * the way out: the drawing buffer is sRGB-encoded, and writing linear values
+ * straight to it is the washed-out picture that looks like a broken effect.
+ *
+ * The encode is exact (IEC 61966-2-1) rather than `pow(x, 1/2.2)`. The CPU path
+ * uses the same transfer, and the two are held to each other within a byte —
+ * without that, a duotone would visibly shift when the user switched from an
+ * ordered kernel to a diffusion one, with the same inks and the same image and
+ * no explanation on screen.
+ *
+ * ## Uniform naming
+ *
+ * A knob named `cell` binds to `u_cell`, and nothing anywhere maps between the
+ * two — that is what makes a look's knob descriptor drive the uniform binding
+ * as well as the control and the validation. Sliders and angles are `float`,
+ * colours are `vec3` in **linear light**, choices are the `int` index of the
+ * option, toggles are `bool`.
+ */
+
+import type { EffectShader } from '../looks'
+
+/**
+ * A full-screen triangle rather than a quad.
+ *
+ * One primitive, no shared edge down the diagonal, and no vertex buffer at all
+ * — the three corners are indexed out of `gl_VertexID`, so binding a program is
+ * the whole of the setup.
+ */
+export const VERTEX_SOURCE = `#version 300 es
+out vec2 vUv;
+void main() {
+  vec2 corner = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+  vUv = corner;
+  gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+`
+
+/**
+ * What every fragment shader gets.
+ *
+ * `uResolution` is the size being *rendered*, which is the export resolution at
+ * bake time and the on-screen size while previewing at fit. Every pattern below
+ * is measured in output pixels off `gl_FragCoord`, which is what makes a cell
+ * size mean the same thing in both — and what makes the 1:1 toggle exact rather
+ * than an upscaled approximation.
+ */
+const PREAMBLE = `#version 300 es
+precision highp float;
+
+in vec2 vUv;
+out vec4 fragColor;
+
+uniform sampler2D uSource;
+uniform sampler2D uNoise;
+uniform vec2 uResolution;
+uniform float uNoiseSize;
+
+/** Rec. 709 / sRGB primaries, applied to linear light and never to bytes. */
+float luminance(vec3 c) {
+  return dot(c, vec3(0.212639, 0.715169, 0.072192));
+}
+
+/** Linear light back to sRGB — exact, matching the CPU path within a byte. */
+vec3 encode(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  vec3 high = 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055;
+  vec3 low = c * 12.92;
+  return mix(low, high, step(vec3(0.0031308), c));
+}
+
+const float BAYER4[16] = float[16](
+  0.0,  8.0,  2.0, 10.0,
+ 12.0,  4.0, 14.0,  6.0,
+  3.0, 11.0,  1.0,  9.0,
+ 15.0,  7.0, 13.0,  5.0
+);
+
+const float BAYER8[64] = float[64](
+  0.0, 32.0,  8.0, 40.0,  2.0, 34.0, 10.0, 42.0,
+ 48.0, 16.0, 56.0, 24.0, 50.0, 18.0, 58.0, 26.0,
+ 12.0, 44.0,  4.0, 36.0, 14.0, 46.0,  6.0, 38.0,
+ 60.0, 28.0, 52.0, 20.0, 62.0, 30.0, 54.0, 22.0,
+  3.0, 35.0, 11.0, 43.0,  1.0, 33.0,  9.0, 41.0,
+ 51.0, 19.0, 59.0, 27.0, 49.0, 17.0, 57.0, 25.0,
+ 15.0, 47.0,  7.0, 39.0, 13.0, 45.0,  5.0, 37.0,
+ 63.0, 31.0, 55.0, 23.0, 61.0, 29.0, 53.0, 21.0
+);
+
+/** Thresholds spiralling out from two centres, so set pixels clump into dots. */
+const float CLUSTERED8[64] = float[64](
+ 24.0, 10.0, 12.0, 26.0, 35.0, 47.0, 49.0, 37.0,
+  8.0,  0.0,  2.0, 14.0, 45.0, 59.0, 61.0, 51.0,
+ 22.0,  6.0,  4.0, 16.0, 43.0, 57.0, 63.0, 53.0,
+ 30.0, 20.0, 18.0, 28.0, 33.0, 41.0, 55.0, 39.0,
+ 34.0, 46.0, 48.0, 36.0, 25.0, 11.0, 13.0, 27.0,
+ 44.0, 58.0, 60.0, 50.0,  9.0,  1.0,  3.0, 15.0,
+ 42.0, 56.0, 62.0, 52.0, 23.0,  7.0,  5.0, 17.0,
+ 32.0, 40.0, 54.0, 38.0, 31.0, 21.0, 19.0, 29.0
+);
+
+/**
+ * A signed jitter in -0.5..0.5 for this pixel, one quantisation step wide.
+ *
+ * Signed and centred so adding it leaves the *mean* of a flat region untouched.
+ * An uncentred threshold lightens or darkens every flat area, which reads as
+ * the effect having changed the exposure.
+ *
+ * Kernel 3 is blue noise, which is a texture lookup rather than a matrix — a
+ * void-and-cluster mask, generated by us (see \`blue-noise.ts\`). It is the
+ * video-safe substitute for error diffusion: fully parallel, and temporally
+ * stable by construction.
+ */
+float orderedBias(int kernel, vec2 px) {
+  if (kernel == 0) {
+    int i = int(mod(px.y, 4.0)) * 4 + int(mod(px.x, 4.0));
+    return (BAYER4[i] + 0.5) / 16.0 - 0.5;
+  }
+  if (kernel == 1) {
+    int i = int(mod(px.y, 8.0)) * 8 + int(mod(px.x, 8.0));
+    return (BAYER8[i] + 0.5) / 64.0 - 0.5;
+  }
+  if (kernel == 2) {
+    int i = int(mod(px.y, 8.0)) * 8 + int(mod(px.x, 8.0));
+    return (CLUSTERED8[i] + 0.5) / 64.0 - 0.5;
+  }
+  ivec2 at = ivec2(mod(px, vec2(uNoiseSize)));
+  return texelFetch(uNoise, at, 0).r - 0.5 + 0.5 / 256.0;
+}
+`
+
+/**
+ * Two inks, and the tone between them carried by the dither.
+ *
+ * The pipeline is #52's verdict, in the order it settled on: **dither the
+ * luminance to an N-level mask, then map the mask to inks.** Not "quantise to
+ * two colours, then dither what is left", which is what two of the shipped
+ * `note`s used to say and what the A/B came back against — that arm reduces
+ * every pixel to an ink first and leaves the dither nothing to distribute.
+ *
+ * The inks are interpolated in linear light, which is where the intermediate
+ * steps of a three- or four-level duotone actually belong; interpolating the
+ * encoded bytes would put them in the wrong place, the same mistake as
+ * dithering encoded values one stage earlier.
+ */
+const DUOTONE = `
+uniform vec3 u_inkDark;
+uniform vec3 u_inkLight;
+uniform float u_levels;
+uniform int u_kernel;
+
+void main() {
+  float y = luminance(texture(uSource, vUv).rgb);
+  float steps = max(u_levels - 1.0, 1.0);
+
+  // One step wide: the jitter has to be able to push a value across exactly one
+  // quantisation boundary and no further.
+  float biased = y + orderedBias(u_kernel, gl_FragCoord.xy) / steps;
+  float level = clamp(floor(biased * steps + 0.5), 0.0, steps);
+
+  fragColor = vec4(encode(mix(u_inkDark, u_inkLight, level / steps)), 1.0);
+}
+`
+
+/**
+ * A real rotated screen — the one effect the GPU *enables* rather than merely
+ * accelerates.
+ *
+ * The CPU plan had to cut it and the #52 spike only ever stood in a fixed
+ * clustered-dot 8×8 matrix, because a screen at an arbitrary angle is a
+ * per-pixel coordinate rotation and that is free here and expensive there.
+ *
+ * Dot area is what carries tone, so the radius goes as the square root of the
+ * ink fraction: a dot of twice the radius is four times the ink. The maximum is
+ * the cell's half-diagonal rather than its half-width, or the darkest tone
+ * would top out at the 78.5% coverage of a circle inscribed in a square.
+ */
+const HALFTONE = `
+uniform vec3 u_inkDark;
+uniform vec3 u_inkLight;
+uniform float u_cell;
+uniform float u_angle;
+uniform int u_shape;
+
+void main() {
+  float y = luminance(texture(uSource, vUv).rgb);
+
+  float a = radians(u_angle);
+  mat2 turn = mat2(cos(a), -sin(a), sin(a), cos(a));
+  vec2 cell = (turn * gl_FragCoord.xy) / max(u_cell, 1.0);
+  vec2 offset = fract(cell) - 0.5;
+
+  float ink = clamp(1.0 - y, 0.0, 1.0);
+  float distance;
+  float radius;
+
+  if (u_shape == 0) {
+    distance = length(offset);
+    radius = sqrt(ink) * 0.70710678;
+  } else if (u_shape == 1) {
+    distance = max(abs(offset.x), abs(offset.y));
+    radius = sqrt(ink) * 0.5;
+  } else {
+    // A line screen: one axis only, so coverage is linear in the tone rather
+    // than in its square root.
+    distance = abs(offset.y);
+    radius = ink * 0.5;
+  }
+
+  // Antialiased against the screen's own gradient, so the dot edge stays clean
+  // at every cell size instead of stair-stepping at small ones.
+  float softness = max(fwidth(distance), 1e-4);
+  float paper = smoothstep(radius - softness, radius + softness, distance);
+
+  fragColor = vec4(encode(mix(u_inkDark, u_inkLight, paper)), 1.0);
+}
+`
+
+/**
+ * Down to the project's own inks.
+ *
+ * Two placements, and the difference only ever shows on a palette whose
+ * interior colours sit off the line between its darkest and lightest:
+ *
+ * - **`paletteShaped`** puts each level where that ink's luminance actually is.
+ * - **`even`** spaces them evenly across the range, which is the higher-contrast
+ *   result and is what the research describes — and what #52 measured losing up
+ *   to 0.22 of mean linear luminance on Studio's four inks, because both
+ *   interior steps land in the one gap that palette has no ink for.
+ *
+ * `paletteShaped` is the default for that measurement. Both are offered because
+ * the knob is inert at two entries and on any evenly-spaced palette, so it is
+ * only live where somebody is genuinely choosing a look.
+ */
+const PALETTE_REDUCED = `
+uniform vec3 uInks[8];
+uniform float uInkLuminance[8];
+// How the "entries" knob reaches the shader — see KNOBS_BOUND_VIA_INKS. What
+// the knob asks for and what the palette can supply are two different numbers,
+// and the shader has to walk the one that is true.
+uniform int uInkCount;
+uniform int u_kernel;
+uniform int u_levelPlacement;
+
+void main() {
+  float y = luminance(texture(uSource, vUv).rgb);
+  int n = max(uInkCount, 2);
+  float steps = float(n - 1);
+
+  // The jitter's amplitude is one step. There is no exact answer for a
+  // palette-shaped scale, whose steps differ; the mean gap is used, and the
+  // same number is used by both placements so it cannot bias the comparison.
+  float span = uInkLuminance[n - 1] - uInkLuminance[0];
+  float step = max(span, 1e-4) / steps;
+  float biased = y + orderedBias(u_kernel, gl_FragCoord.xy) * step;
+
+  int chosen = 0;
+  if (u_levelPlacement == 1) {
+    float t = (biased - uInkLuminance[0]) / max(span, 1e-4);
+    chosen = int(clamp(floor(t * steps + 0.5), 0.0, steps));
+  } else {
+    float best = 1e9;
+    for (int i = 0; i < 8; i++) {
+      if (i >= n) break;
+      float d = abs(uInkLuminance[i] - biased);
+      if (d < best) { best = d; chosen = i; }
+    }
+  }
+
+  fragColor = vec4(encode(uInks[chosen]), 1.0);
+}
+`
+
+/**
+ * Each channel flattened to a few steps, with no dither at all.
+ *
+ * Quantised on the **encoded** value rather than in linear light, and that is
+ * the one deliberate departure in this file. Posterising is about the steps a
+ * viewer sees, and sRGB is the space those are evenly spaced in; quantising
+ * linear light instead puts almost every step in the highlights and leaves the
+ * shadows as one flat block, which is not the look anybody means by the word.
+ */
+const POSTERISED = `
+uniform float u_levels;
+
+void main() {
+  vec3 encoded = encode(texture(uSource, vUv).rgb);
+  float n = max(u_levels, 2.0);
+
+  vec3 stepped = floor(encoded * n) / (n - 1.0);
+  fragColor = vec4(clamp(stepped, 0.0, 1.0), 1.0);
+}
+`
+
+/**
+ * Square cells, each showing the average of what was under it.
+ *
+ * The average comes from the source texture's own mip chain rather than from a
+ * loop: a 64-pixel cell would be four thousand samples per fragment, and the
+ * hardware has already computed exactly this reduction. Because the texture is
+ * `SRGB8_ALPHA8`, that filtering happens on decoded values — the blocks are the
+ * mean of the *light*, not the mean of the bytes.
+ */
+const PIXELATED = `
+uniform float u_cell;
+
+void main() {
+  float cell = max(u_cell, 1.0);
+  vec2 centre = (floor(gl_FragCoord.xy / cell) + 0.5) * cell;
+
+  vec3 c = textureLod(uSource, centre / uResolution, log2(cell)).rgb;
+  fragColor = vec4(encode(c), 1.0);
+}
+`
+
+/**
+ * Film grain, strongest in the midtones.
+ *
+ * The envelope is what separates grain from noise: real grain is a property of
+ * the emulsion's silver, so it disappears into clear film and into fully
+ * exposed film and peaks in between. `4y(1-y)` is that curve, normalised to one
+ * at the midpoint.
+ *
+ * The hash is seeded per pixel *and* by the knob, so the same seed gives the
+ * same grain — which is what lets a still and its own animation be given
+ * matching grain, or deliberately different grain.
+ */
+const GRAINED = `
+uniform float u_amount;
+uniform float u_seed;
+uniform bool u_monochrome;
+
+float hash(vec2 p, float salt) {
+  vec3 q = fract(vec3(p.xyx) * (0.1031 + salt * 0.0007));
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+
+void main() {
+  vec3 c = texture(uSource, vUv).rgb;
+  float y = luminance(c);
+  float envelope = 4.0 * y * (1.0 - y);
+
+  vec3 n = u_monochrome
+    ? vec3(hash(gl_FragCoord.xy, u_seed))
+    : vec3(
+        hash(gl_FragCoord.xy, u_seed),
+        hash(gl_FragCoord.xy, u_seed + 17.0),
+        hash(gl_FragCoord.xy, u_seed + 43.0)
+      );
+
+  fragColor = vec4(encode(c + (n - 0.5) * u_amount * envelope), 1.0);
+}
+`
+
+const BODIES: Readonly<Record<EffectShader, string>> = {
+  duotone: DUOTONE,
+  halftone: HALFTONE,
+  paletteReduced: PALETTE_REDUCED,
+  posterised: POSTERISED,
+  pixelated: PIXELATED,
+  grained: GRAINED,
+}
+
+/** How many inks `uInks` can hold — the reduction's ceiling. */
+export const MAX_INKS = 8
+
+/** The whole fragment program for one shader. */
+export function fragmentSourceFor(shader: EffectShader): string {
+  return PREAMBLE + BODIES[shader]
+}
+
+/**
+ * The kernel names in the order the shaders index them.
+ *
+ * The `u_kernel` uniform is the *option index* of the knob, which is what makes
+ * the binding generic — so the option list a look declares has to agree with
+ * this order, and a test holds it to that. The two diffusion kernels are here
+ * so the indices line up; a shader never sees them, because a look asking for
+ * one renders on the CPU instead.
+ */
+export const SHADER_KERNEL_ORDER = [
+  'bayer4',
+  'bayer8',
+  'clustered8',
+  'blueNoise',
+  'floydSteinberg',
+  'atkinson',
+] as const
+
+/** The placements in the order `u_levelPlacement` indexes them. */
+export const SHADER_PLACEMENT_ORDER = ['paletteShaped', 'even'] as const
+
+/**
+ * The knobs that do **not** bind to a `u_<key>` uniform of their own.
+ *
+ * One entry, and it earns the exception: `entries` asks for a number of inks,
+ * and what the shader must walk is the number the *palette* could actually
+ * supply — a project with four distinct colours asked for six has four, and a
+ * shader trusting the knob would read two entries nobody uploaded. So the value
+ * reaches it through `uInkCount`, set from the resolved ink list.
+ *
+ * Named here rather than left implicit because "every knob binds to `u_<key>`"
+ * is the property that makes the descriptor drive the binding, and an
+ * undocumented hole in it is how the next knob quietly stops working.
+ */
+export const KNOBS_BOUND_VIA_INKS: readonly string[] = ['entries']

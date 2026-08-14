@@ -6,6 +6,7 @@
 
 mod bindings;
 mod commands;
+mod effects;
 mod export;
 mod jobs;
 mod presets;

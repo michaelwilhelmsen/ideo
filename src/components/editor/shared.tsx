@@ -8,7 +8,6 @@
  */
 
 import { useTranslation } from 'react-i18next'
-import { convertFileSrc } from '@tauri-apps/api/core'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -37,6 +36,7 @@ import {
   type StageKind,
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
+import { assetSource } from './assets'
 import { useGenerationName } from './naming'
 
 const ASPECT_CLASS: Record<string, string> = {
@@ -115,17 +115,6 @@ export function Preview({
       className={cn(shape, 'object-cover')}
     />
   )
-}
-
-/**
- * The webview URL for a generation's file, or `null` when there is no file.
- *
- * The manifest stores a bare name and the folder comes from wherever the
- * manifest was found, so a project folder that has moved still resolves.
- */
-function assetSource(directory: string | null, asset: string | null) {
-  if (directory === null || directory === '' || asset === null) return null
-  return convertFileSrc(`${directory}/assets/${asset}`)
 }
 
 /**
