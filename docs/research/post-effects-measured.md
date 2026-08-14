@@ -39,11 +39,27 @@ the A/B. The round trip is exhaustively tested over all 256 byte values.
 
 ## Q1 — Does duotone quantise first, or colourise last?
 
-### Handed back undecided
+### Verdict, 2026-08-14: colourise last
 
-#52 says the verdict is made by eye elsewhere, so this section describes and does not
-choose. The pictures are in `~/ideo-spike-52/duotone-ab/`, with a `README.md` that repeats
-the panel order.
+The spike handed this back undecided, as #52 asked. **The verdict came back by eye on the
+same day: arm A is mostly not usable; arms B and C are.** What follows is the description
+that was handed over, unedited — it is the evidence the verdict was made from, and it is
+worth keeping in the form it was read in rather than rewritten to agree with the outcome.
+
+Two things the verdict settled beyond the order itself:
+
+- **Quantise-first is dropped entirely**, not kept as an option. The reversal on high-key
+  sources had been the argument for making the order a parameter; with arm A losing broadly
+  by eye, a parameter whose only job is to offer the losing look does not earn its place.
+- **Palette-shaped level placement is the default** (arm C). Even spacing stays reachable
+  as a look — it is what the research describes, and it is the higher-contrast result — but
+  it is not what anyone gets by accident on a multi-ink brand palette.
+
+So the surviving levers are **kernel** and **level placement**. See #53 for the schema and
+#36 for the kernels.
+
+The pictures are in `~/ideo-spike-52/duotone-ab/`, with a `README.md` that repeats the
+panel order.
 
 ### The arms
 
@@ -134,14 +150,19 @@ these may converge mathematically". Measured on the real sources, arms A and B d
 23–49% of pixels at N=2 (mean 37.5%), rising to 64% at N=4. There is no palette size at
 which the choice is a formality.
 
-### The `note` copy edit is still pending
+### The `note` copy edit, made
 
-`Preset.note` is displayed to the user ([`presets.ts:218`](../../src/lib/recipe/presets.ts)),
-so if arm A loses, `rs-duotone-dither` in `presets.json` and `gn-duotone-landscape` in
-`source-presets.json` are wrong on screen. That edit belongs to #36's "write the answer
-down" bullet and cannot be made until the verdict is in. One thing the spike _can_ settle
-in advance: the word **"mud" should not appear in either revision**, in either direction —
-it describes a failure neither order produced.
+`Preset.note` is displayed to the user ([`presets.ts:226`](../../src/lib/recipe/presets.ts)),
+so both notes asserting quantise-first were wrong on screen the moment the verdict landed.
+Both are now rewritten to say dither-on-luminance-then-map.
+
+The word **"mud" does not appear in either revision**, deliberately. It described a failure
+neither order produced, and it was the least useful thing in the original argument — both
+sides used it about the other and neither could point at it in a picture.
+
+What replaced it in `rs-duotone-dither` is the thing the sheets actually show: picking each
+pixel's ink by colour first _keeps the hues and loses the tonal structure_. That is a claim
+someone can check against an image, which the old one was not.
 
 ---
 

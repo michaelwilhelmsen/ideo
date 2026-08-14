@@ -130,7 +130,7 @@
       "name": "Duotone dither",
       "family": "reduction",
       "blurb": "Two colours, no greys. Generate the reduction, then dither properly in post.",
-      "note": "Quantise to a two-entry palette THEN apply Atkinson or Floyd-Steinberg. Dithering a grey image and tinting it afterwards produces mud, not the reduction this recipe is built for.",
+      "note": "Dither on luminance to a two-level mask, then map the mask to the two inks — Atkinson or Floyd-Steinberg, at output resolution. Picking each pixel's ink by colour first keeps the hues and loses the tonal structure this reduction is built on.",
       "variants": {
         "tags": {
           "transform": "reduced to exactly two colours, {{primary}} for every lit form, {{ink}} for the field and shadow, every form simplified into a clean readable silhouette, strong separation between light and dark, value range compressed hard so the image survives heavy reduction, high contrast, graphic, poster-like",

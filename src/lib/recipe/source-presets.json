@@ -56,7 +56,7 @@
       "aspect": "16:9",
       "blurb": "Stylised mountains, cypress, rolling hills. Reduce in post.",
       "headlineZone": "lowerThirdFull",
-      "note": "Quantise to a two-entry palette, then Atkinson dither at output resolution.",
+      "note": "Dither on luminance, then map to the two inks. Atkinson, at output resolution.",
       "variants": {
         "tags": {
           "transform": "stylised two-colour landscape illustration of {{subject}}, stacked rolling hills in the foreground, angular mountain peaks in the middle distance, tall narrow cypress trees breaking the horizon at intervals, one small perfect circular moon in the upper field, exactly two colours, {{primary}} for every lit form, {{ink}} for the field and shadow, forms simplified into clean readable silhouettes, strong light-dark separation, high contrast, graphic, poster-like",
