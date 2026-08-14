@@ -14,6 +14,7 @@
  */
 
 import { paletteSlots, type Palette } from '@/lib/recipe/palette'
+import type { TreatmentValue } from '@/lib/recipe/types'
 
 /** One ink, as the renderer wants it. */
 export interface Ink {
@@ -139,4 +140,35 @@ export function linearRgb(hex: string): readonly [number, number, number] {
 export function srgbToLinear(byte: number): number {
   const s = byte / 255
   return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+}
+
+/**
+ * The inks a look's resolved values reduce to.
+ *
+ * One function rather than one per caller, because the tab, the CPU path and
+ * the export bake all have to agree: an export using different colours from the
+ * preview it was judged in is the failure this prevents, and it would look like
+ * a shader bug.
+ *
+ * A `entries` knob means "the project's own palette, this many of them"; a pair
+ * of ink knobs means a ramp between them. A look with neither reduces to
+ * nothing, which is the honest answer for the shaders that do not reduce at all.
+ */
+export function inksForValues(
+  palette: Palette,
+  values: Readonly<Record<string, TreatmentValue>>
+): readonly Ink[] {
+  if (typeof values.entries === 'number') {
+    return inksFor(palette, values.entries)
+  }
+
+  const dark = typeof values.inkDark === 'string' ? values.inkDark : null
+  const light = typeof values.inkLight === 'string' ? values.inkLight : null
+  if (dark === null || light === null) return []
+
+  return rampBetween(
+    dark,
+    light,
+    typeof values.levels === 'number' ? values.levels : 2
+  )
 }

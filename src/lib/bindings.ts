@@ -497,6 +497,61 @@ async exportGeneration(request: ExportRequest) : Promise<Result<ExportOutcome, E
 }
 },
 /**
+ * Opens a bake and hands back the frames to treat.
+ * 
+ * The webview does the rendering, because the shader that drew the preview is
+ * the shader that has to draw the export — one program, so the file cannot
+ * disagree with what was on screen. What this side owns is the decode, the
+ * scratch folder and the encode.
+ * 
+ * Blocking: decoding a five-second clip to PNGs is seconds of ffmpeg.
+ */
+async beginBake(sessionId: string, projectId: string, generationId: string) : Promise<Result<BakeSession, ExportError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("begin_bake", { sessionId, projectId, generationId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * One treated frame, numbered by the caller so the sequence keeps its order.
+ */
+async writeBakedFrame(sessionId: string, index: number, png: number[]) : Promise<Result<null, ExportError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("write_baked_frame", { sessionId, index, png }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Encodes the deliverables from the treated frames, then clears the scratch.
+ * 
+ * The frames are already at the export resolution, so nothing here scales them
+ * again — that is what `Input::Treated*` says, and it is why turning a
+ * treatment on cannot change the size of the file that ships.
+ */
+async finishBake(sessionId: string, fps: number | null, request: ExportRequest) : Promise<Result<ExportOutcome, ExportError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("finish_bake", { sessionId, fps, request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The user changed their mind, or something went wrong up there.
+ */
+async cancelBake(sessionId: string) : Promise<Result<null, ExportError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_bake", { sessionId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Loads user preferences from disk.
  * Returns default preferences if the file doesn't exist.
  */
@@ -664,6 +719,24 @@ onboarding_version?: number;
  * on every export is the friction this field exists to remove.
  */
 export_directory?: string | null }
+/**
+ * A bake in progress, as the webview sees it.
+ */
+export type BakeSession = { id: string; 
+/**
+ * Absolute paths to the frames to treat, in order, ready for the asset
+ * protocol. One entry for a still.
+ */
+frames: string[]; 
+/**
+ * The size the shader must render at — the size these will ship at.
+ */
+width: number; height: number; 
+/**
+ * The clip's own rate, so the re-encode does not re-time it. `null` for a
+ * still, which has no time axis.
+ */
+fps: number | null }
 /**
  * The result of a cleanup, so the UI can say what it actually did rather than
  * "done".

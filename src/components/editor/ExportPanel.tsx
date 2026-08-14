@@ -45,13 +45,28 @@ import {
   type Deliverable,
   type Formats,
 } from '@/lib/export'
-import { selectedGeneration, type Project, type StageKind } from '@/lib/recipe'
+import {
+  inksForValues,
+  lookFor,
+  resolveTreatment,
+  type EffectsLook,
+  type Ink,
+  type KnobValue,
+} from '@/lib/effects'
+import {
+  selectedGeneration,
+  type Generation,
+  type Project,
+  type StageKind,
+} from '@/lib/recipe'
 import {
   useExportGeneration,
   useFfmpegStatus,
   useRecheckFfmpeg,
 } from '@/services/export'
 import { usePreferences } from '@/services/preferences'
+import { useBake } from '@/services/bake'
+import { useLookLibrary } from '@/services/effects'
 import { useGenerationName } from './naming'
 
 /** What Homebrew calls it, shown verbatim so it can be copied and pasted. */
@@ -75,6 +90,8 @@ export function ExportPanel({
   const recheck = useRecheckFfmpeg()
   const preferences = usePreferences()
   const exporter = useExportGeneration()
+  const library = useLookLibrary()
+  const bake = useBake()
 
   // Ticked boxes are session state and nothing more: they are a question about
   // this click, and persisting them would mean a project remembering that
@@ -85,6 +102,22 @@ export function ExportPanel({
     poster: true,
   })
   const [destination, setDestination] = useState<string | null>(null)
+
+  /**
+   * Whether the treatment goes into the files — on by default (#36).
+   *
+   * A toggle at all because "give me the clean plate" is a real need: comparing,
+   * or handing the untreated image to somebody else. Without it the only way to
+   * get one would be to destroy the treatment.
+   *
+   * Named after the candidate for the same reason `override` is — this panel is
+   * not remounted when the selection moves, and "no, not this one" set on a
+   * dithered still must not silently follow you onto the next.
+   */
+  const [plate, setPlate] = useState<{
+    generationId: string
+    clean: boolean
+  } | null>(null)
 
   /**
    * An override that names the candidate it was made about.
@@ -118,6 +151,14 @@ export function ExportPanel({
   const formats = requestedFormats(wanted, medium)
   const available = ffmpeg.data?.available === true
 
+  // What the effects tab left on this candidate, if anything. Read here rather
+  // than passed in: the panel already follows the selection, and a treatment is
+  // a property of the candidate rather than of the tab that made it.
+  const treatment = treatmentToBake(selected, library, project)
+  const cleanPlate =
+    plate !== null && plate.generationId === selected?.id ? plate.clean : false
+  const baking = bake.progress !== null
+
   const blocked =
     medium === 'nothing'
       ? 'export.reason.nothingSelected'
@@ -144,7 +185,7 @@ export function ExportPanel({
   const runExport = (): void => {
     if (selected === null || folder === null) return
 
-    exporter.mutate({
+    const request = {
       projectId: project.id,
       generationId: selected.id,
       destination: folder,
@@ -154,7 +195,17 @@ export function ExportPanel({
       // under the wrong name.
       ...formats,
       rewind,
-    })
+    }
+
+    // Every deliverable carries the treatment or none of them do. A clean
+    // poster advertising a dithered video is a lie about the file it
+    // represents, and the poster is one more frame through the same shader.
+    if (treatment !== null && !cleanPlate) {
+      void bake.run({ request, ...treatment })
+      return
+    }
+
+    exporter.mutate(request)
   }
 
   return (
@@ -222,16 +273,74 @@ export function ExportPanel({
         </Field>
       )}
 
+      {treatment !== null && (
+        <Field>
+          <FieldLabel>{t('export.treatment')}</FieldLabel>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="export-treatment"
+              checked={!cleanPlate}
+              disabled={baking}
+              onCheckedChange={next => {
+                if (selected === null) return
+                setPlate({ generationId: selected.id, clean: !next })
+              }}
+            />
+            <Label htmlFor="export-treatment">
+              {t('export.bakeTreatment', { name: treatment.look.name })}
+            </Label>
+          </div>
+          <FieldDescription>{t('export.treatment.hint')}</FieldDescription>
+        </Field>
+      )}
+
       {!available && <InstallPrompt />}
 
       <div className="space-y-2">
         <Button
           className="w-full"
-          disabled={blocked !== null || exporter.isPending}
+          disabled={blocked !== null || exporter.isPending || baking}
           onClick={runExport}
         >
-          {exporter.isPending ? t('export.working') : t('export.action')}
+          {exporter.isPending || baking
+            ? t('export.working')
+            : t('export.action')}
         </Button>
+
+        {/* Determinate, and honestly so: the frame count is known before the
+            first frame. Nothing else in this app can say a percentage without
+            making one up. */}
+        {bake.progress !== null && (
+          <div className="space-y-2">
+            <FieldDescription>
+              {t('export.baking', {
+                done: bake.progress.done,
+                total: bake.progress.total,
+              })}
+            </FieldDescription>
+            <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary transition-[width]"
+                // A width is a value rather than a class — Tailwind cannot hold
+                // a number that only exists at runtime.
+                style={{
+                  width: `${Math.round(
+                    (100 * bake.progress.done) /
+                      Math.max(1, bake.progress.total)
+                  )}%`,
+                }}
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full"
+              onClick={bake.cancel}
+            >
+              {t('export.cancelBake')}
+            </Button>
+          </div>
+        )}
 
         {blocked !== null && <FieldDescription>{t(blocked)}</FieldDescription>}
 
@@ -315,4 +424,30 @@ function InstallPrompt() {
       </AlertDescription>
     </Alert>
   )
+}
+
+/**
+ * The treatment this candidate would export with, resolved and ready to render.
+ *
+ * `null` where there is nothing to bake — no treatment, or one naming a look
+ * this build cannot find, which is a fork in a folder rather than a reason to
+ * refuse the export. The untreated path still produces the same file it always
+ * did, at the same size.
+ */
+function treatmentToBake(
+  generation: Generation | null,
+  library: readonly EffectsLook[],
+  project: Project
+): {
+  look: EffectsLook
+  values: Readonly<Record<string, KnobValue>>
+  inks: readonly Ink[]
+} | null {
+  if (generation?.treatment == null) return null
+
+  const look = lookFor(generation.treatment, library)
+  if (look === null) return null
+
+  const values = resolveTreatment(generation.treatment, look, project.palette)
+  return { look, values, inks: inksForValues(project.palette, values) }
 }

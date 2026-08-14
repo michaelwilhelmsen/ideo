@@ -451,5 +451,10 @@
   "effects.option.shape.square": "Square",
   "effects.option.shape.line": "Line",
   "effects.option.levelPlacement.paletteShaped": "Palette-shaped",
-  "effects.option.levelPlacement.even": "Even"
+  "effects.option.levelPlacement.even": "Even",
+  "export.treatment": "Treatment",
+  "export.bakeTreatment": "Bake in {{name}}",
+  "export.treatment.hint": "Rendered at the export resolution, into every file. Switch it off for the clean plate.",
+  "export.baking": "Treating frame {{done}} of {{total}}…",
+  "export.cancelBake": "Cancel"
 }

@@ -7,6 +7,7 @@
 //! ffmpeg — that is the "abstraction that does not care which ffmpeg it talks
 //! to" PRD §8 asks for, and what keeps bundling one later a contained change.
 
+pub mod bake;
 pub mod ffmpeg;
 pub mod plan;
 

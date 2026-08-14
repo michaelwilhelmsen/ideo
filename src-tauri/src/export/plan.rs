@@ -11,7 +11,7 @@
 //! same arguments, so bundling later touches `ffmpeg.rs` and leaves this file
 //! alone.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::ExportError;
 
@@ -36,6 +36,55 @@ const VP9_CRF: &str = "33";
 /// top: the poster is the first paint, and a visible artefact there is the one
 /// frame every visitor sees.
 const POSTER_QUALITY: &str = "3";
+
+/// What an encode reads from.
+///
+/// Three variants and not one, because the width cap is the difference between
+/// them (#36). A treatment's pattern is *rendered at the export resolution*, so
+/// scaling afterwards would destroy the cell size the user dialled in — but the
+/// untreated path still has to scale, and both have to produce the same
+/// dimensions or turning a treatment on would silently resize the deliverable.
+#[derive(Debug, Clone)]
+pub enum Input {
+    /// The candidate's own file, still at whatever the model returned.
+    Source(PathBuf),
+    /// One treated still, already at the export resolution.
+    TreatedStill(PathBuf),
+    /// Treated frames, already at the export resolution.
+    ///
+    /// `pattern` is an ffmpeg sequence pattern (`out-%06d.png`) relative to
+    /// nothing — it is passed whole, and the frames live in a temp folder this
+    /// process created.
+    TreatedFrames { pattern: String, fps: f64 },
+}
+
+impl Input {
+    /// Where ffmpeg reads it from.
+    fn arguments(&self) -> Vec<String> {
+        match self {
+            Input::Source(path) | Input::TreatedStill(path) => {
+                vec!["-i".to_string(), path.to_string_lossy().to_string()]
+            }
+            Input::TreatedFrames { pattern, fps } => vec![
+                // Before `-i`, so it is the *input* rate rather than a
+                // re-timing of one ffmpeg guessed at.
+                "-framerate".to_string(),
+                format!("{fps}"),
+                "-i".to_string(),
+                pattern.clone(),
+            ],
+        }
+    }
+
+    /// Whether the width cap still has to be applied.
+    ///
+    /// Only to the untreated path. Everything else arrives at the size it will
+    /// ship at, because that is the whole point of rendering the shader at the
+    /// export resolution.
+    fn needs_scaling(&self) -> bool {
+        matches!(self, Input::Source(_))
+    }
+}
 
 /// One of the three files PRD §8 promises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,7 +183,7 @@ pub fn medium_of(source: &Path) -> Medium {
 /// backwards, and silently accepting the flag there would make the panel's two
 /// controls look independent when one is meaningless without the other.
 pub fn plan(
-    source: &Path,
+    input: &Input,
     base_name: &str,
     formats: Formats,
     rewind: bool,
@@ -157,7 +206,7 @@ pub fn plan(
     if formats.mp4 {
         steps.push(step(
             Deliverable::Mp4,
-            source,
+            input,
             base_name,
             ping_pong,
             &[
@@ -186,7 +235,7 @@ pub fn plan(
     if formats.webm {
         steps.push(step(
             Deliverable::WebM,
-            source,
+            input,
             base_name,
             ping_pong,
             &[
@@ -215,7 +264,7 @@ pub fn plan(
         // the same picture whether or not rewind is on.
         steps.push(step(
             Deliverable::Poster,
-            source,
+            input,
             base_name,
             false,
             &["-frames:v", "1", "-q:v", POSTER_QUALITY, "-f", "image2"],
@@ -227,7 +276,7 @@ pub fn plan(
 
 fn step(
     deliverable: Deliverable,
-    source: &Path,
+    input: &Input,
     base_name: &str,
     ping_pong: bool,
     encoder: &[&str],
@@ -238,24 +287,25 @@ fn step(
         deliverable.extension()
     );
 
+    let scaled = input.needs_scaling();
+
     let mut args = vec![
         // Re-exporting the same candidate to the same folder is the normal way
         // to change one setting, so the previous attempt is replaced rather
         // than refused. The name is derived from the generation, so this can
         // only ever overwrite an earlier export of the same thing.
         "-y".to_string(),
-        "-i".to_string(),
-        source.to_string_lossy().to_string(),
     ];
+    args.extend(input.arguments());
 
     if ping_pong {
         args.push("-filter_complex".to_string());
-        args.push(ping_pong_graph());
+        args.push(ping_pong_graph(scaled));
         args.push("-map".to_string());
         args.push("[out]".to_string());
     } else {
         args.push("-vf".to_string());
-        args.push(scale_filter());
+        args.push(geometry_filter(scaled));
     }
 
     args.extend(encoder.iter().map(|arg| (*arg).to_string()));
@@ -312,8 +362,16 @@ fn safe_base_name(name: &str) -> String {
 /// odd number of rows, and an odd height is a hard encoder failure rather than a
 /// slightly wrong picture. `setsar=1` because a model that returns non-square
 /// pixels would otherwise deliver a clip the browser stretches.
-fn scale_filter() -> String {
-    format!("scale=w='min({MAX_WEB_WIDTH},iw)':h=-2,setsar=1")
+fn geometry_filter(scaled: bool) -> String {
+    if scaled {
+        format!("scale=w='min({MAX_WEB_WIDTH},iw)':h=-2,setsar=1")
+    } else {
+        // Already at the export resolution, so the only thing left to say is
+        // that the pixels are square and the height is even — 4:2:0 chroma
+        // cannot express an odd number of rows, and an odd height is a hard
+        // encoder failure rather than a slightly wrong picture.
+        "scale=w=iw:h=-2,setsar=1".to_string()
+    }
 }
 
 /// Forward, then backwards, with no frame shown twice (PRD §4.5).
@@ -327,13 +385,13 @@ fn scale_filter() -> String {
 ///
 /// `reverse` buffers the decoded stream in memory, which is why this is only
 /// ever pointed at a hero clip of a few seconds.
-fn ping_pong_graph() -> String {
+fn ping_pong_graph(scaled: bool) -> String {
     format!(
         "[0:v]{scale},split[a][b];\
          [b]trim=start_frame=1,setpts=PTS-STARTPTS,reverse,\
          trim=start_frame=1,setpts=PTS-STARTPTS[r];\
          [a][r]concat=n=2:v=1[out]",
-        scale = scale_filter()
+        scale = geometry_filter(scaled)
     )
 }
 
@@ -348,12 +406,20 @@ mod tests {
         poster: true,
     };
 
-    fn clip() -> PathBuf {
-        PathBuf::from("/projects/atlas/assets/gen-1.mp4")
+    fn clip() -> Input {
+        Input::Source(PathBuf::from("/projects/atlas/assets/gen-1.mp4"))
     }
 
-    fn still() -> PathBuf {
-        PathBuf::from("/projects/atlas/assets/gen-1.png")
+    fn still() -> Input {
+        Input::Source(PathBuf::from("/projects/atlas/assets/gen-1.png"))
+    }
+
+    /// What a bake hands back: frames already at the export resolution.
+    fn treated_frames() -> Input {
+        Input::TreatedFrames {
+            pattern: "out-%06d.png".to_string(),
+            fps: 24.0,
+        }
     }
 
     fn args_for(plan: &Plan, deliverable: Deliverable) -> Vec<String> {
@@ -430,7 +496,7 @@ mod tests {
         assert!(matches!(refused, Err(ExportError::NotAClip)));
     }
 
-    fn plan_video_from(source: &Path) -> Result<Plan, ExportError> {
+    fn plan_video_from(source: &Input) -> Result<Plan, ExportError> {
         plan(
             source,
             "atlas-hero",
@@ -569,6 +635,92 @@ mod tests {
         );
 
         assert!(!args.iter().any(|arg| arg.contains("reverse")));
+    }
+
+    #[test]
+    fn a_treated_clip_encodes_from_its_frames_at_its_own_rate() {
+        // #36's bake. The frames are already at the export resolution, so the
+        // rate has to come with them or the clip is re-timed to whatever ffmpeg
+        // assumes for an image sequence.
+        let plan = plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap();
+        let args = args_for(&plan, Deliverable::Mp4);
+
+        assert!(args.windows(2).any(|w| w == ["-framerate", "24"]));
+        assert!(args.contains(&"out-%06d.png".to_string()));
+    }
+
+    #[test]
+    fn a_treated_export_is_not_scaled_a_second_time() {
+        // The pattern was rendered at the export resolution; scaling it again
+        // is what destroys the cell size the user dialled in.
+        for step in &plan(&treated_frames(), "hero", ALL, false, Medium::Clip)
+            .unwrap()
+            .steps
+        {
+            let filters = step.args.join(" ");
+            assert!(
+                !filters.contains(&format!("min({MAX_WEB_WIDTH},iw)")),
+                "{:?} was capped a second time",
+                step.deliverable
+            );
+            // Still even, and still square pixels — those are properties of the
+            // encode rather than of the scaling.
+            assert!(
+                filters.contains("h=-2"),
+                "{:?} may go odd",
+                step.deliverable
+            );
+            assert!(filters.contains("setsar=1"), "{:?}", step.deliverable);
+        }
+    }
+
+    #[test]
+    fn every_deliverable_carries_the_treatment() {
+        // A clean poster advertising a dithered video is a lie about the file
+        // it represents — the poster is one more frame through the same shader,
+        // so it comes out of the same treated sequence.
+        let plan = plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap();
+
+        assert_eq!(plan.steps.len(), 3);
+        for step in &plan.steps {
+            assert!(
+                step.args.contains(&"out-%06d.png".to_string()),
+                "{:?} read something else",
+                step.deliverable
+            );
+        }
+    }
+
+    #[test]
+    fn a_treated_still_exports_its_poster_from_the_treated_frame() {
+        let treated = Input::TreatedStill(PathBuf::from("/tmp/bake/treated-000000.png"));
+        let poster_only = Formats {
+            mp4: false,
+            webm: false,
+            poster: true,
+        };
+
+        let plan = plan(&treated, "hero", poster_only, false, Medium::Still).unwrap();
+        let args = args_for(&plan, Deliverable::Poster);
+
+        assert!(args.contains(&"/tmp/bake/treated-000000.png".to_string()));
+        assert!(!args.join(" ").contains(&format!("min({MAX_WEB_WIDTH},iw)")));
+    }
+
+    #[test]
+    fn rewind_still_works_on_a_treated_clip() {
+        let args = args_for(
+            &plan(&treated_frames(), "hero", ALL, true, Medium::Clip).unwrap(),
+            Deliverable::Mp4,
+        );
+        let graph = args
+            .iter()
+            .position(|arg| arg == "-filter_complex")
+            .map(|at| args[at + 1].clone())
+            .expect("rewind should build a filter graph");
+
+        assert!(graph.contains("reverse"));
+        assert!(!graph.contains(&format!("min({MAX_WEB_WIDTH},iw)")));
     }
 
     #[test]

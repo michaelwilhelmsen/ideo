@@ -312,5 +312,10 @@
   "effects.option.shape.square": "Carré",
   "effects.option.shape.line": "Ligne",
   "effects.option.levelPlacement.paletteShaped": "Selon la palette",
-  "effects.option.levelPlacement.even": "Régulier"
+  "effects.option.levelPlacement.even": "Régulier",
+  "export.treatment": "Traitement",
+  "export.bakeTreatment": "Intégrer {{name}}",
+  "export.treatment.hint": "Rendu à la résolution d’export, dans chaque fichier. Désactivez-le pour obtenir l’image brute.",
+  "export.baking": "Traitement de l’image {{done}} sur {{total}}…",
+  "export.cancelBake": "Annuler"
 }

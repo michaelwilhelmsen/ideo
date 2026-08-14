@@ -131,6 +131,45 @@ The pipeline is #52's verdict in both paths: **dither the luminance to an
 N-level mask, then map the mask to inks.** Reduction and dither are one fused
 pass, not two.
 
+## Baking it into an export
+
+A bake is a conversation, because the shader is in the webview and the encoder
+is in Rust:
+
+1. `begin_bake` makes a scratch folder under app data, works out the **export
+   resolution**, and — for a clip — has ffmpeg decode every frame into it at
+   that size.
+2. The webview renders each frame through the same program that drew the
+   preview and posts the PNG back with `write_baked_frame`.
+3. `finish_bake` encodes every deliverable from the treated frames and clears
+   the folder.
+
+**Rendered at the export resolution, not before it.** Exports cap at
+`min(1920, iw)`; a pattern rendered before that scaling is destroyed by it, so
+the frames are extracted already capped and `Input::Treated*` tells `plan()` not
+to scale them again. `export_size` computes the same dimensions the untreated
+filter graph would produce, because turning a treatment on must not silently
+resize the deliverable.
+
+**Frames cross by disk.** ~11 MB per raw frame is gigabytes for a five-second
+clip; source frames load through Tauri's asset protocol and treated ones come
+back as PNG, which dithered output compresses hard.
+
+**Progress and cancel belong to the webview**, and there is no event channel for
+either. The frame count is known before the first frame and the webview is doing
+the per-frame work, so a determinate bar and a cancel that actually stops are
+just properties of the loop it is already running (`lib/effects/bake.ts`, pure
+and tested without a canvas).
+
+**Temp survives a crash** because nothing relies on running at exit: every bake
+lives under one directory and `bake::sweep` empties it at startup.
+
+**A toggle, on by default.** "Give me the clean plate" is a real need — comparing,
+or handing the untreated image to someone else — and without the toggle the only
+way to get one would be to destroy the treatment. All deliverables carry the
+treatment or none do: a clean poster advertising a dithered video is a lie about
+the file it represents.
+
 ## Testing
 
 Four seams, all of them pre-existing shapes:
@@ -141,6 +180,8 @@ Four seams, all of them pre-existing shapes:
 | The treatment      | `lib/effects/treatment.test.ts` | Manifest round-trip, #53 seeding, knob validation                      |
 | The reducer        | `lib/recipe/reducer.test.ts`    | Pinning, choosing, nudging, never re-seeding over an edit              |
 | The CPU kernel     | `src-tauri/src/effects/`        | Diffusion stencils, the fused pass, the colour transfer                |
+| The export plan    | `src-tauri/src/export/plan.rs`  | The treated path's steps, resolution and deliverable set               |
+| The frame loop     | `lib/effects/bake.test.ts`      | Determinate progress, a cancel that stops                              |
 
 **The acknowledged gap: shader output has no automated seam.** There is no GPU on
 a CI runner, so whether the six looks are any good is golden images run locally

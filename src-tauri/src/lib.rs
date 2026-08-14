@@ -150,6 +150,14 @@ pub fn run() {
             // generate anything with, and generation is most of it.
             export::ffmpeg::detect_at_startup();
 
+            // #36 — anything left in the bake scratch is from a previous launch
+            // by definition, so a crash mid-export costs a folder until the next
+            // start rather than forever. Cleared here rather than at exit,
+            // because an exit handler is exactly what a crash skips.
+            if let Ok(data) = utils::paths::app_data(app.handle()) {
+                export::bake::sweep(&data);
+            }
+
             // NOTE: Application menu is built from JavaScript for i18n support
             // See src/lib/menu.ts for the menu implementation
 

@@ -275,3 +275,91 @@ describe('ExportPanel', () => {
     expect(screen.getByText(/at least one file/i)).toBeVisible()
   })
 })
+
+describe('a treated candidate (#36)', () => {
+  // A sibling of the block above rather than nested inside it, so it clears its
+  // own mocks — a bake counted from the previous test is exactly the sort of
+  // leak that makes "and not the other path" assertions lie.
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  /** Atlas, with a look on the style still the panel would export. */
+  function treated(): Project {
+    const base = withAssets()
+    return {
+      ...base,
+      generations: base.generations.map(generation =>
+        generation.id === 'gen-sty-2'
+          ? {
+              ...generation,
+              treatment: {
+                lookId: 'fx-halftone',
+                values: { cell: 8 },
+                lookModified: true,
+              },
+            }
+          : generation
+      ),
+    }
+  }
+
+  it('offers to bake the treatment in, on by default', async () => {
+    // On by default because a treated candidate whose export is clean is a
+    // file that does not look like the thing that was approved.
+    render(<ExportPanel project={treated()} stage="style" />)
+
+    expect(
+      await screen.findByRole('switch', { name: /Bake in Halftone/ })
+    ).toBeChecked()
+  })
+
+  it('says nothing about treatments on an untreated candidate', async () => {
+    render(<ExportPanel project={withAssets()} stage="style" />)
+
+    await screen.findByRole('button', { name: 'Export' })
+    expect(
+      screen.queryByRole('switch', { name: /Bake in/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it('bakes rather than encoding the plate', async () => {
+    render(<ExportPanel project={treated()} stage="style" />)
+
+    await userEvent
+      .setup()
+      .click(await screen.findByRole('button', { name: 'Export' }))
+
+    await waitFor(() => {
+      expect(commands.beginBake).toHaveBeenCalledWith(
+        expect.any(String),
+        'project-atlas',
+        'gen-sty-2'
+      )
+    })
+    // The untreated path is not also taken — one export, one set of files.
+    expect(exportGeneration).not.toHaveBeenCalled()
+  })
+
+  it('gives back the clean plate when the toggle is off', async () => {
+    // "Hand the untreated image to someone else" is a real need, and without
+    // the toggle the only way to get one would be to destroy the treatment.
+    render(<ExportPanel project={treated()} stage="style" />)
+    const user = userEvent.setup()
+
+    const toggle = await screen.findByRole('switch', {
+      name: /Bake in Halftone/,
+    })
+    await user.click(toggle)
+    expect(toggle).not.toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Export' }))
+
+    await waitFor(() => {
+      expect(exportGeneration).toHaveBeenCalledWith(
+        expect.objectContaining({ generationId: 'gen-sty-2' })
+      )
+    })
+    expect(commands.beginBake).not.toHaveBeenCalled()
+  })
+})

@@ -7,8 +7,9 @@
 use std::path::PathBuf;
 use tauri::AppHandle;
 
+use crate::export::bake::{self, BakeSession};
 use crate::export::ffmpeg::{self, FfmpegStatus};
-use crate::export::plan::{self, Formats};
+use crate::export::plan::{self, Formats, Input};
 use crate::export::ExportError;
 use crate::projects::store;
 use crate::utils::paths::app_data;
@@ -105,7 +106,7 @@ pub async fn export_generation(
         .ok_or(ExportError::NoAsset)?;
 
     let plan = plan::plan(
-        &source,
+        &Input::Source(source.clone()),
         &request.base_name,
         Formats {
             mp4: request.mp4,
@@ -133,4 +134,127 @@ pub async fn export_generation(
     );
 
     Ok(ExportOutcome { files })
+}
+
+// ── Baking a treatment in (#36) ─────────────────────────────────────────────
+
+/// Opens a bake and hands back the frames to treat.
+///
+/// The webview does the rendering, because the shader that drew the preview is
+/// the shader that has to draw the export — one program, so the file cannot
+/// disagree with what was on screen. What this side owns is the decode, the
+/// scratch folder and the encode.
+///
+/// Blocking: decoding a five-second clip to PNGs is seconds of ffmpeg.
+#[tauri::command]
+#[specta::specta]
+pub async fn begin_bake(
+    app: AppHandle,
+    session_id: String,
+    project_id: String,
+    generation_id: String,
+) -> Result<BakeSession, ExportError> {
+    let source = asset_for(&app, &project_id, &generation_id)?;
+    let medium = plan::medium_of(&source);
+
+    let status = ffmpeg::status();
+    let binary = status.path.ok_or(ExportError::FfmpegMissing)?;
+    let data = app_data(&app).map_err(|message| {
+        log::error!("Could not locate app data: {message}");
+        ExportError::NoAsset
+    })?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        bake::begin(&data, &binary, &session_id, &source, medium)
+    })
+    .await
+    .map_err(|e| ExportError::EncodeFailed {
+        deliverable: "bake".to_string(),
+        detail: e.to_string(),
+    })?
+}
+
+/// One treated frame, numbered by the caller so the sequence keeps its order.
+#[tauri::command]
+#[specta::specta]
+pub async fn write_baked_frame(
+    session_id: String,
+    index: u32,
+    png: Vec<u8>,
+) -> Result<(), ExportError> {
+    bake::write_frame(&session_id, index as usize, &png)
+}
+
+/// Encodes the deliverables from the treated frames, then clears the scratch.
+///
+/// The frames are already at the export resolution, so nothing here scales them
+/// again — that is what `Input::Treated*` says, and it is why turning a
+/// treatment on cannot change the size of the file that ships.
+#[tauri::command]
+#[specta::specta]
+pub async fn finish_bake(
+    session_id: String,
+    fps: Option<f64>,
+    request: ExportRequest,
+) -> Result<ExportOutcome, ExportError> {
+    let input = bake::treated_input(&session_id, fps)?;
+    let medium = if fps.is_some() {
+        plan::Medium::Clip
+    } else {
+        plan::Medium::Still
+    };
+
+    let plan = plan::plan(
+        &input,
+        &request.base_name,
+        Formats {
+            mp4: request.mp4,
+            webm: request.webm,
+            poster: request.poster,
+        },
+        request.rewind,
+        medium,
+    )?;
+
+    let destination = PathBuf::from(&request.destination);
+
+    let outcome = tauri::async_runtime::spawn_blocking(move || ffmpeg::run(&plan, &destination))
+        .await
+        .map_err(|e| ExportError::EncodeFailed {
+            deliverable: "export".to_string(),
+            detail: e.to_string(),
+        })?;
+
+    // Cleared whether or not the encode worked: a failed bake leaving a
+    // gigabyte of PNGs behind is the failure people notice a week later.
+    bake::finish(&session_id);
+
+    Ok(ExportOutcome { files: outcome? })
+}
+
+/// The user changed their mind, or something went wrong up there.
+#[tauri::command]
+#[specta::specta]
+pub async fn cancel_bake(session_id: String) -> Result<(), ExportError> {
+    bake::cancel(&session_id);
+    Ok(())
+}
+
+/// The candidate's file, or the reason there is none.
+fn asset_for(
+    app: &AppHandle,
+    project_id: &str,
+    generation_id: &str,
+) -> Result<PathBuf, ExportError> {
+    let root = projects_root(app).map_err(|message| {
+        log::error!("Could not locate the projects folder: {message}");
+        ExportError::NoAsset
+    })?;
+
+    store::asset_path(&root, project_id, generation_id)
+        .map_err(|message| {
+            log::error!("Could not look for the asset: {message}");
+            ExportError::NoAsset
+        })?
+        .ok_or(ExportError::NoAsset)
 }

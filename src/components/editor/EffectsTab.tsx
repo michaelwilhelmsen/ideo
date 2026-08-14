@@ -39,10 +39,9 @@ import { cn } from '@/lib/utils'
 import { isVideoAsset } from '@/lib/export'
 import {
   BUILT_IN_LOOKS,
-  inksFor,
+  inksForValues,
   isDiffusionKernel,
   lookFor,
-  rampBetween,
   resolveTreatment,
   seedTreatmentFrom,
   type EffectsLook,
@@ -168,7 +167,7 @@ export function EffectsTab({
         source={source}
         look={look}
         values={values}
-        inks={values === null ? [] : inksOf(project, values)}
+        inks={values === null ? [] : inksForValues(project.palette, values)}
         projectId={project.id}
         aspect={project.aspect}
         actualSize={actualSize}
@@ -400,31 +399,6 @@ function LookPicker({
 
 /** A `Select` cannot hold an empty value, so "no look" needs a word. */
 const NONE = 'none'
-
-/**
- * The inks this frame reduces to.
- *
- * A duotone is a **ramp between its two inks**, built here rather than in the
- * shader so the CPU path and the GPU path reduce to the same colours — the
- * shader interpolates the same two endpoints, and Rust is handed the ramp
- * already resolved. A palette reduction takes the project's own entries, which
- * is #46's palette doing the job it exists for.
- */
-function inksOf(
-  project: Project,
-  values: Readonly<Record<string, KnobValue>>
-): readonly Ink[] {
-  if (typeof values.entries === 'number') {
-    return inksFor(project.palette, values.entries)
-  }
-
-  const dark = typeof values.inkDark === 'string' ? values.inkDark : null
-  const light = typeof values.inkLight === 'string' ? values.inkLight : null
-  if (dark === null || light === null) return []
-
-  const levels = typeof values.levels === 'number' ? values.levels : 2
-  return rampBetween(dark, light, levels)
-}
 
 /**
  * The preset a candidate's recipe names, from whichever composing library holds

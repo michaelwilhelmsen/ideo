@@ -312,5 +312,10 @@
   "effects.option.shape.square": "مربّع",
   "effects.option.shape.line": "خطّي",
   "effects.option.levelPlacement.paletteShaped": "حسب اللوحة",
-  "effects.option.levelPlacement.even": "متساوٍ"
+  "effects.option.levelPlacement.even": "متساوٍ",
+  "export.treatment": "المعالجة",
+  "export.bakeTreatment": "تضمين {{name}}",
+  "export.treatment.hint": "يُصيَّر بدقة التصدير في كل ملف. أوقفه للحصول على الصورة الأصلية.",
+  "export.baking": "معالجة الإطار {{done}} من {{total}}…",
+  "export.cancelBake": "إلغاء"
 }

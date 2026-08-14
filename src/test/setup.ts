@@ -194,6 +194,28 @@ vi.mock('@/lib/tauri-bindings', () => ({
       status: 'ok',
       data: { files: ['hero.mp4', 'hero.webm', 'hero-poster.jpg'] },
     }),
+    // Effects (#36). No saved looks by default, and a bake nobody started —
+    // a test about treating something says so itself.
+    effectsLooksList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    effectsLookSave: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    effectsLookDelete: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    renderTreatedStill: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    beginBake: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        id: 'bake-1',
+        frames: ['/tmp/f-000000.png'],
+        width: 1920,
+        height: 1080,
+        fps: null,
+      },
+    }),
+    writeBakedFrame: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    finishBake: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { files: ['hero-poster.jpg'] },
+    }),
+    cancelBake: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   unwrapResult: vi.fn((result: { status: string; data?: unknown }) => {
     if (result.status === 'ok') return result.data
