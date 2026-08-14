@@ -38,16 +38,6 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -105,6 +95,7 @@ import {
   useSourcePresets,
 } from '@/services/source-presets'
 import { useEditorStore } from '@/store/editor-store'
+import { ConfirmDeleteDialog, UnreadableNotice } from './library-chrome'
 
 export function PresetField({
   project,
@@ -458,7 +449,10 @@ function ComposingPresetField({
         )}
       </div>
 
-      <UnreadableNotice count={unreadable} />
+      <UnreadableNotice
+        count={unreadable}
+        messageKey="editor.preset.unreadable"
+      />
 
       {savingAs && (
         <NamePresetDialog
@@ -490,8 +484,11 @@ function ComposingPresetField({
         />
       )}
 
-      <DeletePresetDialog
-        preset={deleting}
+      <ConfirmDeleteDialog
+        entry={deleting}
+        titleKey="editor.preset.deleteTitle"
+        descriptionKey="editor.preset.deleteDescription"
+        confirmKey="editor.preset.delete"
         onClose={() => setDeleting(null)}
         onDelete={doomed => {
           remove.mutate(doomed.id, {
@@ -673,7 +670,10 @@ function MotionPresetField({ project }: { project: Project }) {
         )}
       </div>
 
-      <UnreadableNotice count={unreadable} />
+      <UnreadableNotice
+        count={unreadable}
+        messageKey="editor.preset.unreadable"
+      />
 
       {savingAs && (
         <NamePresetDialog
@@ -700,8 +700,11 @@ function MotionPresetField({ project }: { project: Project }) {
         />
       )}
 
-      <DeletePresetDialog
-        preset={deleting}
+      <ConfirmDeleteDialog
+        entry={deleting}
+        titleKey="editor.preset.deleteTitle"
+        descriptionKey="editor.preset.deleteDescription"
+        confirmKey="editor.preset.delete"
         onClose={() => setDeleting(null)}
         onDelete={doomed => {
           remove.mutate(doomed.id, {
@@ -937,93 +940,6 @@ function NamePresetDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-/**
- * What deleting needs to know about a preset: which file, and what to call it.
- *
- * Structural rather than `Preset | MotionPreset` because the confirmation
- * genuinely does not care which library it is emptying — widening it to the
- * union would be claiming a difference the dialog does not have.
- */
-interface DeletablePreset {
-  readonly id: string
-  readonly name: string
-}
-
-/**
- * Confirming a delete — the second dialog both libraries use.
- *
- * Extracted for the same reason `NamePresetDialog` was: what differs between a
- * style fork and a motion fork is *which* mutation runs and what the pointer
- * does afterwards, which is the caller's `onDelete`. The wording, the shape and
- * the fact that this is destructive-and-confirmed are the same question asked
- * about the same kind of thing, and two copies of it is two places for the
- * confirmation to quietly go missing from one library.
- *
- * `null` renders nothing at all rather than a hidden dialog: "which preset is
- * doomed" and "is the dialog open" are one fact, and keeping them as one is what
- * stops a confirmation from firing at a preset that is no longer selected.
- */
-function DeletePresetDialog({
-  preset,
-  onClose,
-  onDelete,
-}: {
-  preset: DeletablePreset | null
-  onClose: () => void
-  onDelete: (preset: DeletablePreset) => void
-}) {
-  const { t } = useTranslation()
-
-  return (
-    <AlertDialog
-      open={preset !== null}
-      onOpenChange={open => {
-        if (!open) onClose()
-      }}
-    >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            {/* A name is user data (PRD §6); the sentence around it is ours. */}
-            {t('editor.preset.deleteTitle', { name: preset?.name ?? '' })}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {t('editor.preset.deleteDescription')}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t('editor.action.cancel')}</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              if (preset === null) return
-              onDelete(preset)
-            }}
-          >
-            {t('editor.preset.delete')}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
-}
-
-/**
- * Files in the library folder that could not be read back.
- *
- * Said rather than swallowed: the picker showing fewer forks than the user saved
- * looks like data loss, and one line saying some files could not be read is the
- * difference between a bug report and a hand-edit somebody can go and fix.
- */
-function UnreadableNotice({ count }: { count: number }) {
-  const { t } = useTranslation()
-
-  if (count === 0) return null
-
-  return (
-    <p className="text-xs text-destructive">{t('editor.preset.unreadable')}</p>
   )
 }
 

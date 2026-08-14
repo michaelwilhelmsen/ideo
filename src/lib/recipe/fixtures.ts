@@ -16,7 +16,7 @@
  * rather than a stage that cannot generate.
  */
 
-import { DEFAULT_PALETTE } from './palette'
+import { DEFAULT_PALETTE } from './palettes'
 import { DEFAULT_BATCH_SIZES } from './selectors'
 import type {
   EditorState,

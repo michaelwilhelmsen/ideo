@@ -390,33 +390,12 @@ function readEntry(document: unknown, slot: string): PaletteEntry {
 }
 
 /**
- * The palette a new project copies, mirroring how `DEFAULT_BATCH_SIZES` works
- * (PRD §11).
- *
- * An editorial triple chosen so any two entries duotone legibly — `#D9662C`
- * warm orange, `#1F4E79` deep blue, `#B5352A` red — extended to fill all six
- * roles. Real values rather than unset, because an unfilled colour variable
- * reaching a model is the failure mode most worth eliminating by default.
- *
- * No authored names: every one of these is named by the curated table, which is
- * the same lookup a colour the user types gets. Writing the names down here
- * would be a second copy of the table that nothing keeps honest.
- *
- * Read through {@link readPalette} rather than declared as a typed literal, so
- * an editorial change that breaks the lightness invariant is a startup crash
- * rather than six recipes that quietly turn to mud.
+ * The palette a new project copies is `DEFAULT_PALETTE`, and it lives in
+ * `palettes.ts` rather than here (#49): it is the first entry of the committed
+ * palette library, so that there is one source for those six hexes rather than
+ * two that can disagree. This module is the shape and the invariant; that one
+ * is the library that supplies them.
  */
-export const DEFAULT_PALETTE: Palette = readPalette({
-  roles: {
-    primary: { hex: '#D9662C' },
-    secondary: { hex: '#1F4E79' },
-    accent: { hex: '#B5352A' },
-    ink: { hex: '#14110F' },
-    paper: { hex: '#F4EFE6' },
-    neutral: { hex: '#8A8079' },
-  },
-  extras: [],
-})
 
 /** A copy nothing else holds a reference into (PRD §11's copy-don't-reference). */
 export function copyPalette(palette: Palette): Palette {

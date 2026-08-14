@@ -10,10 +10,75 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@/test/test-utils'
-import { ATLAS, colourNameOf } from '@/lib/recipe'
+import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils'
+import {
+  ATLAS,
+  BUILT_IN_PALETTES,
+  colourNameOf,
+  writeUserPalette,
+  type NamedPalette,
+  type Project,
+} from '@/lib/recipe'
+import { commands, type JsonValue } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { PaletteDialog } from './PaletteDialog'
+
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}))
+
+const mockCommands = vi.mocked(commands)
+
+/** Atlas ships the first built-in, so the picker has something to agree with. */
+const STUDIO = BUILT_IN_PALETTES[0]
+if (STUDIO === undefined) throw new Error('the palette library lost its first')
+
+/** The one that carries extras — what a wholesale swap is about. */
+const WITH_EXTRAS = BUILT_IN_PALETTES.find(
+  named => named.palette.extras.length > 0
+)
+if (WITH_EXTRAS === undefined) throw new Error('no built-in carries extras')
+
+/** One of the user's own, as the file in app data holds it. */
+const MINE: NamedPalette = {
+  id: 'mine',
+  name: 'Mine',
+  palette: WITH_EXTRAS.palette,
+}
+
+function withSavedPalettes(...palettes: NamedPalette[]): void {
+  mockCommands.userPalettesList.mockResolvedValue({
+    status: 'ok',
+    data: palettes.map(writeUserPalette) as unknown as JsonValue[],
+  })
+}
+
+function picker(): HTMLSelectElement {
+  return screen.getByLabelText('From the library')
+}
+
+/**
+ * Picks a palette the way somebody does — by the name they can see, in the
+ * group they can see it in.
+ *
+ * By name rather than by value on purpose. The option's value is a key the
+ * picker mints to tell our `dusk` from the user's `dusk`, and a test that
+ * rebuilt that key would be asserting the component's own arithmetic back at
+ * it. The `group` argument is what makes the two halves distinguishable when an
+ * id is shared, which is the whole point of the key.
+ */
+function showing(): string {
+  return picker().selectedOptions[0]?.textContent ?? ''
+}
+
+function pick(name: string, group?: string): void {
+  const scope =
+    group === undefined
+      ? screen
+      : within(screen.getByRole('group', { name: group }))
+  const option = scope.getByRole<HTMLOptionElement>('option', { name })
+  fireEvent.change(picker(), { target: { value: option.value } })
+}
 
 function open(): void {
   useEditorStore.getState().dispatch({
@@ -45,6 +110,8 @@ function saveButton(): HTMLElement {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
+  withSavedPalettes()
   useEditorStore.getState().reset()
   open()
 })
@@ -196,5 +263,226 @@ describe('the palette editor', () => {
 
     expect(paletteOf()).toEqual(ATLAS.palette)
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+/**
+ * The library (#49).
+ *
+ * The claims worth testing here are the two that could go quietly wrong. A pick
+ * has to replace the extras as well as the roles — keeping the old ones is the
+ * "reroll rather than comparison" failure roles exist to prevent — and the
+ * picker's label has to be derived by comparing values, because nothing records
+ * where a project's colours came from and a stale label is a confident lie.
+ */
+describe('the palette library', () => {
+  it('shows the name of the palette a project is carrying', async () => {
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    await waitFor(() => expect(showing()).toBe(STUDIO.name))
+  })
+
+  it('drops to Custom the moment a hex is off, rather than nearly', async () => {
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+    await waitFor(() => expect(showing()).toBe(STUDIO.name))
+
+    fireEvent.change(hexField('Primary'), { target: { value: '#2FB6BF' } })
+
+    expect(showing()).toBe('Custom')
+    expect(screen.getByRole('option', { name: 'Custom' })).toBeVisible()
+  })
+
+  it('replaces the roles and the whole extras list, not just the roles', () => {
+    // A project with three extras that picks a two-extra palette ends with two.
+    const busy: Project = {
+      ...ATLAS,
+      palette: {
+        ...ATLAS.palette,
+        extras: [
+          { hex: '#A3B18A', name: null },
+          { hex: '#12384F', name: null },
+          { hex: '#6D597A', name: null },
+        ],
+      },
+    }
+
+    render(<PaletteDialog project={busy} onClose={vi.fn()} />)
+    pick(WITH_EXTRAS.name)
+    fireEvent.click(saveButton())
+
+    expect(paletteOf()).toEqual(WITH_EXTRAS.palette)
+  })
+
+  it('offers the user their own palettes, apart from ours', async () => {
+    withSavedPalettes(MINE)
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: 'Mine' })).toBeVisible()
+    )
+    // Grouped rather than concatenated: one half is read-only and ships with
+    // the app, the other is the user's and can be updated or deleted.
+    expect(screen.getByRole('group', { name: 'Yours' })).toBeVisible()
+    expect(screen.getByRole('group', { name: 'Built-in' })).toBeVisible()
+  })
+
+  it('saves the edited draft as a new palette', async () => {
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    fireEvent.change(hexField('Primary'), { target: { value: '#2FB6BF' } })
+    fireEvent.change(screen.getByLabelText('Palette name'), {
+      target: { value: 'Warm dusk' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save as new/i }))
+
+    await waitFor(() =>
+      expect(mockCommands.userPaletteSave).toHaveBeenCalledWith(
+        'warm-dusk',
+        expect.objectContaining({
+          id: 'warm-dusk',
+          name: 'Warm dusk',
+          roles: expect.objectContaining({
+            primary: { hex: '#2FB6BF', name: null },
+          }),
+        })
+      )
+    )
+  })
+
+  it('will not save a palette the invariant refuses', () => {
+    // Refused rather than warned: no path here writes an invalid palette.
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Palette name'), {
+      target: { value: 'Muddy' },
+    })
+    fireEvent.change(hexField('Accent'), {
+      target: { value: ATLAS.palette.roles.primary.hex },
+    })
+
+    expect(screen.getByRole('button', { name: /save as new/i })).toBeDisabled()
+    expect(mockCommands.userPaletteSave).not.toHaveBeenCalled()
+  })
+
+  it('updates one of your own in place, after the draft has moved off it', async () => {
+    // The picker's readout says Custom by now — that is the value comparison
+    // doing its job — and the update still lands on the palette this was picked
+    // from, which is what makes tweak-then-update possible at all.
+    withSavedPalettes(MINE)
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: 'Mine' })).toBeVisible()
+    )
+    pick(MINE.name)
+    fireEvent.change(hexField('Primary'), { target: { value: '#2FB6BF' } })
+
+    expect(showing()).toBe('Custom')
+    fireEvent.click(screen.getByRole('button', { name: /update this/i }))
+
+    await waitFor(() =>
+      expect(mockCommands.userPaletteSave).toHaveBeenCalledWith(
+        'mine',
+        expect.objectContaining({ id: 'mine', name: 'Mine' })
+      )
+    )
+  })
+
+  it('offers neither update nor delete on a built-in', async () => {
+    // Absent rather than disabled: read-only is not a failure state, and the
+    // button would imply ours are yours.
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+    await waitFor(() => expect(showing()).toBe(STUDIO.name))
+
+    expect(screen.queryByRole('button', { name: /update this/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /delete palette/i })).toBeNull()
+  })
+
+  it('confirms before deleting one of your own, and keeps the colours', async () => {
+    withSavedPalettes(MINE)
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: 'Mine' })).toBeVisible()
+    )
+    pick(MINE.name)
+    fireEvent.click(screen.getByRole('button', { name: /delete palette/i }))
+
+    expect(await screen.findByText(/Delete Mine\?/)).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: /^delete palette$/i }))
+
+    await waitFor(() =>
+      expect(mockCommands.userPaletteDelete).toHaveBeenCalledWith('mine')
+    )
+    // The colours it put in the draft stay: deleting a palette is not a way to
+    // lose the one you are looking at.
+    expect(hexField('Primary')).toHaveValue(MINE.palette.roles.primary.hex)
+  })
+
+  it('says out loud when a saved palette could not be read', async () => {
+    // Skipped rather than thrown, and counted rather than swallowed: a library
+    // that is quietly one short looks like one that was quietly deleted.
+    mockCommands.userPalettesList.mockResolvedValue({
+      status: 'ok',
+      data: [{ version: 1, id: 'broken' }],
+    })
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByText(/could not be read and were skipped/i)
+    ).toBeVisible()
+    // And the rest of the picker is still there.
+    expect(screen.getByRole('option', { name: STUDIO.name })).toBeVisible()
+  })
+
+  it('applies a palette without asking, even to a project with work in it', () => {
+    // Provably non-destructive — every recipe persists its expanded prose — and
+    // a confirmation on a harmless action is how people learn to click through
+    // the ones that matter.
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    pick(WITH_EXTRAS.name)
+
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(hexField('Primary')).toHaveValue(
+      WITH_EXTRAS.palette.roles.primary.hex
+    )
+  })
+})
+
+describe('a palette of yours that shares an id with one of ours', () => {
+  /**
+   * Legal, and it has to stay legal: nothing anywhere records a palette id, so
+   * a fork called `studio` shadows nothing. What it must not do is make the
+   * picker apply the wrong one of them, or offer Update and Delete on ours.
+   */
+  const SHADOW: NamedPalette = {
+    id: STUDIO.id,
+    name: 'My studio',
+    palette: WITH_EXTRAS.palette,
+  }
+
+  it('applies yours when yours is the one picked', async () => {
+    withSavedPalettes(SHADOW)
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    await screen.findByRole('group', { name: 'Yours' })
+    pick('My studio', 'Yours')
+
+    expect(hexField('Primary')).toHaveValue(
+      WITH_EXTRAS.palette.roles.primary.hex
+    )
+    expect(screen.getByRole('button', { name: /update this/i })).toBeVisible()
+  })
+
+  it('offers no update or delete on ours, even so', async () => {
+    withSavedPalettes(SHADOW)
+    render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
+
+    await screen.findByRole('group', { name: 'Yours' })
+    pick(STUDIO.name, 'Built-in')
+
+    expect(screen.queryByRole('button', { name: /update this/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /delete palette/i })).toBeNull()
   })
 })

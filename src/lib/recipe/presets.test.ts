@@ -15,12 +15,12 @@ import { ASPECTS } from './aspects'
 import { DEFAULT_MODEL_IDS, MODEL_REGISTRY } from './models'
 import {
   colourNameOf,
-  DEFAULT_PALETTE,
   namesPaletteSlot,
   nearestColourName,
   readPalette,
   type Palette,
 } from './palette'
+import { DEFAULT_PALETTE } from './palettes'
 import {
   BUILT_IN_SOURCE_PRESETS,
   BUILT_IN_STYLE_PRESETS,

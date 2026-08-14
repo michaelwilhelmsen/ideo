@@ -14,7 +14,6 @@ import {
   COLOUR_NAMES,
   colourNameOf,
   copyPalette,
-  DEFAULT_PALETTE,
   isHex,
   lightnessOf,
   MIN_ROLE_LIGHTNESS_GAP,
@@ -25,6 +24,7 @@ import {
   readPalette,
   type Palette,
 } from './palette'
+import { DEFAULT_PALETTE } from './palettes'
 
 /** A well-formed document, so each test states only what it is about. */
 function document(roles: Record<string, unknown> = {}, extras?: unknown) {

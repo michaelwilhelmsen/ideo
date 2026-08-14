@@ -1146,9 +1146,18 @@ export function userPresetFrom(
  * looking for in app data. Collisions take a numeric suffix rather than
  * overwriting: two forks called "Warmer" are two forks, and the whole promise
  * of the user library is that nothing we do can clobber it.
+ *
+ * `fallback` is what a name with nothing sluggable in it becomes — the palette
+ * library (#49) mints its file names through here too, and a palette called
+ * "パレット" landing in a file called `preset.json` would be a small lie in the
+ * one place the user goes looking by hand.
  */
-export function presetIdFrom(name: string, taken: Iterable<string>): string {
-  const base = slugify(name)
+export function presetIdFrom(
+  name: string,
+  taken: Iterable<string>,
+  fallback = 'preset'
+): string {
+  const base = slugify(name, fallback)
   const used = new Set(taken)
   if (!used.has(base)) return base
 
@@ -1162,7 +1171,7 @@ export function presetIdFrom(name: string, taken: Iterable<string>): string {
   return `${base}-${Date.now().toString(36)}`
 }
 
-function slugify(name: string): string {
+function slugify(name: string, fallback: string): string {
   const slug = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -1171,5 +1180,5 @@ function slugify(name: string): string {
 
   // A name in a script this slug cannot represent is still a valid name — it
   // just cannot be the file name, and the name is what is shown anyway.
-  return slug === '' ? 'preset' : slug
+  return slug === '' ? fallback : slug
 }

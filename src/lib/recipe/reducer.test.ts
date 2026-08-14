@@ -25,7 +25,8 @@ import {
   type Preset,
 } from './presets'
 import { motionPresetById } from './motion'
-import { colourNameOf, DEFAULT_PALETTE } from './palette'
+import { colourNameOf } from './palette'
+import { DEFAULT_PALETTE } from './palettes'
 import { UPLOAD_MODEL_ID, isUploadRecipe, uploadFileName } from './upload'
 import {
   activeProject,

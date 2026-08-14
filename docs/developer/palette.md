@@ -21,7 +21,7 @@ to be interpolated into a prompt by `composePreset` — see
 | `neutral`   | the unsaturated one                                         |
 | extras      | anything else, addressed by position as `extra1`, `extra2`… |
 
-All six are required. #49 makes palettes swappable from a library, and under positional
+All six are required. Palettes are swappable from a library (#49), and under positional
 slots a swap would silently reassign which colour does which job in every recipe at once —
 turning a comparison into a reroll. `ink` and `paper` being mandatory is what lets the
 reduction and print preset families reference the palette instead of hardcoding near-black.
@@ -60,11 +60,12 @@ That last clause is load-bearing. Roughly ten recipes in the incoming library re
 inks, and a palette whose entries sit at the same lightness turns all of them to mud with
 no visible explanation.
 
-| Where it enters    | What a violation is                                       |
-| ------------------ | --------------------------------------------------------- |
-| `DEFAULT_PALETTE`  | a startup crash — it goes through `readPalette` at import |
-| a manifest         | `readManifest` throws and the project does not open       |
-| the palette editor | a disabled Save with the reason under it (PRD §10.1)      |
+| Where it enters      | What a violation is                                         |
+| -------------------- | ----------------------------------------------------------- |
+| `palettes.json`      | a startup crash — every built-in goes through `readPalette` |
+| a manifest           | `readManifest` throws and the project does not open         |
+| a saved palette file | skipped, counted, and said aloud in the picker              |
+| the palette editor   | a disabled Save with the reason under it (PRD §10.1)        |
 
 The split is the point. Persisted data with a mistake in it should be loud; a half-typed
 hex should not take the app down. Both use the same function, which is why the problem is
@@ -84,9 +85,45 @@ The manifest carries it as a **required** field with no tolerant fallback — th
 missing palette is six colours the next prompt will be written in, and substituting ours
 would turn an unopenable project into one that opens and quietly says something else.
 
+## The library
+
+`src/lib/recipe/palettes.ts` and `palettes.json` make a palette something you **pick**
+(#49): five committed palettes, plus whatever the user has saved, on the terms PRD §6 set
+for the three preset libraries. The picker is at the top of the palette editor, not in
+preferences — a palette is prompt data on the same footing as a preset, and the preset
+libraries put pick-and-fork in the editor for the same reason.
+
+| Half       | Where                      | What a bad one costs                             |
+| ---------- | -------------------------- | ------------------------------------------------ |
+| built-ins  | `palettes.json`, committed | a startup crash, naming the palette and the slot |
+| the user's | `palettes/` in app data    | that one file skipped, and the count said aloud  |
+
+`palettes/` sits **beside** `presets/` rather than inside it, as a fourth variant of the
+Rust `Library` enum. The store is shared because the storage problem is identical — one
+validated-id JSON document per file, written atomically — and the folder is not, because a
+palette seeds no stage and composes no prompt.
+
+Three rules the picker rests on:
+
+- **A pick replaces the roles _and_ the extras**, wholesale. Keeping the previous
+  palette's extras is the reroll-rather-than-comparison failure roles were introduced to
+  prevent: `extra2` of one palette has nothing to do with `extra2` of another.
+- **Nothing records where a project's colours came from** (PRD §11), so the picker's label
+  is derived by comparing values — `samePalette`, exact on hex and authored name — and
+  says _Custom_ the moment one hex is off. A tolerance here is how a stale label would
+  survive an edit.
+- **No authored colour names anywhere in the library**, for the reason the shipped default
+  carries none. A built-in whose derived name reads badly is a gap in `colour-names.json`,
+  and adding the term there improves every colour anyone types.
+
+`DEFAULT_PALETTE` is the first entry of that committed file rather than a literal of its
+own, so the six hexes a new project copies have one source rather than two that can
+disagree.
+
 ## Not here
 
-- **Built-in palettes and a global palette library** — #49. It needs the app's first
-  settings subsystem, which is not preset work.
+- **Palette provenance on a project** — and everything that would need it: reset-to-palette,
+  drift indication, update-from-palette. #49 settled that a project carries values and not
+  a pointer.
 - **Any use of the hex values in post-processing** — #36.
 - **The app's own UI theme.** Unrelated; see `src/theme-variables.css`.

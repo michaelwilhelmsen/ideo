@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "palettes": [
+    {
+      "id": "studio",
+      "name": "Studio",
+      "roles": {
+        "primary": { "hex": "#D9662C" },
+        "secondary": { "hex": "#1F4E79" },
+        "accent": { "hex": "#B5352A" },
+        "ink": { "hex": "#14110F" },
+        "paper": { "hex": "#F4EFE6" },
+        "neutral": { "hex": "#8A8079" }
+      },
+      "extras": []
+    },
+    {
+      "id": "riso-bright",
+      "name": "Riso bright",
+      "roles": {
+        "primary": { "hex": "#FF4D3D" },
+        "secondary": { "hex": "#2B4CE0" },
+        "accent": { "hex": "#FFC72C" },
+        "ink": { "hex": "#1A1A1A" },
+        "paper": { "hex": "#FFFDF5" },
+        "neutral": { "hex": "#9A9A94" }
+      },
+      "extras": []
+    },
+    {
+      "id": "botanic",
+      "name": "Botanic",
+      "roles": {
+        "primary": { "hex": "#3E7C4F" },
+        "secondary": { "hex": "#8FBF6A" },
+        "accent": { "hex": "#1F4D3A" },
+        "ink": { "hex": "#101A14" },
+        "paper": { "hex": "#F2F5EC" },
+        "neutral": { "hex": "#7C8A7E" }
+      },
+      "extras": []
+    },
+    {
+      "id": "dusk",
+      "name": "Dusk",
+      "roles": {
+        "primary": { "hex": "#C2557A" },
+        "secondary": { "hex": "#4A3B6B" },
+        "accent": { "hex": "#E8A33D" },
+        "ink": { "hex": "#17131F" },
+        "paper": { "hex": "#F7F1F4" },
+        "neutral": { "hex": "#8A8194" }
+      },
+      "extras": []
+    },
+    {
+      "id": "slate-and-ochre",
+      "name": "Slate and ochre",
+      "roles": {
+        "primary": { "hex": "#C98A2E" },
+        "secondary": { "hex": "#3F4C57" },
+        "accent": { "hex": "#A33E2C" },
+        "ink": { "hex": "#0F1417" },
+        "paper": { "hex": "#EFEDE7" },
+        "neutral": { "hex": "#8C918F" }
+      },
+      "extras": [{ "hex": "#6B7F6E" }, { "hex": "#D9CBB3" }]
+    }
+  ]
+}

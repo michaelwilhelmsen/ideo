@@ -22,7 +22,16 @@ const MOTION_PRESETS_DIR: &str = "presets/motion";
 /// And the third — scenes rather than looks (#47), nested for the same reason.
 const SOURCE_PRESETS_DIR: &str = "presets/source";
 
-/// Which of the three libraries a call is about.
+/// Where saved palettes go (#49) — beside `presets/`, not inside it.
+///
+/// The one folder here that is not nested, because a palette is not a preset: it
+/// seeds no stage and composes no prompt, it is six colours a project copies in.
+/// What it shares with the three is the *storage* problem — one validated-id JSON
+/// document per file, written atomically — which is why it is a variant here
+/// rather than a second copy of this module.
+const PALETTES_DIR: &str = "palettes";
+
+/// Which library a call is about.
 ///
 /// An enum rather than the folder name itself, because a folder name is a
 /// **path**. Threaded as `&str` through `dir`, `list`, `save` and `delete` it
@@ -39,6 +48,8 @@ pub enum Library {
     Motion,
     /// Scenes (#47) — `presets/source/`.
     Source,
+    /// Palettes (#49) — `palettes/`, beside the presets rather than under them.
+    Palette,
 }
 
 impl Library {
@@ -48,6 +59,7 @@ impl Library {
             Self::Style => PRESETS_DIR,
             Self::Motion => MOTION_PRESETS_DIR,
             Self::Source => SOURCE_PRESETS_DIR,
+            Self::Palette => PALETTES_DIR,
         }
     }
 }
@@ -409,6 +421,65 @@ mod tests {
         assert!(save(root.path(), Library::Motion, "../escape", &motion("escape")).is_err());
         assert!(delete(root.path(), Library::Motion, "a/b").is_err());
         assert!(!root.path().join("presets").join("escape.json").exists());
+    }
+
+    fn palette(id: &str) -> Value {
+        json!({
+            "version": 1,
+            "id": id,
+            "name": "My palette",
+            "roles": { "primary": { "hex": "#D9662C" } },
+            "extras": [],
+        })
+    }
+
+    #[test]
+    fn palettes_are_kept_beside_the_presets_rather_than_inside_them() {
+        // A palette is not a preset — it seeds no stage and composes no prompt
+        // — so its folder is not one `presets/` contains.
+        let root = TempDir::new().unwrap();
+        save(root.path(), Library::Palette, "dusk", &palette("dusk")).unwrap();
+
+        assert!(root.path().join("palettes").join("dusk.json").is_file());
+        assert!(!root.path().join("presets").exists());
+        assert_eq!(
+            list(root.path(), Library::Palette).unwrap(),
+            vec![palette("dusk")]
+        );
+    }
+
+    #[test]
+    fn a_palette_id_cannot_walk_out_of_its_folder_either() {
+        let root = TempDir::new().unwrap();
+
+        assert!(save(
+            root.path(),
+            Library::Palette,
+            "../escape",
+            &palette("escape")
+        )
+        .is_err());
+        assert!(delete(root.path(), Library::Palette, "a/b").is_err());
+        assert!(!root.path().join("escape.json").exists());
+    }
+
+    #[test]
+    fn a_palette_and_a_preset_may_share_an_id() {
+        // Nothing records a palette id, so it joins no uniqueness rule: two
+        // folders, two files, neither shadowing the other.
+        let root = TempDir::new().unwrap();
+
+        save(root.path(), Library::Style, "warm", &preset("warm")).unwrap();
+        save(root.path(), Library::Palette, "warm", &palette("warm")).unwrap();
+
+        assert_eq!(
+            list(root.path(), Library::Style).unwrap(),
+            vec![preset("warm")]
+        );
+        assert_eq!(
+            list(root.path(), Library::Palette).unwrap(),
+            vec![palette("warm")]
+        );
     }
 
     #[test]

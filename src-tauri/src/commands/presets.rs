@@ -5,11 +5,11 @@
 //! them (`src/lib/recipe/presets.ts` and `src/lib/recipe/motion.ts`). See
 //! `presets::store` for the rest.
 //!
-//! Three families of three, one per library (#29, #47). Nine commands rather
-//! than three taking a library name, because a name crossing the boundary is a
-//! folder crossing the boundary: the webview would then be choosing which
-//! directory under app data gets written to, and `validate_id` guards the file
-//! name and not the folder.
+//! Four families of three — one per preset library (#29, #47) and one for the
+//! palettes (#49). Twelve commands rather than three taking a library name,
+//! because a name crossing the boundary is a folder crossing the boundary: the
+//! webview would then be choosing which directory under app data gets written
+//! to, and `validate_id` guards the file name and not the folder.
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -92,4 +92,31 @@ pub async fn source_preset_save(app: AppHandle, id: String, document: Value) -> 
 #[specta::specta]
 pub async fn source_preset_delete(app: AppHandle, id: String) -> Result<(), String> {
     store::delete(&app_data(&app)?, Library::Source, &id)
+}
+
+/// Every palette the user has saved, in a stable order.
+///
+/// A fourth library over the same store (#49), and the one that is not a preset
+/// library: a palette is six colours a project copies in rather than a seed for
+/// a stage. What it shares is the storage, so it shares the store and nothing
+/// else — including the folder, which is `palettes/` rather than a nested one.
+#[tauri::command]
+#[specta::specta]
+pub async fn user_palettes_list(app: AppHandle) -> Result<Vec<Value>, String> {
+    store::list(&app_data(&app)?, Library::Palette)
+}
+
+/// Writes one palette, by id — creating it, or updating one of the user's own
+/// in place.
+#[tauri::command]
+#[specta::specta]
+pub async fn user_palette_save(app: AppHandle, id: String, document: Value) -> Result<(), String> {
+    store::save(&app_data(&app)?, Library::Palette, &id, &document)
+}
+
+/// Removes one palette. Deleting one that is already gone is not an error.
+#[tauri::command]
+#[specta::specta]
+pub async fn user_palette_delete(app: AppHandle, id: String) -> Result<(), String> {
+    store::delete(&app_data(&app)?, Library::Palette, &id)
 }

@@ -356,6 +356,45 @@ async sourcePresetDelete(id: string) : Promise<Result<null, string>> {
 }
 },
 /**
+ * Every palette the user has saved, in a stable order.
+ * 
+ * A fourth library over the same store (#49), and the one that is not a preset
+ * library: a palette is six colours a project copies in rather than a seed for
+ * a stage. What it shares is the storage, so it shares the store and nothing
+ * else — including the folder, which is `palettes/` rather than a nested one.
+ */
+async userPalettesList() : Promise<Result<JsonValue[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("user_palettes_list") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Writes one palette, by id — creating it, or updating one of the user's own
+ * in place.
+ */
+async userPaletteSave(id: string, document: JsonValue) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("user_palette_save", { id, document }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Removes one palette. Deleting one that is already gone is not an error.
+ */
+async userPaletteDelete(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("user_palette_delete", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Whether there is an ffmpeg, from the answer taken at startup.
  * 
  * Cheap and cached, because the export panel asks on every render and the

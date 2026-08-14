@@ -23,12 +23,22 @@
  * The name field is optional and its placeholder is the name the colour would
  * be given anyway — which is the honest way to show a derived value: visible,
  * clearly not typed, and replaceable by typing.
+ *
+ * **The library lives here** (#49), above the rows, rather than in preferences:
+ * a palette is prompt data on the same footing as a preset, and the three preset
+ * libraries put pick-and-fork in the editor for the same reason. Picking one
+ * replaces the six roles *and* the extras wholesale — keeping the old extras
+ * would be the "reroll rather than comparison" failure roles were introduced to
+ * prevent — and it discards whatever was in the draft, which is a thing this
+ * dialog is allowed to do because it is cancellable and nothing has been
+ * committed yet.
  */
 
 import { formatHex } from 'culori'
 import type { TFunction } from 'i18next'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -47,23 +57,39 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
+  NativeSelect,
+  NativeSelectOptGroup,
+  NativeSelectOption,
+} from '@/components/ui/native-select'
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
 import {
+  BUILT_IN_PALETTES,
   isHex,
   isPaletteRole,
+  namedPaletteFor,
   nearestColourName,
   PALETTE_ROLES,
+  paletteIdFrom,
   paletteProblem,
+  type NamedPalette,
   type Palette,
   type PaletteEntry,
   type PaletteProblem,
   type PaletteRole,
   type Project,
 } from '@/lib/recipe'
+import {
+  EMPTY_PALETTES,
+  useDeletePalette,
+  usePalettes,
+  useSavePalette,
+} from '@/services/palettes'
 import { useEditorStore } from '@/store/editor-store'
+import { ConfirmDeleteDialog, UnreadableNotice } from './library-chrome'
 
 /**
  * What the picker shows while the text field holds something that is not a
@@ -76,6 +102,26 @@ const FALLBACK_SWATCH = '#000000'
 interface EntryDraft {
   readonly hex: string
   readonly name: string
+}
+
+/**
+ * One entry in the picker: a palette, which half of the library it came from,
+ * and a value that identifies it among both.
+ *
+ * The key exists because **an id does not identify a palette here**. Preset ids
+ * are unique across all three preset libraries because a recipe records one and
+ * it must resolve to exactly one library; nothing anywhere records a palette id,
+ * so a fork called `dusk` alongside our `dusk` is legal and shadows nothing. Two
+ * `<option>` sharing a value would make the picker apply the wrong one of them,
+ * and `yours` read off a shared id would offer Update and Delete on a built-in.
+ */
+interface PaletteChoice extends NamedPalette {
+  readonly key: string
+  readonly yours: boolean
+}
+
+function choiceOf(named: NamedPalette, yours: boolean): PaletteChoice {
+  return { ...named, key: `${yours ? 'yours' : 'built-in'}:${named.id}`, yours }
 }
 
 export function PaletteDialog({
@@ -97,6 +143,52 @@ export function PaletteDialog({
   const [extras, setExtras] = useState<readonly EntryDraft[]>(() =>
     project.palette.extras.map(draftOf)
   )
+
+  /**
+   * The palette this draft was last picked from, or `null` for "whatever the
+   * project already had".
+   *
+   * Session state and nothing more — a project deliberately records no
+   * provenance (PRD §11), so this cannot outlive the dialog. It exists because
+   * *updating one of your own* needs a target, and the picker's own readout
+   * cannot be it: that readout is a value comparison, so it drops to Custom the
+   * moment a hex changes, which is exactly when an update becomes worth
+   * offering.
+   */
+  const [pickedFrom, setPickedFrom] = useState<PaletteChoice | null>(null)
+  /** What a save would call it. Typed, never inherited — see the save block. */
+  const [naming, setNaming] = useState('')
+  const [deleting, setDeleting] = useState<NamedPalette | null>(null)
+
+  const { data } = usePalettes()
+  const { palettes: userPalettes, unreadable } = data ?? EMPTY_PALETTES
+  const savePalette = useSavePalette()
+  const removePalette = useDeletePalette()
+
+  /**
+   * Everything selectable — **the user's own first**, then ours.
+   *
+   * That order is the tie-break for {@link namedPaletteFor}, and it is this way
+   * round deliberately: two entries can only tie by being the same six colours,
+   * so both labels would be equally true, and answering with the user's own is
+   * the answer that keeps Update and Delete on screen. Ours are still listed
+   * first in the picker — see the groups below, which are rendered from the two
+   * halves rather than from this.
+   */
+  const library: readonly PaletteChoice[] = [
+    ...userPalettes.map(named => choiceOf(named, true)),
+    ...BUILT_IN_PALETTES.map(named => choiceOf(named, false)),
+  ]
+
+  /**
+   * Falls back to what the project arrived carrying, which is the case that
+   * matters on open: a project sitting on one of your own palettes can be
+   * tweaked and updated without picking it again first. Read off the project
+   * rather than the draft so it does not move while somebody types.
+   */
+  const from = pickedFrom ?? namedPaletteFor(project.palette, library)
+  /** Only your own can be updated in place or deleted. */
+  const yours = from?.yours ?? false
 
   // Every hex has to be one before the invariant can be asked about at all —
   // `#12` is not a dark colour, it is an unfinished one.
@@ -121,6 +213,43 @@ export function PaletteDialog({
     onClose()
   }
 
+  /**
+   * What the picker reads, by comparing values rather than by reading an id.
+   *
+   * Nothing records where a project's colours came from, so this is the only
+   * honest answer available — and *Custom* the moment one hex is off is the
+   * point rather than a shortcoming: the label is a claim that these six colours
+   * are that palette, and a nearly is not.
+   */
+  const showing = edited === null ? null : namedPaletteFor(edited, library)
+
+  /** A pick replaces the roles **and** the extras. There is no partial apply. */
+  const apply = (choice: PaletteChoice): void => {
+    setRoles(
+      Object.fromEntries(
+        PALETTE_ROLES.map(role => [role, draftOf(choice.palette.roles[role])])
+      ) as Record<PaletteRole, EntryDraft>
+    )
+    setExtras(choice.palette.extras.map(draftOf))
+    setPickedFrom(choice)
+  }
+
+  /** Refused, not warned: no path here writes an invalid palette to disk. */
+  const savable = edited !== null && problem === null && !savePalette.isPending
+
+  const saveToLibrary = (named: NamedPalette): void => {
+    savePalette.mutate(named, {
+      onSuccess: saved => {
+        // The draft *is* that palette now, so an update after this one lands on
+        // it rather than on whatever it was forked from. Theirs by definition:
+        // this is the only way a palette gets into the user's folder.
+        setPickedFrom(choiceOf(saved, true))
+        setNaming('')
+        toast.success(t('editor.palette.saved', { name: saved.name }))
+      },
+    })
+  }
+
   return (
     <Dialog
       open
@@ -135,6 +264,61 @@ export function PaletteDialog({
             {t('editor.palette.description')}
           </DialogDescription>
         </DialogHeader>
+
+        <div className="space-y-1">
+          <Label htmlFor="palette-library">{t('editor.palette.library')}</Label>
+          <NativeSelect
+            id="palette-library"
+            className="w-full"
+            // Keyed by which half it came from as well as by its id — the two
+            // halves may legitimately share one. See {@link PaletteChoice}.
+            value={showing?.key ?? ''}
+            onChange={event => {
+              const picked = library.find(
+                choice => choice.key === event.target.value
+              )
+              if (picked !== undefined) apply(picked)
+            }}
+          >
+            {/* Only offered while nothing matches, so it is never a choice that
+                does nothing: these six colours are either a palette in the
+                library or they are the user's own arrangement. */}
+            {showing === null && (
+              <NativeSelectOption value="">
+                {t('editor.palette.custom')}
+              </NativeSelectOption>
+            )}
+            {/* Ours first here, whatever order `library` resolves ties in: the
+                committed palettes are the ones somebody arriving at an empty
+                library needs to find. */}
+            <NativeSelectOptGroup label={t('editor.palette.builtIn')}>
+              {/* A name is user data, whoever wrote it (PRD §6) — no `t()` near
+                  it. Ours are authored in the committed library; theirs are
+                  typed. */}
+              {library
+                .filter(choice => !choice.yours)
+                .map(choice => (
+                  <NativeSelectOption key={choice.key} value={choice.key}>
+                    {choice.name}
+                  </NativeSelectOption>
+                ))}
+            </NativeSelectOptGroup>
+            {userPalettes.length > 0 && (
+              <NativeSelectOptGroup label={t('editor.palette.yours')}>
+                {library
+                  .filter(choice => choice.yours)
+                  .map(choice => (
+                    <NativeSelectOption key={choice.key} value={choice.key}>
+                      {choice.name}
+                    </NativeSelectOption>
+                  ))}
+              </NativeSelectOptGroup>
+            )}
+          </NativeSelect>
+          <p className="text-xs text-muted-foreground">
+            {t('editor.palette.libraryHint')}
+          </p>
+        </div>
 
         <div className="space-y-3">
           {PALETTE_ROLES.map(role => (
@@ -172,6 +356,87 @@ export function PaletteDialog({
           </Button>
         </div>
 
+        {/* Saving to the library is a separate act from applying to the project
+            — the footer does that — so it gets its own block rather than a
+            fourth button in the footer. */}
+        <div className="space-y-2 rounded-md border border-border p-3">
+          <Label htmlFor="palette-save-name">
+            {t('editor.palette.paletteName')}
+          </Label>
+          <Input
+            id="palette-save-name"
+            value={naming}
+            // The palette this came from, offered as what to call the next one
+            // rather than filled in: a new palette wants a new name, and
+            // pre-filling it is how somebody ends up with two called "Dusk".
+            placeholder={from?.name ?? t('editor.palette.namePlaceholder')}
+            onChange={event => setNaming(event.target.value)}
+          />
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!savable || naming.trim() === ''}
+              onClick={() => {
+                if (edited === null || problem !== null) return
+                const name = naming.trim()
+                if (name === '') return
+                saveToLibrary({
+                  id: paletteIdFrom(
+                    name,
+                    library.map(named => named.id)
+                  ),
+                  name,
+                  palette: edited,
+                })
+              }}
+            >
+              {t('editor.palette.saveAsNew')}
+            </Button>
+
+            {/* Absent rather than disabled on a built-in: read-only is not a
+                failure state, and offering the button would imply ours are
+                yours. */}
+            {yours && from !== null && (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!savable}
+                  onClick={() => {
+                    if (edited === null || problem !== null) return
+                    saveToLibrary({
+                      id: from.id,
+                      // Renamed only if somebody typed one — an empty box means
+                      // "leave it called what it is".
+                      name: naming.trim() === '' ? from.name : naming.trim(),
+                      palette: edited,
+                    })
+                  }}
+                >
+                  {t('editor.palette.update')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={removePalette.isPending}
+                  onClick={() => setDeleting(from)}
+                >
+                  {t('editor.palette.delete')}
+                </Button>
+              </>
+            )}
+          </div>
+
+          {/* A palette that breaks the lightness invariant is in this count
+              too — refused on the way in exactly as it is on the way out. */}
+          <UnreadableNotice
+            count={unreadable}
+            messageKey="editor.palette.unreadable"
+          />
+        </div>
+
         {/* One reason at a time, naming the entries it is about: "the palette
             is invalid" is not something anybody can act on. */}
         {(problem !== null || !complete) && (
@@ -190,6 +455,26 @@ export function PaletteDialog({
             {t('editor.palette.save')}
           </Button>
         </DialogFooter>
+
+        {/* Confirmed, unlike applying a palette to a project: that is provably
+            non-destructive — every recipe persists its expanded prose — and this
+            removes a file. */}
+        <ConfirmDeleteDialog
+          entry={deleting}
+          titleKey="editor.palette.deleteTitle"
+          descriptionKey="editor.palette.deleteDescription"
+          confirmKey="editor.palette.delete"
+          onClose={() => setDeleting(null)}
+          onDelete={doomed => {
+            removePalette.mutate(doomed.id, {
+              // The colours stay in the draft — only the library entry goes.
+              // Deleting a palette is not a way to lose the one you are
+              // looking at.
+              onSuccess: () => setPickedFrom(null),
+            })
+            setDeleting(null)
+          }}
+        />
       </DialogContent>
     </Dialog>
   )
