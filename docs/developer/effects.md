@@ -183,6 +183,22 @@ Four seams, all of them pre-existing shapes:
 | The export plan    | `src-tauri/src/export/plan.rs`  | The treated path's steps, resolution and deliverable set               |
 | The frame loop     | `lib/effects/bake.test.ts`      | Determinate progress, a cancel that stops                              |
 
+### The colour parity gap, stated plainly
+
+#36's "Done when" asks that _"GPU and CPU colour agree within the tested
+tolerance"_, asserted on a golden image. **That golden image does not exist
+yet.** What exists instead:
+
+- `color.rs` pins the Rust transfer exhaustively over all 256 bytes.
+- `inks.test.ts` pins the TypeScript transfer to the same numbers.
+- `gl/shaders.test.ts` asserts every shader carries the exact IEC 61966-2-1
+  constants and the sRGB luminance weights — so a shader quietly rewritten as
+  `pow(x, 1/2.2)` fails CI.
+
+That is agreement _by construction and by coupling check_, not agreement
+measured on pixels. The measured version needs a GPU, so it is local-only work
+still outstanding.
+
 **The acknowledged gap: shader output has no automated seam.** There is no GPU on
 a CI runner, so whether the six looks are any good is golden images run locally
 plus the maintainer's eye. Do not compensate by testing the shader through a

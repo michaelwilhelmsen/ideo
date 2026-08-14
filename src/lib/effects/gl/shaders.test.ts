@@ -92,6 +92,47 @@ describe('the source each shader is assembled from', () => {
   })
 })
 
+describe('the transfer function, in the three places it exists', () => {
+  /**
+   * The strongest thing CI can say about GPU/CPU colour agreement.
+   *
+   * The real assertion #36 asks for is a golden image — the same picture through
+   * the shader and through Rust, diffed — and that cannot run here: there is no
+   * GPU on the runner, and mocking one would prove the mock works. What *can* be
+   * checked is that the three implementations are the same function: the GLSL
+   * `encode`, `src-tauri/src/effects/color.rs`, and `inks.ts`. If one of them
+   * were quietly rewritten as `pow(x, 1/2.2)`, a duotone would visibly shift the
+   * moment somebody switched from an ordered kernel to a diffusion one, and
+   * nothing else in this suite would notice.
+   *
+   * The constants are IEC 61966-2-1's own. `inks.test.ts` pins the TypeScript
+   * side to the same numbers and `color.rs` pins the Rust side exhaustively.
+   */
+  const IEC = ['0.0031308', '1.055', '1.0 / 2.4', '0.055', '12.92']
+
+  it('is the exact sRGB transfer in every shader, not a gamma approximation', () => {
+    for (const shader of EFFECT_SHADERS) {
+      const source = fragmentSourceFor(shader)
+      for (const constant of IEC) {
+        expect(source, `${shader} is missing ${constant}`).toContain(constant)
+      }
+      // The approximation the spike explicitly refused, because it would be a
+      // second uncontrolled variable next to the parity being asserted.
+      expect(source, shader).not.toContain('2.2')
+    }
+  })
+
+  it('weights luminance by sRGB’s own primaries', () => {
+    // Applied to linear light and never to encoded bytes — the classic mistake
+    // both other implementations also have a test against.
+    for (const shader of EFFECT_SHADERS) {
+      expect(fragmentSourceFor(shader)).toContain(
+        'vec3(0.212639, 0.715169, 0.072192)'
+      )
+    }
+  })
+})
+
 describe('the blue-noise mask', () => {
   it('is the tile the generator says it is', () => {
     expect(BLUE_NOISE_MASK).toHaveLength(BLUE_NOISE_SIZE * BLUE_NOISE_SIZE)
