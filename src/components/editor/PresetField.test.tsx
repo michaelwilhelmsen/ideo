@@ -68,6 +68,8 @@ function bilingualFork(): unknown {
     negative: null,
     strength: null,
     aspect: null,
+    headlineZone: null,
+    note: null,
   })
 
   return writeUserPreset({
@@ -97,6 +99,8 @@ function savedFork({
       negative: null,
       strength: null,
       aspect: null,
+      headlineZone: null,
+      note: null,
     })
   )
 }
@@ -137,6 +141,22 @@ function pick(presetId: string): void {
   fireEvent.change(picker(), { target: { value: presetId } })
 }
 
+/**
+ * Every optgroup label in the picker, in order.
+ *
+ * Asserted against by *meaning* rather than by count since #48: the built-ins
+ * are grouped one group per family, so a count would be a second copy of how
+ * many families the shipped library happens to have — a number that changes
+ * every time somebody adds a look, and that says nothing about the behaviour
+ * these tests are here for. What matters is that the user's own forks are their
+ * own group and nothing of ours is in it.
+ */
+function groupLabels(): string[] {
+  return [...picker().querySelectorAll('optgroup')].map(group => group.label)
+}
+
+const YOURS = 'Yours'
+
 beforeEach(() => {
   vi.clearAllMocks()
   useEditorStore.getState().reset()
@@ -163,28 +183,33 @@ describe('picking a look', () => {
     open()
     render(<LivePresetField />)
 
-    const groups = await waitFor(() => {
-      const found = picker().querySelectorAll('optgroup')
-      expect(found).toHaveLength(2)
+    const labels = await waitFor(() => {
+      const found = groupLabels()
+      expect(found).toContain(YOURS)
       return found
     })
 
-    expect([...groups].map(group => group.label)).toEqual(['Built-in', 'Yours'])
+    // Ours are grouped one per family and every one of those groups says so;
+    // the user's are last, under a heading that is only about being theirs.
+    expect(labels[labels.length - 1]).toBe(YOURS)
+    for (const label of labels.slice(0, -1)) {
+      expect(label).toMatch(/^Built-in — /)
+    }
+
+    const yours = [...picker().querySelectorAll('optgroup')].at(-1)
+    if (yours === undefined) throw new Error('the picker has no groups')
+
     // A name the user typed is shown as they typed it (PRD §6) — no `t()`.
-    expect(
-      within(groups[1] as unknown as HTMLElement).getByRole('option', {
-        name: 'My look',
-      })
-    ).toBeEnabled()
+    expect(within(yours).getByRole('option', { name: 'My look' })).toBeEnabled()
+    // And nothing of ours has leaked into it.
+    expect(within(yours).getAllByRole('option')).toHaveLength(1)
   })
 
   it('offers nothing but the built-ins when nobody has saved one', async () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() =>
-      expect(picker().querySelectorAll('optgroup')).toHaveLength(1)
-    )
+    await waitFor(() => expect(groupLabels()).not.toContain(YOURS))
   })
 
   it('disables a preset that cannot speak to this model, and says why', async () => {
@@ -211,9 +236,7 @@ describe('picking a look', () => {
       .dispatch({ type: 'chooseModel', stage: 'style', modelId: QWEN.id })
     render(<LivePresetField />)
 
-    await waitFor(() =>
-      expect(picker().querySelectorAll('optgroup')).toHaveLength(2)
-    )
+    await waitFor(() => expect(groupLabels()).toContain(YOURS))
     pick('my-look')
 
     useEditorStore
@@ -345,9 +368,7 @@ describe('saving a fork', () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() =>
-      expect(picker().querySelectorAll('optgroup')).toHaveLength(2)
-    )
+    await waitFor(() => expect(groupLabels()).toContain(YOURS))
     await user.click(
       screen.getByRole('button', { name: /save as new preset/i })
     )
@@ -365,9 +386,7 @@ describe('saving a fork', () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() =>
-      expect(picker().querySelectorAll('optgroup')).toHaveLength(2)
-    )
+    await waitFor(() => expect(groupLabels()).toContain(YOURS))
     pick('my-look')
     useEditorStore.getState().dispatch({
       type: 'setPrompt',
@@ -401,9 +420,7 @@ describe('saving a fork', () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() =>
-      expect(picker().querySelectorAll('optgroup')).toHaveLength(2)
-    )
+    await waitFor(() => expect(groupLabels()).toContain(YOURS))
     pick('my-look')
     useEditorStore.getState().dispatch({
       type: 'setPrompt',
@@ -438,9 +455,7 @@ describe('saving a fork', () => {
       .dispatch({ type: 'chooseModel', stage: 'style', modelId: QWEN.id })
     render(<LivePresetField />)
 
-    await waitFor(() =>
-      expect(picker().querySelectorAll('optgroup')).toHaveLength(2)
-    )
+    await waitFor(() => expect(groupLabels()).toContain(YOURS))
     pick('my-look')
     useEditorStore
       .getState()
@@ -481,9 +496,7 @@ describe('saving a fork', () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() =>
-      expect(picker().querySelectorAll('optgroup')).toHaveLength(2)
-    )
+    await waitFor(() => expect(groupLabels()).toContain(YOURS))
     pick('my-look')
 
     await user.click(screen.getByRole('button', { name: /delete preset/i }))
@@ -524,7 +537,7 @@ describe('a saved preset that cannot be read', () => {
     render(<LivePresetField />)
 
     expect(await screen.findByText(/could not be read/i)).toBeVisible()
-    expect(picker().querySelectorAll('optgroup')).toHaveLength(1)
+    expect(groupLabels()).not.toContain(YOURS)
     expect(
       within(picker()).getByRole('option', { name: 'Glass caustics' })
     ).toBeInTheDocument()

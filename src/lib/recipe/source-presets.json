@@ -6,30 +6,12 @@
   },
   "presets": [
     {
-      "id": "gn-monolith",
-      "name": "Monolith on plinth",
-      "family": "product",
-      "aspect": "3:2",
-      "variants": {
-        "tags": {
-          "transform": "{{subject}} resting on a raw poured-concrete plinth, large empty room, {{primary}} walls, one hard directional light from high camera-left, long sharp shadow thrown across the floor to the right, everything else in deep shade, vast negative space above and to the right, cool neutral grade, matte surfaces, visible concrete aggregate, architectural photography, 50mm, eye level, dead-on symmetrical framing",
-          "compose": "{transform}, {append}",
-          "negative": "multiple objects, props, plants, people, soft diffused lighting, glossy studio sweep, floating, drop shadow, busy background, warm grade, tilted camera",
-          "strength": null
-        },
-        "prose": {
-          "transform": "{{subject}} resting on a raw poured-concrete plinth in a large empty room with {{primary}} walls. One hard directional light from high camera-left throws a long sharp shadow across the floor to the right. Everything else falls into shade. Vast negative space above and to the right. Cool neutral grade, matte surfaces, visible concrete aggregate texture. Architectural photography, 50mm, eye level, dead-on symmetrical framing.",
-          "compose": "{transform} {append}",
-          "negative": "multiple objects, props, plants, people, soft diffused lighting, glossy studio sweep, floating, drop shadow",
-          "strength": null
-        }
-      }
-    },
-    {
       "id": "gn-gouache-sky",
       "name": "Painted sky, gouache",
       "family": "illustration",
       "aspect": "21:9",
+      "blurb": "Anime background-art tradition. Best first-run demo in the set.",
+      "headlineZone": "bottomLeft",
       "variants": {
         "tags": {
           "transform": "hand-painted gouache landscape background, Japanese animation background art, one towering cumulus cloud filling the upper two thirds, cloud built from visible individual brush dabs of cream and warm white and pale grey, soft shadowed cloud underbellies, deep saturated cobalt sky graduating to paler blue at the horizon, green hillside receding across the lower right third, wildflower meadow of thousands of separate dabs of red and orange and blue, {{subject}} small within the landscape, open uncluttered sky across the lower left third, visible paint texture and brush direction, soft atmospheric haze at the horizon",
@@ -46,21 +28,311 @@
       }
     },
     {
-      "id": "gn-gradient",
-      "name": "Soft gradient field",
-      "family": "abstract",
+      "id": "gn-pointillist",
+      "name": "Pointillist maximalism",
+      "family": "illustration",
       "aspect": "21:9",
+      "blurb": "Dense, loud, edge to edge. Type sits outside the image.",
+      "headlineZone": "none",
       "variants": {
         "tags": {
-          "transform": "abstract soft gradient field, {{primary}} blending into {{secondary}}, slow organic asymmetric transition, subtle volumetric depth as if light diffuses through frosted glass or thick fog, one faint darker fold running diagonally to give the field structure, extremely fine tonal steps",
+          "transform": "pointillist illustration of {{subject}}, divisionist tradition, every form built from thousands of small discrete dots of pure unblended colour placed side by side, adjacent complementary hues vibrating optically, hot pink beside teal, cadmium yellow beside violet, orange beside cyan, extremely high saturation throughout, flat teal field behind dusted with fine white speckle, depth flattened so forms read as decorative masses, dense edge to edge",
           "compose": "{transform}, {append}",
-          "negative": "banding, harsh edges, mesh grid, blobs, shapes, neon, high saturation, rainbow, straight linear ramp, objects, subject",
+          "negative": "smooth gradients, blended colour, outlines, black linework, muted palette, muted passages, empty space, photorealism, vector flat shapes, gradient shading, smoothing",
           "strength": null
         },
         "prose": {
-          "transform": "An abstract soft gradient field built from {{primary}} blending into {{secondary}}. The transition slow, organic and asymmetric, never a straight linear ramp. Subtle volumetric depth as if light diffuses through frosted glass or thick fog. One faint darker fold running diagonally to give the field structure. Extremely fine tonal steps with no banding. No objects, no shapes.",
+          "transform": "A pointillist illustration of {{subject}} in the divisionist tradition. Every form is constructed entirely from thousands of small discrete dots of pure unblended colour placed side by side, never smoothed or gradiented. Adjacent complementary hues vibrate optically against each other: hot pink beside teal, cadmium yellow beside violet, orange beside cyan. Extremely high saturation throughout with no muted passages. A flat teal field behind, dusted with fine white speckle. Depth flattened so forms read as decorative masses. No linework, no outlines, no black. Dense edge to edge with no empty passages.",
           "compose": "{transform} {append}",
-          "negative": "banding, harsh edges, mesh grid, blobs, shapes, neon, high saturation, rainbow",
+          "negative": "smooth gradients, blended colour, outlines, muted palette, empty space, photorealism, vector flat shapes",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-duotone-landscape",
+      "name": "Duotone dither landscape",
+      "family": "illustration",
+      "aspect": "16:9",
+      "blurb": "Stylised mountains, cypress, rolling hills. Reduce in post.",
+      "headlineZone": "lowerThirdFull",
+      "note": "Quantise to a two-entry palette, then Atkinson dither at output resolution.",
+      "variants": {
+        "tags": {
+          "transform": "stylised two-colour landscape illustration of {{subject}}, stacked rolling hills in the foreground, angular mountain peaks in the middle distance, tall narrow cypress trees breaking the horizon at intervals, one small perfect circular moon in the upper field, exactly two colours, {{primary}} for every lit form, {{ink}} for the field and shadow, forms simplified into clean readable silhouettes, strong light-dark separation, high contrast, graphic, poster-like",
+          "compose": "{transform}, {append}",
+          "negative": "gradients, midtones, third colour, intermediate tones, photographic detail, texture noise, soft edges, atmospheric blur, shading, halftone grey",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A stylised landscape illustration of {{subject}}: stacked rolling hills in the foreground, angular mountain peaks in the middle distance, tall narrow cypress trees breaking the horizon at intervals, and a small perfect circular moon in the upper field. Rendered in exactly two colours, {{primary}} for all lit forms and {{ink}} for the field and shadow. No intermediate tones, no gradients, no third colour. Forms simplified into clean readable silhouettes with strong light-dark separation. High contrast, graphic, poster-like.",
+          "compose": "{transform} {append}",
+          "negative": "gradients, midtones, third colour, photographic detail, texture noise, soft edges, atmospheric blur",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-halftone-highkey",
+      "name": "High-key halftone scene",
+      "family": "illustration",
+      "aspect": "16:9",
+      "blurb": "Fog, distance, restraint. Carries overlaid type better than anything else here.",
+      "headlineZone": "upperLeft",
+      "note": "Ordered Bayer 4x4 at output resolution.",
+      "variants": {
+        "tags": {
+          "transform": "high-key monochrome illustration of {{subject}} seen across water in heavy morning fog, pure white field occupying the upper-left half of the frame, subject entering from the right and receding into nothing toward the left, depth built purely from density, nearest structure almost solid black, middle distance mid-grey, far distance dissolved entirely into white, black and white only, clean simplified geometry, architectural clarity, enormous empty space, calm and cold",
+          "compose": "{transform}, {append}",
+          "negative": "colour, colour cast, warm tone, heavy shadow throughout, busy foreground, texture noise, vignette, dramatic sky, dense detail at the left edge",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A high-key monochrome illustration of {{subject}} seen across water or open ground in heavy morning fog. Pure white field occupying the upper-left half of the frame, subject entering from the right and receding into nothing toward the left. Depth created purely by density: nearest structure almost solid black, middle distance mid-grey, far distance dissolved entirely into white. Black and white only, no colour cast. Clean simplified geometry, architectural clarity, enormous empty space. Calm and cold.",
+          "compose": "{transform} {append}",
+          "negative": "colour, warm tone, heavy shadow throughout, busy foreground, texture noise, vignette, dramatic sky",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-woodblock",
+      "name": "Woodblock print",
+      "family": "illustration",
+      "aspect": "3:2",
+      "blurb": "Heritage and craft without nostalgia kitsch.",
+      "headlineZone": "upperThirdFull",
+      "variants": {
+        "tags": {
+          "transform": "Japanese woodblock print of {{subject}}, shin-hanga tradition, colour in flat discrete layers, each reading as a separate carved block, visible woodgrain texture pulled through the larger flat areas and especially the sky, bokashi gradation at the horizon and top edge only, confident carved keyline defining the main forms, keyline weight varying where the blade turned, slight registration offset on one colour, absorbent washi with visible fibre and a soft deckle edge, restrained palette anchored by {{primary}}, flattened perspective, decorative composition",
+          "compose": "{transform}, {append}",
+          "negative": "photorealism, digital gradients, airbrush, drop shadows, perfect registration, western perspective, heavy black fill, blended colour, gradation across the whole frame",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A Japanese woodblock print of {{subject}} in the shin-hanga tradition. Colour applied in flat discrete layers with no blending, each a separate carved block. Visible woodgrain texture pulled through the larger flat areas, especially the sky. Bokashi gradation only at the horizon and top edge where the printer wiped the block by hand. Confident carved keyline defining the main forms, varying in weight where the blade turned. Slight registration offset on one colour. Printed on absorbent washi with visible fibre and a soft deckle edge. Restrained palette anchored by {{primary}}. Flattened perspective, decorative composition.",
+          "compose": "{transform} {append}",
+          "negative": "photorealism, digital gradients, airbrush, drop shadows, perfect registration, western perspective, heavy black fill",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-screenprint",
+      "name": "Screenprint travel poster",
+      "family": "illustration",
+      "aspect": "3:2",
+      "blurb": "WPA national-park lineage. Confident, monumental, optimistic.",
+      "headlineZone": "lowerThirdFull",
+      "variants": {
+        "tags": {
+          "transform": "screenprinted poster illustration of {{subject}}, 1930s national park travel poster lineage, exactly four flat ink layers, one of them {{primary}}, bold simplified geometric shapes with hard clean edges, strong diagonal composition, dramatic simplified light reducing complex forms to two or three flat planes each, slight ink texture, one small area of imperfect coverage, generous flat uninterrupted colour field across the lower third",
+          "compose": "{transform}, {append}",
+          "negative": "gradients, more than four colours, fifth ink, photographic detail, drop shadows, glow, fussy linework, detail clutter, blended shading, soft edges",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A screenprinted poster illustration of {{subject}} in the lineage of 1930s national park travel posters. Exactly four flat ink layers and no more, one of them {{primary}}. Bold simplified geometric shapes with hard clean edges, no gradients. Strong diagonal composition with dramatic simplified light reducing complex forms to two or three flat planes each. Slight ink texture and one small area of imperfect coverage. A generous flat uninterrupted colour field across the lower third.",
+          "compose": "{transform} {append}",
+          "negative": "gradients, more than four colours, photographic detail, drop shadows, glow, fussy linework, detail clutter",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-engraving",
+      "name": "Engraved linework",
+      "family": "illustration",
+      "aspect": "3:2",
+      "blurb": "Copperplate hatching. Old-money, institutional, precise.",
+      "headlineZone": "rightThird",
+      "variants": {
+        "tags": {
+          "transform": "copperplate engraving of {{subject}}, nineteenth century banknote vignette, every tone produced by line density alone, parallel hatching for flat planes, cross-hatching for shadow, stipple for soft transitions, line weight swelling and tapering as the burin cut, white paper showing through wherever lines separate, precise, controlled, extremely fine, monochrome ink, right third left near-empty with only sparse widely-spaced hatching",
+          "compose": "{transform}, {append}",
+          "negative": "solid fills, solid black areas, grey wash, digital halftone, photographic texture, colour, sketchy linework, drop shadow, blur, dense hatching at the right edge",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A copperplate engraving of {{subject}} in the style of a nineteenth century banknote vignette. Every tone produced by line density alone: parallel hatching for flat planes, cross-hatching for shadow, stipple for soft transitions, line weight swelling and tapering as the burin cut. No solid black fills, no grey washes. White paper showing through wherever lines separate. Precise, controlled, extremely fine. Monochrome ink only. The right third left near-empty with only sparse widely-spaced hatching.",
+          "compose": "{transform} {append}",
+          "negative": "solid fills, grey wash, digital halftone, photographic texture, colour, sketchy linework, drop shadow",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-vintage-surreal",
+      "name": "Vintage-textured surrealism",
+      "family": "illustration",
+      "aspect": "16:9",
+      "blurb": "Aged print texture fused with colour-inverted subjects. Block-structured, derived from Chirag's published prompt.",
+      "headlineZone": "none",
+      "variants": {
+        "tags": {
+          "transform": "vintage Japanese woodblock and letterpress print illustration, five stylised {{subject}} in a cohesive arrangement, one large central element carrying elaborate detail, the others surrounding it in varied poses with distinct texture and structure and character, pervasive coarse grain, uniform dithered noise pattern across all elements, rough aged paper feel, clean lines carrying minor distress and ink bleed, background a muted halftone-dot-pattern gradient in periwinkle, secondary forms split between distressed textured light shapes in linen on one side and solid deep-charcoal silhouettes in {{ink}} on the other, base field a deep muted petrol blue with dithered white spray and complex vector patterning, subject surfaces a desaturated lichen, subject outlines a grainy desaturated dusty pink, negative-gradient logic contradicting the naturalism around them, simple distressed dark border, aged speckled sepia paper texture background, dynamic perspective, largest element in focus, dramatic lonely introspective mood",
+          "compose": "{transform}, {append}",
+          "negative": "clean digital rendering, smooth gradients, photorealism, natural subject colouring, glossy finish, vector flatness, even tone, modern print quality",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A highly detailed vintage Japanese woodblock and letterpress print style illustration, featuring five stylised {{subject}} in a cohesive arrangement. One large central element carries elaborate detail, surrounded by the others in varied poses, each displaying distinct texture, structure and character. The Key Aesthetic: The overall texture is dominated by pervasive coarse grain and a uniform dithered noise pattern across all elements, giving a rough, aged paper feel. Lines are clean but carry minor distress and ink bleed common to old print. The Colour Palette: The scene is split. The background uses a muted halftone-dot-pattern gradient in periwinkle. Secondary forms split between highly distressed textured light shapes in linen on one side and solid deep-charcoal silhouettes in {{ink}} on the other. The base field is a deep muted petrol blue with dithered white spray and complex vector patterning. The Signature Effect: The key surreal element is the unnatural colouring of the subjects. Their surfaces are a desaturated lichen and their outlines a grainy desaturated dusty pink, creating a negative-gradient logic that contradicts the naturalism around them. The Final Layout: Framed by a simple distressed dark border, set against an aged speckled sepia paper texture background. Dynamic perspective with the largest element in focus. Dramatic, lonely, introspective mood.",
+          "compose": "{transform} {append}",
+          "negative": "clean digital rendering, smooth gradients, photorealism, natural subject colouring, glossy finish, vector flatness",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-wireframe-split",
+      "name": "Hard-cut wireframe split",
+      "family": "technical",
+      "aspect": "1:1",
+      "blurb": "Half photoreal, half engineering wireframe.",
+      "headlineZone": "none",
+      "variants": {
+        "tags": {
+          "transform": "high-quality realistic 3D render of exactly one {{subject}}, floating freely in mid-air, gently tilted and rotated in 3D space, not front-facing, soft minimalist dark background, left half in full realism with accurate materials and colours and textures and reflections and proportions, completely opaque, right half switching cleanly to a wireframe interior diagram, boundary a perfectly vertical perfectly sharp cut line running top edge to bottom edge, wireframe in exactly two line colours, white for roughly eighty percent of lines and {{primary}} for under twenty percent, lines thin and precise and engineering-style matching real geometry, one object only, soft neutral global illumination",
+          "compose": "{transform}, {append}",
+          "negative": "duplicate objects, mirrored pairs, second object, reflections showing a second object, ghost, silhouette, comparison view, front-and-back pairing, labels, props, diagonal split, curved split, gradient transition, fading, blending, wireframe overlay on the left half, transparency on the left half, shadow beneath",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A high-quality realistic 3D render of exactly one instance of the object: {{subject}}. The object floats freely in mid-air, gently tilted and rotated in 3D space, not front-facing. Soft minimalist dark background. LEFT HALF, FULL REALISM: exactly as in real life, accurate materials, colours, textures, reflections and proportions. Completely opaque, no transparency, no wireframe overlay, no fading, no blending. RIGHT HALF, HARD CUT WIREFRAME INTERIOR: switches cleanly to a wireframe interior diagram. The boundary is a perfectly vertical, perfectly sharp cut line from the top edge to the bottom edge. No diagonal, no curve, no gradient. Wireframe uses exactly two line colours: white for roughly 80 percent of lines and {{primary}} for under 20 percent. Lines thin, precise, engineering-style, matching real geometry. STRICT SINGLE OBJECT RULE: render only ONE object in the entire frame. No second object as reflection, shadow, silhouette, ghost or transparency. No comparison views, no front-and-back pairings. Soft neutral global illumination, no shadow beneath.",
+          "compose": "{transform} {append}",
+          "negative": "duplicate objects, mirrored pairs, reflections showing a second object, labels, props, diagonal split, gradient transition",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-cutaway",
+      "name": "Architectural cutaway",
+      "family": "technical",
+      "aspect": "16:9",
+      "blurb": "Sliced open to reveal the inside.",
+      "headlineZone": "leftThird",
+      "variants": {
+        "tags": {
+          "transform": "precise cutaway section view of {{subject}}, sliced cleanly through the vertical plane to reveal the full interior, cut face rendered in flat {{primary}} to read as a section cut, everything beyond the cut in full realistic material and depth, razor-sharp cut edge, interior elements correctly proportioned and physically plausible, neutral studio background, soft even lighting, technical illustration accuracy with photographic material quality, left third of the frame left empty",
+          "compose": "{transform}, {append}",
+          "negative": "exploded view, floating parts, transparency, x-ray effect, glow, multiple cuts, ragged edges, dramatic shadows, clutter in the left third",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A precise cutaway section view of {{subject}}, sliced cleanly through the vertical plane to reveal the full interior. The cut face rendered in flat {{primary}} to read clearly as a section cut, while everything beyond the cut is full realistic material and depth. The cut edge is razor sharp with no ragged geometry. Interior elements correctly proportioned and physically plausible. Neutral studio background, soft even lighting, no dramatic shadows. Technical illustration accuracy with photographic material quality. Left third of the frame left empty.",
+          "compose": "{transform} {append}",
+          "negative": "exploded view, floating parts, transparency, x-ray effect, glow, multiple cuts, ragged edges",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-isometric-lineup",
+      "name": "Labelled isometric lineup",
+      "family": "diagram",
+      "aspect": "1:1",
+      "blurb": "Three things ranked on plinths. Tiers, plans, sizes. The only recipe here that wants text.",
+      "headlineZone": "upperThirdFull",
+      "variants": {
+        "tags": {
+          "transform": "clear side miniature 3D cartoon view of {{subject}}, minimal textures with realistic materials, soft lifelike lighting, gentle shadows, clean minimalist composition, exactly three items arranged left to right in strict descending order of storage capacity, accurate relative proportions, each item standing separately on a thin simple ceramic base, centred text below each base reading 2 TB and 500 GB and 100 GB in semibold sans-serif at medium size, Studio and Team and Solo in lighter weight and smaller size directly beneath, consistent padding and spacing and leading and kerning, straight-on orthographic-style rendering, identical camera angle and scale for every item, clean neutral background",
+          "compose": "{transform}",
+          "negative": "forced perspective, tilted camera, overlapping text, text touching an item, decorative props, background clutter, inconsistent scale, stretched proportions, compressed proportions, exaggerated size difference, items touching",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A clear side miniature 3D cartoon view of {{subject}}. Minimal textures with realistic materials, soft lifelike lighting and gentle shadows. Clean minimalistic composition showing exactly three items arranged LEFT to RIGHT in strict descending order of storage capacity. Accurate relative proportions: if one is larger in reality it must be proportionally larger here. No stretching, no compressing, no exaggeration. Each item stands separately on a thin simple ceramic base. Below each base, centred text: 2 TB, 500 GB and 100 GB in semibold sans-serif at medium size, with Studio, Team and Solo in lighter weight and smaller size directly beneath. Consistent padding, spacing, leading and kerning. No item may overlap or touch text. Straight-on orthographic-style rendering, no forced perspective, identical camera angle and scale for every item. Clean neutral background.",
+          "compose": "{transform}",
+          "negative": "forced perspective, tilted camera, overlapping text, decorative props, background clutter, inconsistent scale",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-diorama",
+      "name": "Miniature diorama",
+      "family": "diagram",
+      "aspect": "16:9",
+      "blurb": "Everything looks like a model. Playful and explanatory.",
+      "headlineZone": "upperThirdFull",
+      "variants": {
+        "tags": {
+          "transform": "high-detail 3D isometric miniature diorama of {{subject}}, built as a physical model on a small platform, soft pastel materials, clean smooth rounded forms, gentle shadows, subtle reflections, every element a charming simplified miniature, recognisable but not literal, consistent lighting and a single consistent perspective throughout, slightly elevated three-quarter angle, shallow depth of field reinforcing the miniature scale, {{primary}} as the dominant material colour on the primary structure, generous empty space above the model",
+          "compose": "{transform}, {append}",
+          "negative": "photorealistic scale, harsh lighting, cluttered detail, labels, people at real scale, dark palette, mixed perspectives, crowded top of frame",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A high-detail 3D isometric miniature diorama of {{subject}}, built as a physical model on a small platform. Soft pastel materials, clean smooth rounded forms, gentle shadows and subtle reflections. Every element a charming simplified miniature: recognisable but not literal. Consistent lighting and a single consistent perspective throughout. Shot from a slightly elevated three-quarter angle with shallow depth of field reinforcing the miniature scale. {{primary}} as the dominant material colour on the primary structure. Generous empty space above the model.",
+          "compose": "{transform} {append}",
+          "negative": "photorealistic scale, harsh lighting, cluttered detail, labels, people at real scale, dark palette",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-monolith",
+      "name": "Monolith on plinth",
+      "family": "product",
+      "aspect": "3:2",
+      "blurb": "One object, one plinth, one hard light. Brutally simple, always works.",
+      "headlineZone": "rightThird",
+      "variants": {
+        "tags": {
+          "transform": "{{subject}} resting on a raw poured-concrete plinth, large empty room, {{primary}} walls, one hard directional light from high camera-left, long sharp shadow thrown across the floor to the right, everything else in deep shade, vast negative space above and to the right, cool neutral grade, matte surfaces, visible concrete aggregate, architectural photography, 50mm, eye level, dead-on symmetrical framing",
+          "compose": "{transform}, {append}",
+          "negative": "multiple objects, props, plants, people, soft diffused lighting, glossy studio sweep, floating, drop shadow, busy background, warm grade, tilted camera",
+          "strength": null
+        },
+        "prose": {
+          "transform": "{{subject}} resting on a raw poured-concrete plinth in a large empty room with {{primary}} walls. One hard directional light from high camera-left throws a long sharp shadow across the floor to the right. Everything else falls into shade. Vast negative space above and to the right. Cool neutral grade, matte surfaces, visible concrete aggregate texture. Architectural photography, 50mm, eye level, dead-on symmetrical framing.",
+          "compose": "{transform} {append}",
+          "negative": "multiple objects, props, plants, people, soft diffused lighting, glossy studio sweep, floating, drop shadow",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-floating-liquid",
+      "name": "Floating product on dark water",
+      "family": "product",
+      "aspect": "3:2",
+      "blurb": "Premium bottle or jar hero. Ripples, botanicals, shallow depth.",
+      "headlineZone": "leftThird",
+      "variants": {
+        "tags": {
+          "transform": "{{subject}} as a luxury product shot, floating just above dark still water, juniper sprigs and dried citrus wheels arranged around it in {{primary}} and {{secondary}}, one soft overhead softbox creating soft reflections and slow ripples across the surface, high-end commercial photography, low three-quarter angle just above the waterline, shallow depth of field, soft bokeh falling off behind, the product the sharpest thing in frame, restrained, expensive, unhurried",
+          "compose": "{transform}, {append}",
+          "negative": "splashes, chaos, motion, cluttered props, plastic look, harsh specular blowout, hard flash, busy surface, submerged product",
+          "strength": null
+        },
+        "prose": {
+          "transform": "{{subject}} photographed as a luxury product shot, floating just above dark still water with juniper sprigs and dried citrus wheels arranged around it in {{primary}} and {{secondary}}. A single soft overhead softbox creating soft reflections and slow ripples across the surface. High-end commercial photography, shot from a low three-quarter angle just above the waterline, shallow depth of field with soft bokeh falling off behind. The product is the sharpest thing in frame. Restrained, expensive, unhurried.",
+          "compose": "{transform} {append}",
+          "negative": "splashes, chaos, motion, cluttered props, plastic look, harsh specular blowout",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-flatlay",
+      "name": "Flat lay still life",
+      "family": "product",
+      "aspect": "3:2",
+      "blurb": "Overhead arrangement with intent. Kits, bundles, ingredient stories.",
+      "headlineZone": "rightThird",
+      "variants": {
+        "tags": {
+          "transform": "overhead flat lay of {{subject}}, arranged on a sheet of unfinished oak with deliberate asymmetry, objects overlapping slightly, one object breaking the frame edge, soft directional window light from top-left, real soft-edged shadows falling lower-right, every object genuinely used with visible wear and fingerprints and imperfection, generous negative space in the lower-right quadrant, restrained palette anchored by {{primary}}, shot straight down, perfectly level, 50mm",
+          "compose": "{transform}, {append}",
+          "negative": "symmetrical grid, neat rows, floating objects, no shadows, pristine new items, confetti, scattered props, tilted camera, clutter in the lower right",
+          "strength": null
+        },
+        "prose": {
+          "transform": "An overhead flat lay of {{subject}}, arranged on a sheet of unfinished oak with deliberate asymmetry rather than a neat grid. Objects overlap slightly and one breaks the frame edge. Soft directional window light from top-left with real soft-edged shadows falling lower-right. Every object genuinely used, with visible wear, fingerprints and imperfection. Generous negative space in the lower-right quadrant. Restrained palette anchored by {{primary}}. Shot straight down, perfectly level, 50mm.",
+          "compose": "{transform} {append}",
+          "negative": "symmetrical grid, floating objects, no shadows, pristine new items, confetti, scattered props, tilted camera",
           "strength": null
         }
       }
@@ -70,6 +342,8 @@
       "name": "Documentary workplace",
       "family": "editorial",
       "aspect": "16:9",
+      "blurb": "Real people mid-task, unposed. The honest choice for service businesses.",
+      "headlineZone": "leftThird",
       "variants": {
         "tags": {
           "transform": "candid documentary photograph of {{subject}} caught mid-action and unaware of the camera, available light only, slightly imperfect framing as if shot quickly on a 35mm rangefinder while moving through the space, real workwear with wear and creases, genuinely used tools and surfaces, honest clutter left where it fell, muted natural palette, one person partially cropped by the frame edge",
@@ -86,21 +360,177 @@
       }
     },
     {
-      "id": "gn-isometric-lineup",
-      "name": "Labelled isometric lineup",
-      "family": "diagram",
-      "aspect": "1:1",
+      "id": "gn-hands",
+      "name": "Hands only",
+      "family": "editorial",
+      "aspect": "16:9",
+      "blurb": "Human without the casting problem.",
+      "headlineZone": "leftThird",
       "variants": {
         "tags": {
-          "transform": "clear side miniature 3D cartoon view of {{subject}}, minimal textures with realistic materials, soft lifelike lighting, gentle shadows, clean minimalist composition, exactly three items arranged left to right in strict descending order of {{ranking_metric}}, accurate relative proportions, each item standing separately on a thin simple ceramic base, centred text below each base reading {{metric_labels}} in semibold sans-serif at medium size, {{secondary_labels}} in lighter weight and smaller size directly beneath, consistent padding and spacing and leading and kerning, straight-on orthographic-style rendering, identical camera angle and scale for every item, clean neutral background",
-          "compose": "{transform}",
-          "negative": "forced perspective, tilted camera, overlapping text, decorative props, background clutter, inconsistent scale, stretched proportions, exaggerated size difference, items touching",
+          "transform": "tight crop of hands kneading dough on a floured bench, cut off at the forearm, real working hands, visible knuckles and tendons, short unmanicured nails, a scar or ink mark, dry skin, caught mid-motion with a trace of natural blur in the fastest-moving finger, soft directional light from one side, shallow depth of field, focus on the point of contact between hand and object, neutral desaturated background falling into shade",
+          "compose": "{transform}, {append}",
+          "negative": "face, body, eye contact, hand model, manicure, jewellery, perfect skin, symmetrical pose, extra fingers, malformed hands, gloves",
           "strength": null
         },
         "prose": {
-          "transform": "A clear side miniature 3D cartoon view of {{subject}}. Minimal textures with realistic materials, soft lifelike lighting and gentle shadows. Clean minimalistic composition showing exactly three items arranged LEFT to RIGHT in strict descending order of {{ranking_metric}}. Accurate relative proportions: if one is larger in reality it must be proportionally larger here. No stretching, no compressing, no exaggeration. Each item stands separately on a thin simple ceramic base. Below each base, centred text: {{metric_labels}} in semibold sans-serif at medium size, with {{secondary_labels}} in lighter weight and smaller size directly beneath. Consistent padding, spacing, leading and kerning. No item may overlap or touch text. Straight-on orthographic-style rendering, no forced perspective, identical camera angle and scale for every item. Clean neutral background.",
-          "compose": "{transform}",
-          "negative": "forced perspective, tilted camera, overlapping text, decorative props, background clutter, inconsistent scale",
+          "transform": "A tight crop of hands kneading dough on a floured bench, cut off at the forearm. No face, no body, no eye contact possible. Real working hands with visible knuckles, tendons, short unmanicured nails, a scar or ink mark, dry skin. Caught mid-motion with a trace of natural blur in the fastest-moving finger. Soft directional light from one side. Shallow depth of field, focus on the point of contact between hand and object. Neutral desaturated background falling into shade.",
+          "compose": "{transform} {append}",
+          "negative": "hand model, manicure, jewellery, perfect skin, symmetrical pose, extra fingers, malformed hands, gloves",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-nordic",
+      "name": "Nordic minimal landscape",
+      "family": "environment",
+      "aspect": "21:9",
+      "blurb": "Cold air, low sun, huge empty space. Built for headline overlay.",
+      "headlineZone": "leftThird",
+      "variants": {
+        "tags": {
+          "transform": "{{subject}} in a wide Nordic landscape under low winter sun, vast flat negative space occupying the left two thirds, subject small on the right third, overcast diffused light with a faint warm break near the horizon, muted desaturated palette of slate and bone white and cold blue, one small point of {{primary}} as the only saturated element in frame, cold clear air, long soft shadows, wide angle, low horizon, high sky, quiet and unhurried",
+          "compose": "{transform}, {append}",
+          "negative": "dramatic sunset, vivid saturation, aurora, tourists, mountains filling frame, HDR, tilt-shift, golden grade, detail in the left two thirds",
+          "strength": null
+        },
+        "prose": {
+          "transform": "{{subject}} in a wide Nordic landscape under low winter sun. Vast flat negative space occupying the left two thirds, subject small on the right third. Overcast diffused light with a faint warm break near the horizon. Muted desaturated palette of slate, bone white and cold blue, with one small point of {{primary}} as the only saturated element in frame. Cold clear air, long soft shadows. Wide angle, low horizon, high sky. Quiet and unhurried.",
+          "compose": "{transform} {append}",
+          "negative": "dramatic sunset, vivid saturation, aurora, tourists, mountains filling frame, HDR, tilt-shift, golden grade",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-brutalist",
+      "name": "Brutalist interior",
+      "family": "environment",
+      "aspect": "21:9",
+      "blurb": "Board-formed concrete, one shaft of light. Serious and permanent.",
+      "headlineZone": "upperThirdFull",
+      "variants": {
+        "tags": {
+          "transform": "{{subject}} inside a vast board-formed concrete interior, a single shaft of hard daylight entering from a narrow slot high in the wall, light falling across the floor in a clean geometric wedge, everything outside that wedge in deep even shade with detail still readable, board marks and tie holes and aggregate texture visible in the concrete, enormous empty vertical space above, cool grey palette, {{primary}} appearing once and small as the only warm element, architectural photography, wide angle, corrected verticals",
+          "compose": "{transform}, {append}",
+          "negative": "warm cosy lighting, furniture clutter, plants, people, tilted camera, HDR, lens distortion, glossy floor, multiple light sources, crushed black shade",
+          "strength": null
+        },
+        "prose": {
+          "transform": "{{subject}} inside a vast board-formed concrete interior. A single shaft of hard daylight enters from a narrow slot high in the wall and falls across the floor in a clean geometric wedge. Everything outside that wedge is deep even shade with detail still readable. Board marks, tie holes and aggregate texture visible in the concrete. Enormous empty vertical space above. Cool grey palette with {{primary}} appearing once, small, as the only warm element. Architectural photography, wide angle, corrected verticals.",
+          "compose": "{transform} {append}",
+          "negative": "warm cosy lighting, furniture clutter, plants, people, tilted camera, HDR, lens distortion, glossy floor",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-longexposure",
+      "name": "Long exposure light trails",
+      "family": "environment",
+      "aspect": "21:9",
+      "blurb": "Motion as a graphic element. Logistics, speed, networks.",
+      "headlineZone": "upperThirdFull",
+      "variants": {
+        "tags": {
+          "transform": "long exposure photograph of {{subject}}, shutter open thirty seconds on a tripod, everything static perfectly sharp, everything moving drawn out into a continuous smooth ribbon of light, trails in {{primary}} sweeping through the frame as clean unbroken curves, deep blue hour sky, fully dark ground, grounded and real",
+          "compose": "{transform}, {append}",
+          "negative": "digital glow, neon overlay, lens flare, particle effects, bokeh balls, fake bloom, cyberpunk, gaps in the trails, stuttering trails, blurred static elements, digital light painting",
+          "strength": null
+        },
+        "prose": {
+          "transform": "A long exposure photograph of {{subject}}, shutter open thirty seconds on a tripod. Everything static perfectly sharp; everything moving becomes a continuous smooth ribbon of light. Trails in {{primary}} sweeping through the frame as clean unbroken curves with no gaps or stutters. Deep blue hour sky, fully dark ground. Grounded and real, not a digital light-painting effect.",
+          "compose": "{transform} {append}",
+          "negative": "digital glow, neon overlay, lens flare, particle effects, bokeh balls, fake bloom, cyberpunk",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-coordinates",
+      "name": "Coordinates only",
+      "family": "environment",
+      "aspect": "21:9",
+      "blurb": "Ultra-short. The model reconstructs place, season and light. Good demo trick.",
+      "headlineZone": "none",
+      "variants": {
+        "tags": {
+          "transform": "60.3913° N, 5.3221° E at first light in late November",
+          "compose": "{transform}, {append}",
+          "negative": "map, satellite view, coordinate overlay, compass, GPS interface, pin marker, tourists, postcard grade",
+          "strength": null
+        },
+        "prose": {
+          "transform": "60.3913° N, 5.3221° E at first light in late November.",
+          "compose": "{transform} {append}",
+          "negative": "map, satellite view, coordinate overlay, compass, GPS interface, pin marker, tourists, postcard grade",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-macro",
+      "name": "Editorial macro texture",
+      "family": "abstract",
+      "aspect": "21:9",
+      "blurb": "Abstract but tangible. Strong background layer.",
+      "headlineZone": "center",
+      "variants": {
+        "tags": {
+          "transform": "extreme macro photograph of {{subject}}, so close the object becomes abstract and unidentifiable at first glance, microscopic surface clarity, individual fibres and pores and grain direction and tool marks and dust all visible, hard raking light from one side skimming across the surface to exaggerate every ridge and pit, shallow depth of field with only a narrow band in focus falling off fast either side, 120mm macro lens, high resolution, editorial art direction, palette built around {{primary}}",
+          "compose": "{transform}, {append}",
+          "negative": "recognisable whole object, wide shot, soft even lighting, digital smoothing, plastic sheen, flat frontal light, deep focus",
+          "strength": null
+        },
+        "prose": {
+          "transform": "An extreme macro photograph of {{subject}}, so close the object becomes abstract and unidentifiable at first glance. Microscopic surface clarity: individual fibres, pores, grain direction, tool marks and dust all visible. Hard raking light from one side skimming across the surface to exaggerate every ridge and pit. Shallow depth of field with only a narrow band in focus, falling off fast either side. 120mm macro lens, high resolution, editorial art direction. Palette built around {{primary}}.",
+          "compose": "{transform} {append}",
+          "negative": "recognisable whole object, wide shot, soft even lighting, digital smoothing, plastic sheen",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-topographic",
+      "name": "Topographic layer stack",
+      "family": "abstract",
+      "aspect": "21:9",
+      "blurb": "Contour slices as a physical model. Reads as data and depth.",
+      "headlineZone": "upperThirdFull",
+      "variants": {
+        "tags": {
+          "transform": "abstract topographic composition, stacked contour layers cut from thin matte board, each offset slightly from the one below to form a physical elevation map of {{subject}}, photographed from directly overhead, soft raking light casting thin shadows between layers, palette moving gradually from {{primary}} at the lowest layers to bone white at the peaks, precise laser-cut edges, visible paper thickness and fibre on every cut edge, tiny shadow gaps between tiers, studio photograph of a real physical model",
+          "compose": "{transform}, {append}",
+          "negative": "digital gradient, glowing lines, sci-fi grid, 3D render look, neon, perspective view, tilted camera, smooth continuous surface",
+          "strength": null
+        },
+        "prose": {
+          "transform": "An abstract topographic composition: stacked contour layers cut from thin matte board, each offset slightly from the one below to form a physical elevation map of {{subject}}. Photographed from directly overhead with soft raking light casting thin shadows between layers. Palette moving gradually from {{primary}} at the lowest layers to bone white at the peaks. Precise laser-cut edges, visible paper thickness and fibre on every cut edge, tiny shadow gaps between tiers. Studio photograph of a real physical model, not a digital render.",
+          "compose": "{transform} {append}",
+          "negative": "digital gradient, glowing lines, sci-fi grid, 3D render look, neon, perspective view",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "gn-gradient",
+      "name": "Soft gradient field",
+      "family": "abstract",
+      "aspect": "21:9",
+      "blurb": "The safe corporate option, executed well. Pure background, no subject.",
+      "headlineZone": "center",
+      "variants": {
+        "tags": {
+          "transform": "abstract soft gradient field, {{primary}} blending into {{secondary}}, slow organic asymmetric transition, subtle volumetric depth as if light diffuses through frosted glass or thick fog, one faint darker fold running diagonally to give the field structure, extremely fine tonal steps",
+          "compose": "{transform}, {append}",
+          "negative": "banding, harsh edges, mesh grid, blobs, shapes, neon, high saturation, rainbow, straight linear ramp, objects, subject",
+          "strength": null
+        },
+        "prose": {
+          "transform": "An abstract soft gradient field built from {{primary}} blending into {{secondary}}. The transition slow, organic and asymmetric, never a straight linear ramp. Subtle volumetric depth as if light diffuses through frosted glass or thick fog. One faint darker fold running diagonally to give the field structure. Extremely fine tonal steps with no banding. No objects, no shapes.",
+          "compose": "{transform} {append}",
+          "negative": "banding, harsh edges, mesh grid, blobs, shapes, neon, high saturation, rainbow",
           "strength": null
         }
       }

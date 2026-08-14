@@ -363,9 +363,25 @@ function ComposingPresetField({
         <NativeSelectOption value="">
           {t('editor.preset.none')}
         </NativeSelectOption>
-        <NativeSelectOptGroup label={t('editor.preset.builtIn')}>
-          {builtIns.map(option)}
-        </NativeSelectOptGroup>
+        {/* Grouped by family rather than listed flat (#48). Twenty-eight looks
+            and twenty-four scenes is what `family` exists for — a single list
+            that long is one the user has to read end to end to find anything,
+            and the families are already the vocabulary the library was authored
+            in. The user's own forks stay one group: they are grouped by being
+            yours, which is the only thing they have in common. */}
+        {familiesOf(builtIns).map(([family, presets]) => (
+          <NativeSelectOptGroup
+            key={family}
+            // The family is the author's word and stays as written; "Built-in"
+            // around it is ours and is translated. Kept on every group rather
+            // than said once at the top, because an optgroup label is the only
+            // heading a native select has — drop it and the read-only half of a
+            // fifty-entry picker stops being distinguishable from the user's.
+            label={t('editor.preset.builtInFamily', { family })}
+          >
+            {presets.map(option)}
+          </NativeSelectOptGroup>
+        ))}
         {userPresets.length > 0 && (
           <NativeSelectOptGroup label={t('editor.preset.yours')}>
             {userPresets.map(option)}
@@ -376,6 +392,8 @@ function ComposingPresetField({
       {hintKey !== null && (
         <p className="text-xs text-muted-foreground">{t(hintKey)}</p>
       )}
+
+      <PresetNotes preset={selected} />
 
       <PresetVariableFields
         variables={composed?.variables ?? []}
@@ -700,6 +718,92 @@ function MotionPresetField({ project }: { project: Project }) {
 }
 
 /**
+ * What the selected preset says about itself — all of it display-only (#48).
+ *
+ * Three different kinds of statement, and they are deliberately styled apart
+ * rather than run together into one paragraph:
+ *
+ * - The **blurb** is what this look is for. It is the line that makes a
+ *   twenty-eight entry library navigable once you have landed on an entry, and
+ *   it is user data wherever it came from — no `t()` near it.
+ * - The **headline zone** is where the scene leaves room for type. A note for
+ *   whoever lays out the page and never a crop: headline type belongs in HTML,
+ *   which is the whole reason the source library appends "no lettering" to
+ *   every prompt it composes.
+ * - The **note** is the one that is not finished. Four presets are reductions
+ *   authored to be dithered afterwards, and the dither is #36 and does not
+ *   exist yet — so this is called out as an outstanding step rather than
+ *   dropped, because a two-ink reduction nobody dithered looks like a preset
+ *   that came out wrong rather than like a preset that is half a feature.
+ *
+ * Nothing here is rendered for a preset that has none of it, which is the
+ * normal state of a fork.
+ */
+function PresetNotes({ preset }: { preset: Preset | null }) {
+  const { t } = useTranslation()
+
+  if (preset === null) return null
+  if (
+    preset.blurb === null &&
+    preset.headlineZone === null &&
+    preset.note === null
+  ) {
+    return null
+  }
+
+  return (
+    <div className="space-y-1">
+      {preset.blurb !== null && (
+        <p className="text-xs text-muted-foreground">{preset.blurb}</p>
+      )}
+
+      {preset.headlineZone !== null && (
+        <p className="text-xs text-muted-foreground">
+          {t(`editor.preset.headlineZone.${preset.headlineZone}`)}
+        </p>
+      )}
+
+      {preset.note !== null && (
+        <div className="rounded-md border border-dashed border-border p-2">
+          <p className="text-xs font-medium">{t('editor.preset.noteTitle')}</p>
+          {/* The instruction itself is the preset's, in its own words. */}
+          <p className="text-xs text-muted-foreground">{preset.note}</p>
+          <p className="text-xs text-muted-foreground">
+            {t('editor.preset.noteNotApplied')}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The built-ins grouped by family, families in first-appearance order.
+ *
+ * First appearance rather than alphabetical: the libraries are authored in a
+ * deliberate order — the strongest demo first, the subtle and the specialist
+ * last — and sorting the groups by name would throw that away in exchange for
+ * nothing, since nobody arrives at a preset picker knowing the family name they
+ * want. Within a family the authored order stands for the same reason.
+ */
+function familiesOf(
+  presets: readonly Preset[]
+): readonly (readonly [string, readonly Preset[]])[] {
+  const families = new Map<string, Preset[]>()
+
+  for (const preset of presets) {
+    const family = families.get(preset.family)
+    if (family === undefined) {
+      families.set(preset.family, [preset])
+      continue
+    }
+    family.push(preset)
+  }
+
+  return [...families]
+}
+
+/**
  * The holes in the selected preset's prompt, as editable fields (#46).
  *
  * One per `{{…}}`, pre-filled with whatever it resolves to — a colour's name
@@ -954,6 +1058,8 @@ function captureOf(
         ? null
         : Number(draft.params[model.strengthParam] ?? 0),
     aspect: seeded?.aspect ?? null,
+    headlineZone: seeded?.headlineZone ?? null,
+    note: seeded?.note ?? null,
   }
 }
 

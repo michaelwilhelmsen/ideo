@@ -48,6 +48,31 @@
  * entry unless the preset overrode it, and an override is clamped to the window
  * §6.3 actually measured.
  *
+ * **The two idioms do not carry the same constraints, and that is correct**
+ * (#48). The library is authored as prose first, and prose can be sequenced and
+ * conditional: `rs-cinestill` says halation blooms only around light sources
+ * bright enough to exceed the film's latitude, never as a uniform glow and never
+ * on midtones. Comma-separation destroys that — a tag list has no word for
+ * "only". So the tags variant states the positive plainly and pushes the
+ * excluded readings into `negative`, and the same look ends up expressed
+ * differently in the two idioms.
+ *
+ * That is a translation rather than a loss, because of an alignment worth
+ * writing down: **`promptStyle: 'tags'` and a non-null `negativePromptParam`
+ * are the same four models.** Every tags-idiom model in the registry has a real
+ * negative-prompt field and no prose-idiom model does, so a constraint that
+ * migrates out of the positive lands in a field that exists on precisely the
+ * models that read the variant it migrated in. The reduction and print families
+ * depend on it — "gradients, midtones, third colour", "more than two inks" is
+ * how those palettes are held down, and tags is the only idiom where those
+ * clauses ever reach a model at all.
+ *
+ * Every preset carries a `negative` on **both** variants regardless. On prose it
+ * is dropped every time today, by `composePreset`, per-model. The text is still
+ * true, and the alternative is writing `null` — whose documented meaning is
+ * "this look has nothing to subtract" — into forty-four places where it would be
+ * a lie.
+ *
  * Validated at module load like the registry (`validateRegistry`), and for the
  * same reason: committed JSON with a typo in it should be a startup crash, not
  * a prompt that quietly says less than it meant to.
@@ -82,6 +107,33 @@ export const PRESET_STRENGTH_WINDOW = { min: 0.65, max: 0.8 } as const
 
 /** Every idiom a variant map has to answer for. */
 const PROMPT_STYLES: readonly PromptStyle[] = ['prose', 'tags']
+
+/**
+ * The zones a scene can leave clear for headline type.
+ *
+ * A closed list for the same reason the aspect hint is held to `ASPECTS`: this
+ * is displayed next to a layout decision, and a zone nobody has a word for
+ * describes a region of the frame the reader cannot find. `none` is a real
+ * answer — several recipes are dense edge to edge and the type goes outside the
+ * image — and is why the list has one more entry than it looks like it needs.
+ *
+ * camelCase rather than the kebab the v4 drafts used, because each value is
+ * interpolated straight into a translation key and `i18n-patterns.md` asks for
+ * camelCase on a multi-word segment. The alternative was a lookup table whose
+ * whole job would be spelling these eight words a second time.
+ */
+export const HEADLINE_ZONES = [
+  'bottomLeft',
+  'upperLeft',
+  'leftThird',
+  'rightThird',
+  'lowerThirdFull',
+  'upperThirdFull',
+  'center',
+  'none',
+] as const
+
+export type HeadlineZone = (typeof HEADLINE_ZONES)[number]
 
 /**
  * One preset in one prompt idiom.
@@ -134,8 +186,44 @@ export interface PresetVariant {
 export interface Preset {
   readonly id: string
   readonly name: string
-  /** The grouping the drafts use (`glass`, `product`, …). Free-form. */
+  /**
+   * The grouping the drafts use (`glass`, `product`, …). Free-form.
+   *
+   * Load-bearing rather than decorative since #48: the picker groups by it, and
+   * a 28-entry flat list is what family exists to prevent.
+   */
   readonly family: string
+  /**
+   * One line on what this look is for, or `null` where nobody wrote one.
+   *
+   * `null` is the fork's answer and not a gap in the built-ins — a fork is the
+   * form someone had on screen, and inventing a blurb for it would be writing a
+   * sales line for a prompt we have never seen. Every built-in carries one; a
+   * test holds the libraries to that rather than the loader, because the rule is
+   * about *our* material and not about the shape of a preset.
+   *
+   * Display-only, and user data wherever it came from — no `t()` near it.
+   */
+  readonly blurb: string | null
+  /**
+   * Where this scene leaves room for headline type, or `null`.
+   *
+   * A note for the person laying out the page, never a crop or a constraint on
+   * the model: headline type belongs in HTML (PRD §6, and the source library's
+   * whole append block), so this says where the HTML has room and stops.
+   */
+  readonly headlineZone: HeadlineZone | null
+  /**
+   * What still has to happen to this image outside the model, or `null`.
+   *
+   * Inert text. The four recipes that carry one — two scenes and the two looks
+   * that mirror them — reduce to a flat two-ink image that is authored to be
+   * dithered afterwards, and #36 is the ticket that will do the dithering — so
+   * until it lands this is displayed as an unfinished step rather than quietly
+   * dropped, because a two-colour reduction that was never dithered looks like a
+   * preset that came out wrong.
+   */
+  readonly note: string | null
   /**
    * The ratio this scene was composed for, or `null` where it says nothing.
    *
@@ -323,13 +411,53 @@ function readPreset(document: unknown, blocks: LibraryBlocks): Preset {
   if (family === '') fail('has no family')
 
   const aspect = readAspect(record.aspect, fail)
+  const blurb = readNote(record.blurb, 'blurb', fail)
+  const headlineZone = readHeadlineZone(record.headlineZone, fail)
+  const note = readNote(record.note, 'note', fail)
 
   const variants = readVariants(record.variants, blocks, fail)
   if (PROMPT_STYLES.every(style => variants[style] === null)) {
     fail('supports no prompt idiom, so no model could ever use it')
   }
 
-  return { id, name, family, aspect, variants }
+  return { id, name, family, aspect, blurb, headlineZone, note, variants }
+}
+
+/**
+ * A line of display-only prose, or `null` where there is none.
+ *
+ * Absent and `null` mean the same thing here, and the absent-versus-null rule
+ * does not apply: these are notes *about* a preset rather than answers a preset
+ * owes per idiom, and a fork legitimately has none of them. What is refused is
+ * the empty string, which is a field somebody started and left — it renders as a
+ * blank line where a sentence should be, which reads as a bug rather than as
+ * silence.
+ */
+function readNote(
+  document: unknown,
+  kind: 'blurb' | 'note',
+  fail: (problem: string) => never
+): string | null {
+  if (document === undefined || document === null) return null
+  if (typeof document !== 'string' || document.trim() === '') {
+    fail(`has an empty ${kind}`)
+  }
+  return document.trim()
+}
+
+/** The headline hint, held to the zones the layout has words for, or `null`. */
+function readHeadlineZone(
+  document: unknown,
+  fail: (problem: string) => never
+): HeadlineZone | null {
+  if (document === undefined || document === null) return null
+  if (
+    typeof document !== 'string' ||
+    !HEADLINE_ZONES.some(zone => zone === document)
+  ) {
+    fail(`has a headline zone we have no word for: ${String(document)}`)
+  }
+  return document as HeadlineZone
 }
 
 /**
@@ -674,20 +802,24 @@ function strengthFor(
 }
 
 /**
- * The committed style built-ins.
+ * The committed style built-ins — twenty-eight looks.
  *
- * A small proving set (#28), drawn from the 22 drafts in
- * `docs/research/style-presets.md` and deliberately missing every texture-led
- * family: grain, dither, halftone, duotone and the analog-degradation looks are
- * #36's deterministic post-effect kernels, because PRD §6.2 measured that
- * asking a model for grain barely registers. #48 replaces this content with the
- * hero-recipes v4 library once the mechanics here are proven.
+ * Twenty are hero-recipes v4's restyle track (#48), joining the eight of #28's
+ * proving set, which stay: they were drawn from `docs/research/style-presets.md`
+ * and none of them duplicates a v4 recipe.
  *
- * Every preset carries both idioms: `tags` as the drafts were written (the
- * idiom PRD §6.2's A/B refused to rewrite) and a `prose` restatement in
- * instruction phrasing for the edit models, so every style-stage registry row
- * seeds. Nothing is ever cross-sent — a variant only reaches a model whose
- * `promptStyle` matches it.
+ * The v4 twenty include the texture-led families the proving set deliberately
+ * left out — reduction, print, and the analog-degradation looks. That is not a
+ * reversal of #36. Two of them carry a `note` saying what still has to happen
+ * outside the model — `rs-duotone-dither` and `rs-halftone-highkey`, the two the
+ * source library mirrors with scenes of its own — because PRD §6.2 measured that
+ * asking for grain barely registers: the model does the *reduction*, which it is
+ * good at, and the dither is #36's kernel, which does not exist yet. Displaying
+ * the unfinished step is the point.
+ *
+ * Every preset carries both idioms, and the module note above explains why they
+ * are not word-for-word translations of each other. Nothing is ever cross-sent —
+ * a variant only reaches a model whose `promptStyle` matches it.
  */
 export const STYLE_PRESET_LIBRARY: PresetLibrary =
   readPresetLibrary(LIBRARY_DOCUMENT)
@@ -696,22 +828,33 @@ export const BUILT_IN_STYLE_PRESETS: readonly Preset[] =
   STYLE_PRESET_LIBRARY.presets
 
 /**
- * The committed source built-ins.
+ * The committed source built-ins — the whole hero-recipes v4 generate track,
+ * twenty-four scenes (#48).
  *
- * A proving set again, and for the same reason the style one was: five scenes
- * from the hero-recipes v4 generate track, enough to exercise every mechanism
- * this library has and no more. #48 authors the other nineteen.
+ * The one-off values are **inlined into the prose** rather than left as holes,
+ * which is the part of this that was not transcription. v4 wrote roughly twenty
+ * of them as variables — a botanical, a camera angle, a ranking metric — and
+ * every one is now a concrete phrase in the transform: "juniper sprigs and dried
+ * citrus wheels" rather than `{{botanical}}`. #28's stated reason for
+ * fork-to-customize is that editing a seeded prompt is how somebody learns what
+ * the prompt language does, and a specific value teaches where a bare hole
+ * teaches nothing — a picker of twenty empty fields is a form, not a scene.
  *
- * What the five are between them proving: the append block reaching a composed
- * prompt, one preset (`gn-isometric-lineup`, the only recipe in v4 that wants
- * lettering) opting out of it by leaving the placeholder out of its template,
- * four different aspect hints, and both kinds of `{{…}}` template variable
- * (#46) — `{{primary}}` and `{{secondary}}`, which resolve to the names of the
- * project palette's roles, and free-text holes like `{{subject}}`, which the
- * picker asks for. None of the five carries a `defaults` block: choosing a
- * concrete value for a hole is an authoring judgement about what a look is
- * *for*, which is #48's, and a literal `{{subject}}` is the honest state until
- * it is made.
+ * So no built-in carries a `defaults` block at all. The mechanism stays, because
+ * a fork may acquire holes the moment somebody types `{{` into the box, and
+ * because the rule it enforces — a default for a hole the template does not have
+ * is a typo — is worth keeping whether or not we use it today.
+ *
+ * Colour holes address the palette by *role* rather than carrying a default:
+ * `{{primary}}` and `{{secondary}}` for the branded colours, `{{ink}}` for the
+ * near-black fields and silhouettes the reduction recipes key on, which is why
+ * #46 made `ink` mandatory in the first place.
+ *
+ * One preset, `gn-isometric-lineup`, is the only recipe in v4 that wants
+ * lettering, and opts out of the append block by leaving the placeholder out of
+ * its template. `gn-vintage-surreal` is the only one authored as five labelled
+ * blocks; it is flattened here by concatenation, labels intact, because the
+ * labels are part of the prompt text rather than scaffolding around it.
  */
 export const SOURCE_PRESET_LIBRARY: PresetLibrary = readPresetLibrary(
   SOURCE_LIBRARY_DOCUMENT
@@ -891,6 +1034,9 @@ export function writeUserPreset(preset: Preset): Record<string, unknown> {
     name: preset.name,
     family: preset.family,
     aspect: preset.aspect,
+    blurb: preset.blurb,
+    headlineZone: preset.headlineZone,
+    note: preset.note,
     variants: preset.variants,
   }
 }
@@ -909,15 +1055,23 @@ export interface PresetCapture {
   /** The strength as set, or `null` on a model that has none. */
   readonly strength: number | null
   /**
-   * The hint carried over from whatever seeded the form, or `null`.
+   * The hints carried over from whatever seeded the form, or `null`.
    *
-   * Not a field on the form — it is the one thing here the user did not type.
-   * It comes along anyway because the prompt does: a fork of a scene composed
-   * for 3:2 is still a scene composed for 3:2, and dropping the hint would make
-   * the fork say less than the text in it already knows. A fork saved from
-   * nothing carries `null`, which is the honest answer.
+   * Not fields on the form — they are the things here the user did not type.
+   * They come along anyway because the prompt does: a fork of a scene composed
+   * for 3:2 is still a scene composed for 3:2, it still leaves the same corner
+   * clear for a headline, and a fork of a two-ink reduction still has to be
+   * dithered before it looks like anything. Dropping them would make the fork
+   * say less than the text in it already knows. A fork saved from nothing
+   * carries `null`, which is the honest answer.
+   *
+   * The blurb is deliberately *not* in here. The other three are facts about the
+   * image the prompt describes; a blurb is a line about one of our presets, and
+   * a fork has its own name and its own text by the time it is saved.
    */
   readonly aspect: AspectId | null
+  readonly headlineZone: HeadlineZone | null
+  readonly note: string | null
 }
 
 /**
@@ -967,6 +1121,11 @@ export function userPresetFrom(
     name: capture.name.trim(),
     family: USER_PRESET_FAMILY,
     aspect: capture.aspect,
+    // Ours to write, so no fork ever claims one of our sales lines for a prompt
+    // it has since rewritten.
+    blurb: null,
+    headlineZone: capture.headlineZone,
+    note: capture.note,
     variants: {
       prose:
         capture.promptStyle === 'prose'

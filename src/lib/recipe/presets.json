@@ -6,9 +6,412 @@
   },
   "presets": [
     {
+      "id": "rs-portra",
+      "name": "Portra 400 lab scan",
+      "family": "film",
+      "blurb": "Warm, faded, forgiving. The safest restyle for client photography.",
+      "variants": {
+        "tags": {
+          "transform": "shot on Kodak Portra 400, 35mm, lab-scanned on a Noritsu, warm rose-amber roll-off through the highlights, blacks lifted to charcoal, fine organic grain denser through the midtones and almost absent in the highlights, faint light leak bleeding in from the top-left film door, mild scanner curl softening the right edge, gentle corner vignette",
+          "compose": "{preserve}, {transform}",
+          "negative": "clean digital rendering, flat no-grain look, crushed blacks, pure black, plastic skin, HDR, oversharpening, heavy vignette, grain in the highlights",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Render as if shot on Kodak Portra 400, 35mm, and lab-scanned on a Noritsu. Warm rose-amber roll-off through the highlights. Blacks lifted to charcoal rather than pure black. Fine organic grain, denser through the midtones and almost absent in the highlights. A faint light leak bleeding in from the top-left film door. Mild scanner curl softening the right edge. Gentle corner vignette.",
+          "compose": "{preserve} {transform}",
+          "negative": "clean digital rendering, flat no-grain look, crushed blacks, plastic skin, HDR, oversharpening, heavy vignette",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-cinestill",
+      "name": "CineStill 800T night",
+      "family": "film",
+      "blurb": "Teal shadows, red halation on light sources only. Needs bright points in the source to work.",
+      "variants": {
+        "tags": {
+          "transform": "shot on CineStill 800T, remjet-free 35mm motion picture stock, tungsten-balanced, cool teal shadows against warm highlights, red halation blooming around the brightest light sources in frame, visible ISO 800 grain with chromatic noise through the midtones, slightly imperfect white balance",
+          "compose": "{preserve}, {transform}",
+          "negative": "uniform glow, bloom on everything, halation on midtones, glow across the whole frame, cyberpunk palette, fantasy lighting, unrealistic neon, overdone red haze",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Render as if shot on CineStill 800T, remjet-free 35mm motion picture stock, tungsten-balanced. Cool teal shadows against warm highlights. Red halation blooms ONLY around light sources bright enough to exceed the film's latitude, never as a uniform glow and never on midtones. Visible ISO 800 grain with chromatic noise through the midtones. Slightly imperfect white balance.",
+          "compose": "{preserve} {transform}",
+          "negative": "uniform glow, bloom on everything, cyberpunk palette, fantasy lighting, unrealistic neon, overdone red haze",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-trix",
+      "name": "Tri-X pushed to 1600",
+      "family": "film",
+      "blurb": "Gritty monochrome. Blocks up shadows on purpose.",
+      "variants": {
+        "tags": {
+          "transform": "Kodak Tri-X 400 pushed two stops to 1600 and developed in Rodinal, coarse gritty grain across the whole frame, hard contrast, blocked-up shadows, highlights running close to blown, monochrome, slight uneven development streaking near one edge, dust specks left in from the scan",
+          "compose": "{preserve}, {transform}",
+          "negative": "colour, toning, sepia, smooth tonal gradient, fine grain, clean scan, digital black and white conversion, lifted blacks, shadow detail",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Render as Kodak Tri-X 400 pushed two stops to 1600 and developed in Rodinal. Coarse gritty grain across the whole frame. Hard contrast with genuinely blocked-up shadows and highlights running close to blown. Monochrome only, no toning. Slight uneven development streaking near one edge. Dust specks left in from the scan.",
+          "compose": "{preserve} {transform}",
+          "negative": "colour, smooth tonal gradient, fine grain, clean scan, digital black and white conversion, sepia, lifted blacks",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-velvia",
+      "name": "Velvia 50 slide",
+      "family": "film",
+      "blurb": "The opposite of faded. Dense, punchy, abrupt highlight clip.",
+      "variants": {
+        "tags": {
+          "transform": "Fujichrome Velvia 50 reversal film, drum-scanned, deep dense saturation, aggressive greens and blues, high contrast, steep slide-film shadow falloff, extremely fine grain, highlights clipping abruptly",
+          "compose": "{preserve}, {transform}",
+          "negative": "faded, muted, lifted blacks, pastel, soft contrast, visible grain, light leaks, warm cast, soft highlight roll-off",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Render as Fujichrome Velvia 50 reversal film, drum-scanned. Deep dense saturation, aggressive greens and blues, high contrast with steep slide-film shadow falloff. Extremely fine grain. Highlights clip abruptly with no soft roll-off, exactly as reversal film behaves.",
+          "compose": "{preserve} {transform}",
+          "negative": "faded, muted, lifted blacks, pastel, soft contrast, visible grain, light leaks, warm cast",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-disposable",
+      "name": "Disposable camera flash",
+      "family": "film",
+      "blurb": "Cheap on purpose. Hard flash, flat colour, mushy edges.",
+      "variants": {
+        "tags": {
+          "transform": "shot on a cheap single-use disposable camera with harsh direct on-camera flash, hard shadow falling directly behind the subject onto whatever is behind it, flat slightly washed colours, soft mushy frame edges, out-of-focus corners, orange date stamp in the bottom-right corner",
+          "compose": "{preserve}, {transform}",
+          "negative": "professional lighting, softbox, colour grading, sharp corners, shallow depth of field, bokeh, off-camera flash, moody shadow",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Render as if shot on a cheap single-use disposable camera with harsh direct on-camera flash. A hard shadow falls directly behind the subject onto whatever is behind it. Flat, slightly washed colours. Soft mushy frame edges and out-of-focus corners. Orange date stamp in the bottom-right corner.",
+          "compose": "{preserve} {transform}",
+          "negative": "professional lighting, softbox, colour grading, sharp corners, shallow depth of field, bokeh",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-expired",
+      "name": "Expired film",
+      "family": "film",
+      "blurb": "Unpredictable colour shift and fog. Use sparingly, it fights brand palettes.",
+      "variants": {
+        "tags": {
+          "transform": "Kodak Gold 200 expired fifteen years ago and stored badly, unpredictable colour shift pushing the frame toward magenta and yellow, base fog lifting the blacks to a muddy grey-green, blotchy uneven emulsion mottling through the flat tones, loss of contrast overall, light piping along one edge",
+          "compose": "{preserve}, {transform}",
+          "negative": "accurate colour, clean blacks, even tone, consistent grade, digital vintage filter, uniform sepia, uniform colour cast, high contrast",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Render as Kodak Gold 200 that expired fifteen years ago and was stored badly. Unpredictable colour shift pushing the frame toward magenta and yellow. Base fog lifting the blacks to a muddy grey-green. Blotchy uneven emulsion mottling through the flat tones. Loss of contrast overall. Light piping along one edge.",
+          "compose": "{preserve} {transform}",
+          "negative": "accurate colour, clean blacks, even tone, consistent grade, digital vintage filter, uniform sepia",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-duotone-dither",
+      "name": "Duotone dither",
+      "family": "reduction",
+      "blurb": "Two colours, no greys. Generate the reduction, then dither properly in post.",
+      "note": "Quantise to a two-entry palette THEN apply Atkinson or Floyd-Steinberg. Dithering a grey image and tinting it afterwards produces mud, not the reduction this recipe is built for.",
+      "variants": {
+        "tags": {
+          "transform": "reduced to exactly two colours, {{primary}} for every lit form, {{ink}} for the field and shadow, every form simplified into a clean readable silhouette, strong separation between light and dark, value range compressed hard so the image survives heavy reduction, high contrast, graphic, poster-like",
+          "compose": "{preserve}, {transform}",
+          "negative": "gradients, midtones, intermediate tones, third colour, grey, photographic detail, soft edges, atmospheric blur, texture noise, shading",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Reduce to exactly two colours: {{primary}} for all lit forms and {{ink}} for the field and shadow. No intermediate tones, no gradients, no third colour anywhere. Simplify every form into a clean readable silhouette with strong separation between light and dark. Compress the value range hard so the image survives heavy reduction. High contrast, graphic, poster-like.",
+          "compose": "{preserve} {transform}",
+          "negative": "gradients, midtones, third colour, photographic detail, soft edges, atmospheric blur, texture noise",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-halftone-highkey",
+      "name": "High-key halftone",
+      "family": "reduction",
+      "blurb": "Subject dissolves into white through density falloff. Best type-carrier in the set.",
+      "note": "Ordered Bayer 4x4 or clustered dither at final resolution. The regular grid stays legible under overlaid type where error diffusion fights it.",
+      "variants": {
+        "tags": {
+          "transform": "high-key monochrome, lightest third of the frame pushed to pure white, subject receding into nothing at that edge, depth built purely from density, nearest forms nearly solid black, middle distance mid-grey, far distance dissolved entirely into white, every tone achievable through density alone, black and white, clean architectural geometry",
+          "compose": "{preserve}, {transform}",
+          "negative": "colour, colour cast, warm tone, heavy shadow across the whole frame, busy foreground, vignette, dramatic sky, continuous tone shading",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Convert to high-key monochrome. Push the lightest third of the frame to pure white with the subject receding into nothing at that edge. Create depth purely through density: nearest forms nearly solid black, middle distance mid-grey, far distance dissolved entirely into white. Every tone must be achievable through density alone. Black and white only, no colour cast. Simplify to clean architectural geometry.",
+          "compose": "{preserve} {transform}",
+          "negative": "colour, warm tone, heavy shadow across the whole frame, busy foreground, vignette, dramatic sky",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-riso",
+      "name": "Risograph two-colour",
+      "family": "print",
+      "blurb": "Misregistered spot inks, coarse halftone, patchy coverage.",
+      "variants": {
+        "tags": {
+          "transform": "two-colour risograph print on uncoated {{paper}} stock, exactly two spot inks, {{primary}} and {{secondary}}, overlapping in places to make a third mixed tone, visible coarse halftone dot pattern in both layers with screens at different angles, misregistration of about two millimetres between plates most obvious along edges, patchy coverage, a few thin roller streaks, one small area of ink starvation, paper texture showing through the lighter tones",
+          "compose": "{preserve}, {transform}",
+          "negative": "CMYK, four-colour process, more than two inks, photographic realism, smooth gradients, perfect registration, glossy stock, drop shadows, continuous tone",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Reproduce as a two-colour risograph print on uncoated {{paper}} stock. Exactly two spot inks, {{primary}} and {{secondary}}, overlapping in places to make a third mixed tone. Visible coarse halftone dot pattern in both layers with screens set at different angles. Slight misregistration of about two millimetres between plates, most obvious along edges. Patchy coverage with a few thin roller streaks and one small area of ink starvation. Paper texture showing through the lighter tones.",
+          "compose": "{preserve} {transform}",
+          "negative": "CMYK, photographic realism, smooth gradients, perfect registration, glossy stock, drop shadows, more than two inks",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-offset",
+      "name": "Offset print rosette",
+      "family": "print",
+      "blurb": "Full-colour print simulation. Subtle, survives at small sizes.",
+      "variants": {
+        "tags": {
+          "transform": "offset lithograph on uncoated stock, visible CMYK halftone rosette pattern throughout with correct screen angles, slight dot gain thickening the midtones, paper texture and fibre showing through the lighter areas, registration drift of under a millimetre on one plate, faint page curl shadow at one corner",
+          "compose": "{preserve}, {transform}",
+          "negative": "digital smoothness, continuous tone, glossy coating, perfect registration, vector flatness, visible screen pixels, heavy misregistration",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Reproduce as an offset lithograph on uncoated stock. Visible CMYK halftone rosette pattern throughout with correct screen angles. Slight dot gain thickening the midtones. Paper texture and fibre showing through the lighter areas. Registration drift of under a millimetre on one plate. Faint page curl shadow at one corner.",
+          "compose": "{preserve} {transform}",
+          "negative": "digital smoothness, continuous tone, glossy coating, perfect registration, vector flatness, visible screen pixels",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-xerox",
+      "name": "Third-generation photocopy",
+      "family": "print",
+      "blurb": "Detail destroyed, toner streaked. Punk and urgent.",
+      "variants": {
+        "tags": {
+          "transform": "photocopy of a copy of a copy, blacks crushed solid, midtones collapsed to either pure black or pure white, fine detail lost entirely, horizontal toner streaks and drum banding running across the sheet, uneven exposure with one side darker, slight skew as if fed crooked, dust specks, hairline crease shadow near one edge, monochrome",
+          "compose": "{preserve}, {transform}",
+          "negative": "clean scan, grayscale gradients, midtone detail, colour, retained fine detail, straight edges, digital noise filter, even exposure",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Reproduce as a photocopy that has been copied from a copy of a copy. Crush blacks solid. Collapse midtones to either pure black or pure white with nothing between. Lose fine detail entirely. Horizontal toner streaks and drum banding running across the sheet. Uneven exposure, one side darker. Slight skew as if fed crooked. Dust specks and a hairline crease shadow near one edge. Monochrome only.",
+          "compose": "{preserve} {transform}",
+          "negative": "clean scan, grayscale gradients, colour, retained fine detail, straight edges, digital noise filter",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-gouache",
+      "name": "Repaint in gouache",
+      "family": "illustration",
+      "blurb": "Converts photography to painted anime-background language. Strongest crowd-pleaser.",
+      "variants": {
+        "tags": {
+          "transform": "repainted entirely in hand-applied gouache, Japanese animation background art tradition, every surface built from visible individual brush dabs with clear brush direction, skies laid in as broad confident strokes with soft graded transitions, foliage and small detail reduced to separate flecks of unblended colour, soft atmospheric haze at the horizon, slightly heightened idealised colour",
+          "compose": "{preserve}, {transform}",
+          "negative": "photorealism, digital airbrush, vector shapes, black outlines, linework, cel-shading, lens flare, retained photographic texture, rendered detail",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Repaint entirely in hand-applied gouache in the tradition of Japanese animation background art. Every surface built from visible individual brush dabs with clear brush direction. Skies laid in as broad confident strokes with soft graded transitions. Foliage and small detail reduced to separate flecks of unblended colour rather than rendered texture. Soft atmospheric haze at the horizon. Slightly heightened, slightly idealised colour. No outlines, no linework anywhere.",
+          "compose": "{preserve} {transform}",
+          "negative": "photorealism, digital airbrush, vector shapes, black outlines, cel-shading, lens flare, retained photographic texture",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-pointillist",
+      "name": "Pointillist reduction",
+      "family": "illustration",
+      "blurb": "Every mass rebuilt from discrete dots. Loud, alive, unmistakably handmade.",
+      "variants": {
+        "tags": {
+          "transform": "every form reconstructed from thousands of small discrete dots of pure unblended colour placed side by side, adjacent complementary hues vibrating optically, hot pink beside teal, cadmium yellow beside violet, orange beside cyan, saturation pushed high throughout, depth flattened so forms read as decorative masses rather than volumes",
+          "compose": "{preserve}, {transform}",
+          "negative": "smooth gradients, blended colour, outlines, linework, black, muted palette, muted passages, photorealism, airbrush, visible photographic detail, volumetric shading",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Reconstruct every form entirely from thousands of small discrete dots of pure unblended colour placed side by side. Never smooth, never gradient. Place adjacent complementary hues so they vibrate optically: hot pink beside teal, cadmium yellow beside violet, orange beside cyan. Push saturation high throughout with no muted passages. Flatten depth so forms read as decorative masses rather than volumes. No linework, no outlines, no black.",
+          "compose": "{preserve} {transform}",
+          "negative": "smooth gradients, blended colour, outlines, muted palette, photorealism, airbrush, visible photographic detail",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-woodblock",
+      "name": "Woodblock print",
+      "family": "illustration",
+      "blurb": "Shin-hanga. Flat carved layers, visible grain, hand-wiped gradation.",
+      "variants": {
+        "tags": {
+          "transform": "Japanese woodblock print in the shin-hanga tradition, all colour reduced to flat discrete layers, each reading as a separate carved block, visible woodgrain texture pulled through the larger flat areas and especially the sky, bokashi gradation at the horizon and top edge only, confident carved keyline defining the main forms, keyline weight varying where the blade turned, registration offset of under a millimetre on one colour, absorbent washi with visible fibre",
+          "compose": "{preserve}, {transform}",
+          "negative": "photorealism, digital gradients, blending, airbrush, drop shadows, perfect registration, glossy paper, heavy black fill, gradation across the whole frame",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Reproduce as a Japanese woodblock print in the shin-hanga tradition. Reduce all colour to flat discrete layers with no blending, each reading as a separate carved block. Pull visible woodgrain texture through the larger flat areas, especially the sky. Apply bokashi gradation only where a printer would wipe the block by hand, at the horizon and top edge. Add a confident carved keyline defining the main forms, varying in weight where the blade turned. Slight registration offset of under a millimetre on one colour. Print on absorbent washi with visible fibre.",
+          "compose": "{preserve} {transform}",
+          "negative": "photorealism, digital gradients, airbrush, drop shadows, perfect registration, glossy paper, heavy black fill",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-screenprint",
+      "name": "Screenprint flatten",
+      "family": "illustration",
+      "blurb": "Four inks maximum. Reduces complex photos to bold flat geometry.",
+      "variants": {
+        "tags": {
+          "transform": "screenprinted poster of exactly four flat ink layers, one of them {{primary}}, every form simplified into bold geometric shapes with hard clean edges, complex lighting reduced to two or three flat planes per form, slight ink texture, one small area of imperfect coverage",
+          "compose": "{preserve}, {transform}",
+          "negative": "gradients, blending, more than four colours, fifth ink, photographic detail, drop shadows, glow, thin fussy linework, retained texture, soft edges",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Reduce to a screenprinted poster of exactly four flat ink layers and no more, one of them {{primary}}. Simplify every form into bold geometric shapes with hard clean edges. No gradients, no blending. Reduce complex lighting to two or three flat planes per form. Slight ink texture and one small area of imperfect coverage.",
+          "compose": "{preserve} {transform}",
+          "negative": "gradients, more than four colours, photographic detail, drop shadows, glow, thin fussy linework, retained texture",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-engraving",
+      "name": "Copperplate engraving",
+      "family": "illustration",
+      "blurb": "All tone from line density. Financial, legal, institutional.",
+      "variants": {
+        "tags": {
+          "transform": "copperplate engraving in the style of a nineteenth century banknote vignette, every tone produced through line density alone, parallel hatching for flat planes, cross-hatching for shadow, stipple for soft transitions, line weight swelling and tapering as a burin would cut, white paper showing through wherever the lines separate, precise, controlled, extremely fine, monochrome ink",
+          "compose": "{preserve}, {transform}",
+          "negative": "solid fills, solid black, grey wash, digital halftone, photographic texture, colour, sketchy loose linework, blur, continuous tone",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Reproduce as a copperplate engraving in the style of a nineteenth century banknote vignette. Produce every tone through line density alone: parallel hatching for flat planes, cross-hatching for shadow, stipple for soft transitions, line weight swelling and tapering as a burin would cut. No solid black fills anywhere. No grey washes. White paper showing through wherever the lines separate. Precise, controlled, extremely fine. Monochrome ink only.",
+          "compose": "{preserve} {transform}",
+          "negative": "solid fills, grey wash, digital halftone, photographic texture, colour, sketchy loose linework, blur",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-cyanotype",
+      "name": "Cyanotype contact print",
+      "family": "craft",
+      "blurb": "Silhouette in Prussian blue. Works best on subjects with clean outlines.",
+      "variants": {
+        "tags": {
+          "transform": "cyanotype contact print on heavy cold-pressed watercolour paper, deep Prussian blue field, subject rendered as a soft-edged {{paper}} silhouette where it blocked the light, visible brush strokes at the paper edges where the emulsion was applied by hand, brushed border stopping short of the paper edge unevenly, slight blue staining bleeding past the border, paper fibre and cold-press tooth showing through the blue, faint uneven exposure with one corner lighter",
+          "compose": "{preserve}, {transform}",
+          "negative": "digital blue filter, clean rectangular border, perfect edges, glossy paper, vector silhouette, retained midtones, even exposure, other colours",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Reproduce as a cyanotype contact print on heavy cold-pressed watercolour paper. Deep Prussian blue field with the subject rendered as a soft-edged {{paper}} silhouette where it blocked the light. Visible brush strokes at the paper edges where the emulsion was applied by hand, stopping short of the paper edge unevenly. Slight blue staining bleeding past the brushed border. Paper fibre and cold-press tooth showing through the blue. Faint uneven exposure, one corner lighter than the rest.",
+          "compose": "{preserve} {transform}",
+          "negative": "digital blue filter, clean rectangular border, perfect edges, glossy paper, vector silhouette, retained midtones",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-blueprint",
+      "name": "Blueprint annotation",
+      "family": "technical",
+      "blurb": "Adds a technical callout layer in true perspective. Keeps the photo intact underneath.",
+      "variants": {
+        "tags": {
+          "transform": "technical blueprint annotation layer overlaid directly onto the scene in correct three-dimensional perspective, thin white callout lines with small terminal dots, white sans-serif labels reading AIRFLOW INTAKE and CAST ALUMINIUM SHELL and SERVICE PANEL and 48 mm, dimension arrows with tick ends, faint white measurement grid following the surface planes, annotations sitting on the object in perspective and wrapping with its geometry, underlying photograph untouched, same lighting, same grade, same depth of field, one single callout accented in {{primary}} and the rest white",
+          "compose": "{preserve}, exact silhouette and edge position of every object unchanged, {transform}",
+          "negative": "flat 2D overlay, stickers, annotations lying flat on top, invented metrics, fake numbers, logos, watermarks, relighting, HUD, sci-fi interface, glow, shifted outlines",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Overlay a technical blueprint annotation layer directly onto the scene in correct three-dimensional perspective. Thin white callout lines with small terminal dots, white sans-serif labels, dimension arrows with tick ends, and a faint white measurement grid that follows the surface planes. Annotations must sit on the object in perspective, wrapping with its geometry, never lying flat on top like a sticker. Leave the underlying photograph completely untouched: same lighting, same grade, same depth of field. Labels read: AIRFLOW INTAKE, CAST ALUMINIUM SHELL, SERVICE PANEL and 48 mm. Accent one single callout in {{primary}}, leave the rest white.",
+          "compose": "{preserve} Additionally, preserve the exact silhouette and edge position of every object: any element whose outline shifts is a failure. {transform}",
+          "negative": "flat 2D overlay, stickers, invented metrics, fake numbers, logos, watermarks, relighting, HUD, sci-fi interface, glow",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-negative-grade",
+      "name": "Negative colour grade",
+      "family": "surreal",
+      "blurb": "Invert the subject's colour logic, leave the world natural.",
+      "variants": {
+        "tags": {
+          "transform": "environment left naturally coloured, unnatural inverted colour logic applied to the subject only, subject surfaces in a desaturated lichen, subject outlines and edges in a grainy desaturated dusty pink, negative-gradient logic contradicting the naturalism of everything surrounding it, pervasive coarse grain, uniform dithered noise pattern across all elements, aged paper feel, clean lines with minor distress and ink bleed",
+          "compose": "{preserve}, {transform}",
+          "negative": "natural subject colouring, clean digital rendering, smooth gradients, uniform colour shift across the whole frame, recoloured environment, glossy finish",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Leave the environment naturally coloured but apply an unnatural inverted colour logic to the subject only. Render the subject's surfaces in a desaturated lichen and its outlines and edges in a grainy desaturated dusty pink, producing a negative-gradient logic that contradicts the naturalism of everything surrounding it. Add pervasive coarse grain and a uniform dithered noise pattern across all elements for an aged paper feel. Keep lines clean but with minor distress and ink bleed common to old print.",
+          "compose": "{preserve} {transform}",
+          "negative": "natural subject colouring, clean digital rendering, smooth gradients, uniform colour shift across the whole frame, glossy finish",
+          "strength": null
+        }
+      }
+    },
+    {
+      "id": "rs-grain-only",
+      "name": "Grain and imperfection only",
+      "family": "subtle",
+      "blurb": "No stock look, no colour change. Just removes the too-clean AI signature.",
+      "variants": {
+        "tags": {
+          "transform": "colour grade and content untouched, physical capture imperfection added, fine organic grain denser through the midtones, horizon a degree off level, framing marginally too loose on one side, focus landed slightly behind the intended point, a trace of shake in the darker areas",
+          "compose": "{preserve}, {transform}",
+          "negative": "colour shift, stylisation, vignette, filter look, sharpening, tripod steadiness, perfect level, corrected framing, deliberate composition",
+          "strength": null
+        },
+        "prose": {
+          "transform": "Leave the colour grade and content untouched. Add only physical capture imperfection: fine organic grain denser through the midtones, a horizon a degree off level, framing marginally too loose on one side, focus landed slightly behind the intended point, and a trace of shake in the darker areas. Nothing about the capture should read as deliberate or corrected.",
+          "compose": "{preserve} {transform}",
+          "negative": "colour shift, stylisation, vignette, filter look, sharpening, tripod steadiness, perfect level",
+          "strength": null
+        }
+      }
+    },
+    {
       "id": "glass-caustics",
       "name": "Glass caustics",
       "family": "glass",
+      "blurb": "Everything turns to lit glass. Needs forms with edges worth refracting.",
       "variants": {
         "tags": {
           "transform": "transparent glass surface, caustic light patterns, refracted light rays, soft highlights, dappled light through glass, clean minimal background",
@@ -28,6 +431,7 @@
       "id": "holographic-oil-slick",
       "name": "Holographic oil slick",
       "family": "iridescent",
+      "blurb": "Wet rainbow sheen on liquid metal. Loud, and dates fast.",
       "variants": {
         "tags": {
           "transform": "iridescent oil slick texture, holographic sheen, shifting rainbow reflections, liquid metal surface, high gloss, moiré-like colour bands",
@@ -47,6 +451,7 @@
       "id": "mesh-gradient",
       "name": "Mesh gradient",
       "family": "gradient",
+      "blurb": "Dissolves the whole frame into blended colour. Backgrounds, not subjects.",
       "variants": {
         "tags": {
           "transform": "soft mesh gradient wash, multiple diffused colour blobs blending smoothly, pastel-to-vivid transition, atmospheric depth, continuous blending",
@@ -66,6 +471,7 @@
       "id": "aurora-wash",
       "name": "Aurora wash",
       "family": "gradient",
+      "blurb": "Volumetric light bands over a dark ground. Abstract, never a sky photograph.",
       "variants": {
         "tags": {
           "transform": "aurora borealis light wash over a dark ground, flowing volumetric colour bands, deep navy and emerald glow, soft diffusion, celestial atmosphere",
@@ -85,6 +491,7 @@
       "id": "topographic-contour",
       "name": "Topographic contour",
       "family": "linework",
+      "blurb": "Redraws volume as an elevation map. Reads as data rather than as an image.",
       "variants": {
         "tags": {
           "transform": "abstract topographic contour lines, concentric irregular shapes, fine line art, high contrast, elevation map aesthetic, monochrome",
@@ -104,6 +511,7 @@
       "id": "long-exposure-trails",
       "name": "Long-exposure trails",
       "family": "photographic",
+      "blurb": "Bright points stretched into streaks. Wants light sources in the source image.",
       "variants": {
         "tags": {
           "transform": "long exposure photography, streaking light trails, motion blur, dark ground, vibrant coloured light streaks, night photography aesthetic",
@@ -123,6 +531,7 @@
       "id": "brutalist-monochrome",
       "name": "Brutalist monochrome",
       "family": "architectural",
+      "blurb": "Raw concrete and hard shafts of light, in black and white.",
       "variants": {
         "tags": {
           "transform": "brutalist high-contrast monochrome rendering, raw concrete surfaces, stark black and white, bold geometric masses, harsh directional shadows, shafts of light cutting through",
@@ -142,6 +551,7 @@
       "id": "soft-clay-render",
       "name": "Soft clay render",
       "family": "dimensional",
+      "blurb": "Everything remodelled in matte clay. Friendly, and forgiving of detail.",
       "variants": {
         "tags": {
           "transform": "3D clay render, soft matte clay material, smooth rounded forms, careful balance of light and shadow, subtle ambient occlusion, vivid but muted colours",

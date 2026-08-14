@@ -21,12 +21,14 @@ read by `readPresetLibrary` (#47).
 
 What each library declares is the difference:
 
-|                     | Source                               | Style                             |
-| ------------------- | ------------------------------------ | --------------------------------- |
-| Library-level block | `append` — no text, lettering, logos | `preserve` — keep the composition |
-| Aspect hint         | yes, per preset                      | no — a restyle inherits its frame |
-| Committed in        | `source-presets.json`                | `presets.json`                    |
-| Forks live in       | `app_data_dir/presets/source/*.json` | `app_data_dir/presets/*.json`     |
+|                     | Source                                | Style                                     |
+| ------------------- | ------------------------------------- | ----------------------------------------- |
+| Library-level block | `append` — no text, lettering, logos  | `preserve` — keep the composition         |
+| Aspect hint         | yes, per preset                       | no — a restyle inherits its frame         |
+| Headline zone       | yes, per preset                       | no — same reason                          |
+| Built-ins           | 24 — hero-recipes v4's generate track | 28 — v4's restyle track, plus #28's eight |
+| Committed in        | `source-presets.json`                 | `presets.json`                            |
+| Forks live in       | `app_data_dir/presets/source/*.json`  | `app_data_dir/presets/*.json`             |
 
 Both blocks are optional, and a library may declare neither. **Opting out is omission**: a
 preset that leaves `{append}` out of its template does not get it, which is how the one
@@ -43,6 +45,54 @@ creation, so this is **displayed and nothing more** — it does not filter, sort
 picker. Every ratio the library uses is already offered, so dimming the mismatches would
 hide most of the library on a wide project, and a strong filter dressed as a hint is worse
 than no hint.
+
+### The two idioms are not word-for-word translations
+
+Every built-in carries both variants, and they say the same thing differently. Prose can be
+sequenced and conditional — one recipe specifies that halation blooms _only_ around light
+sources bright enough to exceed the film's latitude, never uniformly and never on midtones.
+A comma-separated list has no word for "only", so the tags variant states the positive
+plainly and pushes the excluded readings into `negative`.
+
+That works because **`promptStyle: 'tags'` and a non-null `negativePromptParam` are the
+same models**. Every tags-idiom row in the registry has a real negative-prompt field and no
+prose-idiom row does, so a constraint migrating out of the positive lands in a field that
+exists on precisely the models that read the variant it migrated in. The reduction and
+print families depend on it: "gradients, midtones, third colour" is how those palettes are
+held down, and tags is the only idiom where it reaches a model at all.
+
+The invariant is one-directional and tested: **tags subtracts everything prose subtracts,
+and may subtract more.** Equality would forbid the translation; no relation at all would
+let a careless tags rewrite silently drop a constraint.
+
+Both variants carry a `negative` regardless. On prose it is dropped every time today, by
+`composePreset`, per model — but that is routing, and writing `null` (documented as "this
+look has nothing to subtract") would be untrue.
+
+### Display-only metadata
+
+Five fields are shown and never sent: `family`, `blurb`, `headlineZone` and `aspect`, plus
+`note` where a look is not finished by the model alone.
+
+| Field          | On                              | Says                                                     |
+| -------------- | ------------------------------- | -------------------------------------------------------- |
+| `family`       | every built-in                  | how the picker groups — one optgroup per family          |
+| `blurb`        | every built-in, `null` on forks | one line on what this look is for                        |
+| `headlineZone` | source presets only             | where the scene leaves room for type, from a closed list |
+| `aspect`       | source presets only             | the ratio the scene was composed for — a hint, not a set |
+| `note`         | four two-ink recipes            | what still has to happen outside the model               |
+
+`note` is the one that is not decoration. The four are two scenes and the two looks that
+mirror them — `gn-duotone-landscape`, `gn-halftone-highkey`, `rs-duotone-dither`,
+`rs-halftone-highkey` — all authored to be dithered afterwards. The dither is #36 and does
+not exist yet, so the note is displayed as an outstanding step: a two-ink reduction nobody
+dithered reads as a preset that came out wrong rather than as a preset that is half a
+feature. Note they are not one family — the two scenes are `illustration` and the two looks
+are `reduction`, so a check that keys on family will miss half of them.
+
+`blurb` is deliberately not carried onto a fork: it is a line about one of ours, and a fork
+has its own name and its own text. `headlineZone` and `note` are carried, because they are
+facts about the image the prompt describes.
 
 ### Template variables
 
@@ -177,4 +227,11 @@ Each library forks into its **own folder**, so a scene called "Warm" and a look 
    compose as a literal in a paid prompt and never say so. Add `defaults` only for the
    free-text holes worth answering in advance; a default for a hole the template does not
    have is refused at load.
-6. Run the tests. The loader names the preset it could not read.
+6. Give it a `family` and a `blurb`, and a `headlineZone` on a source preset. Leave a
+   one-off value **inlined in the prose** rather than as a hole: a concrete
+   "juniper sprigs and dried citrus wheels" teaches what the clause is for and a bare
+   `{{botanical}}` teaches nothing. `{{subject}}` is the exception — it is the field the
+   user came here to fill.
+7. Write a `note` only where the model cannot finish the look on its own. A note is an
+   unfinished step; one on a finished look is permanent scaffolding.
+8. Run the tests. The loader names the preset it could not read.

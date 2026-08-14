@@ -132,22 +132,76 @@ describe('the built-in library', () => {
     expect(STYLE_PRESET_LIBRARY.presets).toBe(BUILT_IN_STYLE_PRESETS)
   })
 
-  it('ships no texture-led look, because those are post-effects now', () => {
-    // #36 owns grain, dither, halftone and duotone as deterministic kernels;
-    // PRD §6.2 measured that asking a model for grain barely registers.
-    const banned =
-      /grain|halftone|dither|duotone|tritone|riso|scanline|vhs|crt|aberration/i
+  it('says out loud where a look is only half done without #36', () => {
+    // The inverse of the rule #28's proving set followed. That set shipped no
+    // texture-led look at all, because PRD §6.2 measured that asking a model
+    // for grain barely registers and #36 owns the deterministic kernels. #48
+    // brings the reduction and print families in anyway, and the reason it is
+    // not a reversal is this: the model does the *reduction*, which it is good
+    // at, and the recipe carries a note saying the dither is still to come.
+    //
+    // So the assertion is not "no dither" any more. It is that a preset asking
+    // to be dithered says so — silence there is the failure, because a two-ink
+    // reduction nobody dithered reads as a preset that came out wrong.
+    //
+    // Over **both** libraries, and keyed on the recipe rather than on its
+    // family. The two scenes are filed under `illustration` and the two looks
+    // under `reduction`, so a check that keys on family sees half of them and
+    // reports the other half as fine — which is exactly how the count in this
+    // module's own header comment drifted to "four" on a library holding two.
+    //
+    // `ordered bayer` is in the note check because a Bayer matrix *is* ordered
+    // dithering — the source note names the kernel where the style note names
+    // the effect, and a check that only knew the word "dither" would call the
+    // terser of the two a preset with no note worth reading.
+    const wantsPost = /\bdither|halftone dot|two-entry palette|ordered bayer/i
+    const everyBuiltIn = [...BUILT_IN_SOURCE_PRESETS, ...BUILT_IN_STYLE_PRESETS]
 
-    for (const style of BUILT_IN_STYLE_PRESETS) {
-      for (const idiom of ['tags', 'prose'] as const) {
-        const carried = style.variants[idiom]
-        expect(carried, `${style.id}/${idiom}`).not.toBeNull()
-        expect(
-          `${style.id} ${style.name} ${carried?.transform ?? ''}`,
-          `${style.id}/${idiom}`
-        ).not.toMatch(banned)
-      }
+    // Two ways a recipe can be one the model cannot finish, and a note is owed
+    // for either. A **hard quantise** — no third colour, no tone between the two
+    // inks — is a palette reduction #36 does exactly and a model approximates.
+    // **Tone from density alone** is the same problem one step on: the greys
+    // have to come out of a dot pattern rather than out of grey paint, which is
+    // #36's ordered screen.
+    //
+    // Deliberately *not* keyed on "two colours" alone, which would drag in
+    // `rs-riso`. A riso asks for two spot inks that overlap into a third mixed
+    // tone, on purpose — it is a print simulation the model attempts whole, not
+    // a quantise-then-dither pipeline, and its halftone is one artefact among
+    // misregistration and roller streaks rather than a kernel we owe it.
+    //
+    // And "purely by density" rather than a bare "density alone", which would
+    // drag in the engraving pair. Those build tone from *line* density —
+    // hatching the model draws, not a screen laid over the output afterwards.
+    const cannotFinishInTheModel =
+      /no third colour|no intermediate tones|two-entry|purely (by|through) density/i
+
+    const owed = everyBuiltIn.filter(preset => {
+      const prose = preset.variants.prose
+      if (prose === null) return false
+      return cannotFinishInTheModel.test(
+        `${prose.transform} ${prose.negative ?? ''}`
+      )
+    })
+
+    // Pinned, or the loop below passes by matching nothing at all — which is
+    // how a regex-gated invariant quietly stops being an invariant.
+    expect(owed).toHaveLength(4)
+
+    for (const preset of owed) {
+      expect(preset.note, preset.id).not.toBeNull()
+      expect(preset.note ?? '', preset.id).toMatch(wantsPost)
     }
+
+    // And that the note is nowhere it is not earned: a note is an unfinished
+    // step, so one on a look that is finished would be permanent scaffolding.
+    const noted = everyBuiltIn.filter(preset => preset.note !== null)
+    expect(noted.map(preset => preset.id)).toEqual([
+      'gn-duotone-landscape',
+      'gn-halftone-highkey',
+      'rs-duotone-dither',
+      'rs-halftone-highkey',
+    ])
   })
 
   it('speaks both idioms, so no style model is left with nothing to seed', () => {
@@ -164,18 +218,37 @@ describe('the built-in library', () => {
     }
   })
 
-  it('says the same thing in both idioms, negatives included', () => {
-    // Two variants are two phrasings of one look, not two looks. The negative
-    // is the same subtraction either way — only the positive body changes.
+  it('says the same thing in both idioms, and subtracts more in tags', () => {
+    // Two variants are two phrasings of one look, not two looks — but they are
+    // not word-for-word translations either (#48). Prose can be conditional
+    // ("halation ONLY around light sources bright enough to exceed the film's
+    // latitude"); a comma-separated list has no word for "only", so the tags
+    // variant states the positive plainly and pushes the excluded readings into
+    // the negative.
+    //
+    // That is safe because `promptStyle: 'tags'` and a non-null
+    // `negativePromptParam` are the same four models — a constraint migrating
+    // out of the positive lands in a field that exists on exactly the models
+    // reading the variant it migrated in. Asserted for real further down, in
+    // "every tags-idiom model has somewhere to put a negative".
+    //
+    // So the invariant is one-directional: tags subtracts everything prose
+    // subtracts, and is allowed to subtract more. Equality would forbid the
+    // translation this library is built on; no relation at all would let a
+    // careless tags rewrite quietly drop a constraint neither variant states.
     for (const style of BUILT_IN_STYLE_PRESETS) {
-      expect(style.variants.prose?.negative, style.id).toBe(
-        style.variants.tags?.negative
-      )
-      expect(style.variants.prose?.strength, style.id).toBe(
-        style.variants.tags?.strength
-      )
+      const prose = style.variants.prose
+      const tags = style.variants.tags
+      expect(prose?.negative, style.id).not.toBeNull()
+      expect(tags?.negative, style.id).not.toBeNull()
+
+      for (const clause of (prose?.negative ?? '').split(', ')) {
+        expect(tags?.negative ?? '', `${style.id}: ${clause}`).toContain(clause)
+      }
+
+      expect(prose?.strength, style.id).toBe(tags?.strength)
       // Prose is prose: sentences, not the tag list with the commas kept.
-      expect(style.variants.prose?.transform, style.id).toMatch(/\.$/)
+      expect(prose?.transform, style.id).toMatch(/\.$/)
     }
   })
 
@@ -365,6 +438,192 @@ describe('the built-in source library', () => {
       // about colour that the palette cannot answer.
       if (!/colou?r/i.test(hole)) continue
       expect(namesPaletteSlot(hole), hole).toBe(true)
+    }
+  })
+})
+
+/**
+ * The hero-recipes v4 material, as shipped (#48).
+ *
+ * Forty-four recipes went in: twenty-four `generate` as source scenes, twenty
+ * `restyle` joining the eight the style library already had. What is worth
+ * asserting is not that forty-four strings exist but the handful of rules that
+ * are cheap to break and expensive to notice — a look that says less than it
+ * meant to does not fail a test, it just comes out worse.
+ */
+describe('the v4 recipes', () => {
+  const BOTH = [...BUILT_IN_SOURCE_PRESETS, ...BUILT_IN_STYLE_PRESETS]
+
+  it('landed all forty-four, in the right library', () => {
+    expect(BUILT_IN_SOURCE_PRESETS).toHaveLength(24)
+    expect(BUILT_IN_STYLE_PRESETS).toHaveLength(28)
+
+    // The v4 tracks map onto our stages by prefix, and nothing crossed over: a
+    // `generate` recipe is a whole scene and would ask a restyle model to
+    // preserve a composition nobody supplied.
+    for (const source of BUILT_IN_SOURCE_PRESETS) {
+      expect(source.id, source.id).toMatch(/^gn-/)
+    }
+    expect(
+      BUILT_IN_STYLE_PRESETS.filter(style => style.id.startsWith('rs-'))
+    ).toHaveLength(20)
+  })
+
+  it('carries a negative on both variants of every one of them', () => {
+    // Never `null`, whose documented meaning is "this look has nothing to
+    // subtract". Dropped per-model by `composePreset` on the prose idiom, which
+    // is a routing decision and not a reason to write down something untrue.
+    for (const preset of BOTH) {
+      for (const idiom of ['tags', 'prose'] as const) {
+        expect(
+          preset.variants[idiom]?.negative,
+          `${preset.id}/${idiom}`
+        ).not.toBeNull()
+      }
+    }
+  })
+
+  it('leaves no strength opinion on any of the forty-four', () => {
+    // Exactly one style-stage model has a strength parameter and no source
+    // model does, so an opinion here would be an opinion about one endpoint
+    // dressed as a property of the look. The three that do carry one are #28's
+    // proving set, which measured them.
+    const opinionated = BOTH.filter(preset =>
+      (['tags', 'prose'] as const).some(
+        idiom => preset.variants[idiom]?.strength !== null
+      )
+    )
+
+    expect(opinionated.map(preset => preset.id)).toEqual([
+      'mesh-gradient',
+      'topographic-contour',
+      'brutalist-monochrome',
+    ])
+  })
+
+  it('leaves no hole open but the palette roles and the subject', () => {
+    // The one-off keys — a botanical name, a camera angle, a ranking metric —
+    // are inlined with concrete values rather than left as fields. #28's reason
+    // for fork-to-customize is that editing a seeded prompt is how somebody
+    // learns the prompt language, and a specific value teaches where a bare
+    // `{{surface}}` teaches nothing and reads as unfinished.
+    const allowed = new Set(['primary', 'secondary', 'ink', 'paper', 'subject'])
+    const found = new Set<string>()
+
+    for (const preset of BOTH) {
+      for (const idiom of ['tags', 'prose'] as const) {
+        const carried = preset.variants[idiom]
+        if (carried === null || carried === undefined) continue
+        for (const key of unresolvedVariables(
+          `${carried.compose} ${carried.transform} ${carried.negative ?? ''}`
+        )) {
+          expect(allowed.has(key), `${preset.id}/${idiom}: {{${key}}}`).toBe(
+            true
+          )
+          found.add(key)
+        }
+      }
+    }
+
+    // Every allowed hole is actually used, or the list above is aspirational
+    // rather than a description of the library.
+    expect([...found].sort()).toEqual([...allowed].sort())
+  })
+
+  it('binds colour to a role rather than hardcoding a value', () => {
+    // #46 made `ink` mandatory in every palette precisely so the reduction and
+    // print families could follow the user's colours instead of near-black.
+    for (const preset of BOTH) {
+      for (const idiom of ['tags', 'prose'] as const) {
+        const carried = preset.variants[idiom]
+        expect(
+          `${carried?.transform ?? ''} ${carried?.negative ?? ''}`,
+          `${preset.id}/${idiom}`
+        ).not.toMatch(/#[0-9a-f]{6}/i)
+      }
+    }
+
+    const duotone = stylePresetById('rs-duotone-dither')
+    expect(duotone?.variants.prose?.transform).toContain('{{ink}}')
+    expect(duotone?.variants.prose?.transform).toContain('{{primary}}')
+  })
+
+  it('flattens the one blocks-format recipe with its labels intact', () => {
+    // `gn-vintage-surreal` was authored as five labelled blocks. The labels are
+    // part of the prompt text rather than scaffolding around it — they are how
+    // the original steers the model through the sections — so concatenation is
+    // the flattening, not stripping.
+    const surreal = sourcePresetById('gn-vintage-surreal')
+    const prose = surreal?.variants.prose?.transform ?? ''
+
+    for (const label of [
+      'The Key Aesthetic:',
+      'The Colour Palette:',
+      'The Signature Effect:',
+      'The Final Layout:',
+    ]) {
+      expect(prose, label).toContain(label)
+    }
+
+    // One string, and the opener leads it — the labels are inside the prose,
+    // not a structure something downstream would have to reassemble.
+    expect(prose.startsWith('A highly detailed vintage')).toBe(true)
+  })
+
+  it('gives every built-in a blurb, and every scene a headline zone', () => {
+    for (const preset of BOTH) {
+      expect(preset.blurb, preset.id).not.toBeNull()
+      expect(preset.family, preset.id).not.toBe('')
+    }
+
+    // Source only: where a scene leaves room for type is a fact about a
+    // composition, and a restyle inherits whatever composition it was given.
+    for (const source of BUILT_IN_SOURCE_PRESETS) {
+      expect(source.headlineZone, source.id).not.toBeNull()
+    }
+    for (const style of BUILT_IN_STYLE_PRESETS) {
+      expect(style.headlineZone, style.id).toBeNull()
+    }
+  })
+
+  it('groups into families a picker can be read down', () => {
+    // The reason `family` stopped being decorative: 28 and 24 entries flat is a
+    // list you have to read end to end.
+    for (const library of [BUILT_IN_SOURCE_PRESETS, BUILT_IN_STYLE_PRESETS]) {
+      const families = new Set(library.map(preset => preset.family))
+      expect(families.size).toBeGreaterThan(3)
+      expect(families.size).toBeLessThan(library.length)
+    }
+  })
+
+  it('subtracts at least as much in tags as in prose, on the scenes too', () => {
+    // The style library's version of this rule, applied to source. Same
+    // argument: the tags rewrite may migrate a constraint out of the positive,
+    // and must never quietly drop one.
+    for (const source of BUILT_IN_SOURCE_PRESETS) {
+      const prose = source.variants.prose?.negative ?? ''
+      const tags = source.variants.tags?.negative ?? ''
+      for (const clause of prose.split(', ')) {
+        expect(tags, `${source.id}: ${clause}`).toContain(clause)
+      }
+    }
+  })
+
+  it('has a negative field on every model that reads the tags idiom', () => {
+    // The alignment the whole two-idiom design rests on. If a tags model ever
+    // ships without a `negative_prompt`, the constraints this library migrates
+    // out of the positive would reach nothing at all — silently, and only on
+    // the looks whose palette those constraints hold down.
+    const models = [
+      ...modelsForStage(MODEL_REGISTRY, 'source'),
+      ...modelsForStage(MODEL_REGISTRY, 'style'),
+    ]
+
+    const tagsModels = models.filter(model => model.promptStyle === 'tags')
+    expect(tagsModels.length).toBeGreaterThan(0)
+
+    for (const model of tagsModels) {
+      expect(model.negativePromptParam, model.id).not.toBeNull()
     }
   })
 })
@@ -579,6 +838,8 @@ describe('template variables', () => {
       negative: null,
       strength: null,
       aspect: null,
+      headlineZone: null,
+      note: null,
     })
 
     expect(fork.variants.tags?.defaults).toEqual({})
@@ -813,6 +1074,58 @@ describe('a preset document that is not what we expect', () => {
     ).toBe('21:9')
   })
 
+  it('refuses a headline zone the layout has no word for', () => {
+    // Same argument as the aspect hint: this is displayed next to a layout
+    // decision, and a zone nobody has a word for names a region of the frame
+    // the reader cannot go and find.
+    expect(() =>
+      readPresetLibrary(
+        document({ presets: [preset({ headlineZone: 'middle-ish' })] })
+      )
+    ).toThrow(/headline zone/i)
+  })
+
+  it('refuses a blurb or a note that is there but empty', () => {
+    // Absent means nobody wrote one, which is a fork's normal state. The empty
+    // string is a field somebody started and left, and it renders as a blank
+    // line where a sentence should be — which reads as a bug, not as silence.
+    for (const field of ['blurb', 'note'] as const) {
+      expect(
+        () =>
+          readPresetLibrary(document({ presets: [preset({ [field]: '  ' })] })),
+        field
+      ).toThrow(new RegExp(field, 'i'))
+    }
+  })
+
+  it('takes a missing blurb, note or zone as nothing to say', () => {
+    const only = readPresetLibrary(document()).presets[0]
+
+    expect(only?.blurb).toBeNull()
+    expect(only?.note).toBeNull()
+    expect(only?.headlineZone).toBeNull()
+  })
+
+  it('round-trips the display-only fields through a saved fork', () => {
+    // They are on `writeUserPreset` because a fork of a scene that has to be
+    // dithered is still a scene that has to be dithered. The blurb is not: it
+    // is a line about one of ours.
+    const forked = userPresetFrom({
+      id: 'mine',
+      name: 'Mine',
+      promptStyle: 'tags',
+      prompt: 'a keyword list',
+      negative: null,
+      strength: null,
+      aspect: '16:9',
+      headlineZone: 'leftThird',
+      note: 'Dither this afterwards.',
+    })
+
+    expect(forked.blurb).toBeNull()
+    expect(readUserPreset(writeUserPreset(forked))).toEqual(forked)
+  })
+
   it('refuses a strength override outside anything a model would accept', () => {
     expect(() =>
       readPresetLibrary(
@@ -920,8 +1233,8 @@ describe('composePreset', () => {
   /**
    * #28's acceptance criterion: the same preset produces a styled result on
    * every style-stage model, via its own compose templates. Both halves of the
-   * stage are exercised here — eight presets against every row the registry
-   * lists, whichever idiom that row reads.
+   * stage are exercised here — all twenty-eight presets against every row the
+   * registry lists, whichever idiom that row reads.
    */
   it('seeds every built-in on every style model the registry lists', () => {
     const models = modelsForStage(MODEL_REGISTRY, 'style')
@@ -942,9 +1255,17 @@ describe('composePreset', () => {
         const preserve =
           STYLE_PRESET_LIBRARY.preserve?.[model.promptStyle] ?? ''
         expect(composed.prompt.startsWith(preserve), where).toBe(true)
-        expect(composed.prompt, where).toContain(
-          style.variants[model.promptStyle]?.transform ?? ''
-        )
+
+        // Every literal run of the transform, rather than the transform whole:
+        // the composed prompt has its `{{…}}` filled in by now, so the raw
+        // template is not a substring of it once a look references the palette.
+        // Checking the pieces either side of each hole says the same thing
+        // without re-implementing the substitution the assertion is testing.
+        const transform = style.variants[model.promptStyle]?.transform ?? ''
+        for (const literal of transform.split(/\{\{[A-Za-z0-9_]+\}\}/)) {
+          if (literal === '') continue
+          expect(composed.prompt, `${where}: ${literal}`).toContain(literal)
+        }
 
         // Never in the body — routed or dropped, per the registry (PRD §9).
         const negative = style.variants[model.promptStyle]?.negative ?? null
@@ -1072,6 +1393,8 @@ describe('a saved fork', () => {
     negative: 'cold light',
     strength: 0.72,
     aspect: null,
+    headlineZone: null,
+    note: null,
   } as const
 
   it('round-trips through the file it is written to', () => {
