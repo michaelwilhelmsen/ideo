@@ -1003,6 +1003,8 @@ function captureOf(
     aspect: seeded?.aspect ?? null,
     headlineZone: seeded?.headlineZone ?? null,
     note: seeded?.note ?? null,
+    ditherKernel: seeded?.ditherKernel ?? null,
+    levelPlacement: seeded?.levelPlacement ?? null,
   }
 }
 

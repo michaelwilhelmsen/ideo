@@ -136,6 +136,47 @@ export const HEADLINE_ZONES = [
 export type HeadlineZone = (typeof HEADLINE_ZONES)[number]
 
 /**
+ * The dither kernels a recipe may ask for (#53), for #36 to apply.
+ *
+ * Five, and they are not one flat set to whoever reads them: the first three
+ * are **ordered** screens and the last two are **error diffusion**, which is the
+ * boundary #36's effect taxonomy splits on. That partition is a property of the
+ * kernels and is not restated per recipe — a recipe names a kernel, and the
+ * family follows from it.
+ *
+ * camelCase for the same reason `HEADLINE_ZONES` is: each value is a translation
+ * key segment the moment anything displays it.
+ */
+export const DITHER_KERNELS = [
+  'bayer4',
+  'bayer8',
+  'clustered8',
+  'floydSteinberg',
+  'atkinson',
+] as const
+
+export type DitherKernel = (typeof DITHER_KERNELS)[number]
+
+/**
+ * How the levels a dither quantises to are spaced.
+ *
+ * **`paletteShaped` is what a `null` means downstream**, and that default was
+ * measured rather than picked (#52): even spacing loses up to 0.22 of mean
+ * linear luminance on Studio's four inks — `ink` 0.006, `secondary` 0.071,
+ * `primary` 0.244, `paper` 0.867 — because both interior steps of an even
+ * four-level scale land in the one gap that palette has no ink for.
+ * Palette-shaped stays within 0.05.
+ *
+ * `even` stays reachable because it is what the research describes and it is the
+ * higher-contrast result — but nobody gets a crush without asking for it. The
+ * knob is inert at N=2 and on every `ramp` palette, whose luminances are already
+ * evenly spaced, so it is only live where someone is genuinely choosing a look.
+ */
+export const LEVEL_PLACEMENTS = ['paletteShaped', 'even'] as const
+
+export type LevelPlacement = (typeof LEVEL_PLACEMENTS)[number]
+
+/**
  * One preset in one prompt idiom.
  *
  * `transform` and `compose` are separate because only the second is a template:
@@ -224,6 +265,31 @@ export interface Preset {
    * preset that came out wrong.
    */
   readonly note: string | null
+  /**
+   * The same intention as `note`, in a form something can read (#53).
+   *
+   * `note` is display copy and stays display copy. This is what stops it being
+   * the *only* record: the four recipes that declare a post-treatment declare it
+   * in prose, to a human, and #36 would otherwise have to re-derive four
+   * intentions from English or ask the user to re-enter by hand what the recipe
+   * already said. The recipe is the right place to say it, because the recipe
+   * author is the one who knows.
+   *
+   * A **preferred** kernel and never a lock — two of the four notes offer a
+   * choice on purpose, and the user can still switch. `null` on the other forty,
+   * meaning this recipe has no opinion rather than meaning nobody looked.
+   *
+   * Nothing reads either field yet. #36 does.
+   */
+  readonly ditherKernel: DitherKernel | null
+  /**
+   * How the dither's levels are spaced, or `null` for the default.
+   *
+   * `null` is not a gap: it resolves to `paletteShaped`, for the reason on
+   * `LEVEL_PLACEMENTS`. Declared only where a recipe is choosing the other look,
+   * and meaningless without a kernel — a spacing for a dither nobody asked for.
+   */
+  readonly levelPlacement: LevelPlacement | null
   /**
    * The ratio this scene was composed for, or `null` where it says nothing.
    *
@@ -412,15 +478,43 @@ function readPreset(document: unknown, blocks: LibraryBlocks): Preset {
 
   const aspect = readAspect(record.aspect, fail)
   const blurb = readNote(record.blurb, 'blurb', fail)
-  const headlineZone = readHeadlineZone(record.headlineZone, fail)
+  const headlineZone = readChoice(
+    record.headlineZone,
+    HEADLINE_ZONES,
+    'headline zone',
+    fail
+  )
   const note = readNote(record.note, 'note', fail)
+  const ditherKernel = readChoice(
+    record.ditherKernel,
+    DITHER_KERNELS,
+    'dither kernel',
+    fail
+  )
+  const levelPlacement = readChoice(
+    record.levelPlacement,
+    LEVEL_PLACEMENTS,
+    'level placement',
+    fail
+  )
 
   const variants = readVariants(record.variants, blocks, fail)
   if (PROMPT_STYLES.every(style => variants[style] === null)) {
     fail('supports no prompt idiom, so no model could ever use it')
   }
 
-  return { id, name, family, aspect, blurb, headlineZone, note, variants }
+  return {
+    id,
+    name,
+    family,
+    aspect,
+    blurb,
+    headlineZone,
+    note,
+    ditherKernel,
+    levelPlacement,
+    variants,
+  }
 }
 
 /**
@@ -445,19 +539,31 @@ function readNote(
   return document.trim()
 }
 
-/** The headline hint, held to the zones the layout has words for, or `null`. */
-function readHeadlineZone(
+/**
+ * One value from a closed list, or `null` where the preset says nothing.
+ *
+ * The three fields that read this way — the headline zone, and #53's two
+ * post-treatment declarations — share both halves of the rule, so they share the
+ * reader. Absent and `null` are the same answer, because none of them is an
+ * idiom a preset owes a reply on and a fork legitimately has none of them. A
+ * value that *is* stated is held to the list, because a word we have no meaning
+ * for either describes a region of the frame the reader cannot find or names a
+ * kernel #36 would not run.
+ */
+function readChoice<T extends string>(
   document: unknown,
+  values: readonly T[],
+  kind: string,
   fail: (problem: string) => never
-): HeadlineZone | null {
+): T | null {
   if (document === undefined || document === null) return null
   if (
     typeof document !== 'string' ||
-    !HEADLINE_ZONES.some(zone => zone === document)
+    !values.some(value => value === document)
   ) {
-    fail(`has a headline zone we have no word for: ${String(document)}`)
+    fail(`has a ${kind} we have no word for: ${String(document)}`)
   }
-  return document as HeadlineZone
+  return document as T
 }
 
 /**
@@ -1037,6 +1143,8 @@ export function writeUserPreset(preset: Preset): Record<string, unknown> {
     blurb: preset.blurb,
     headlineZone: preset.headlineZone,
     note: preset.note,
+    ditherKernel: preset.ditherKernel,
+    levelPlacement: preset.levelPlacement,
     variants: preset.variants,
   }
 }
@@ -1065,13 +1173,15 @@ export interface PresetCapture {
    * say less than the text in it already knows. A fork saved from nothing
    * carries `null`, which is the honest answer.
    *
-   * The blurb is deliberately *not* in here. The other three are facts about the
+   * The blurb is deliberately *not* in here. The others are facts about the
    * image the prompt describes; a blurb is a line about one of our presets, and
    * a fork has its own name and its own text by the time it is saved.
    */
   readonly aspect: AspectId | null
   readonly headlineZone: HeadlineZone | null
   readonly note: string | null
+  readonly ditherKernel: DitherKernel | null
+  readonly levelPlacement: LevelPlacement | null
 }
 
 /**
@@ -1126,6 +1236,8 @@ export function userPresetFrom(
     blurb: null,
     headlineZone: capture.headlineZone,
     note: capture.note,
+    ditherKernel: capture.ditherKernel,
+    levelPlacement: capture.levelPlacement,
     variants: {
       prose:
         capture.promptStyle === 'prose'

@@ -565,6 +565,8 @@ describe('seeding the form from a preset', () => {
       aspect: null,
       headlineZone: null,
       note: null,
+      ditherKernel: null,
+      levelPlacement: null,
     })
 
     const state = apply(
@@ -596,6 +598,8 @@ describe('seeding the form from a preset', () => {
       aspect: null,
       headlineZone: null,
       note: null,
+      ditherKernel: null,
+      levelPlacement: null,
     })
 
     const before = openProjectOf(fixtureEditorState()).drafts.style.prompt

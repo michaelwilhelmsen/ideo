@@ -94,6 +94,37 @@ are `reduction`, so a check that keys on family will miss half of them.
 has its own name and its own text. `headlineZone` and `note` are carried, because they are
 facts about the image the prompt describes.
 
+### The post-treatment declaration
+
+`note` says what still has to happen — in English, to a human. The same four recipes also
+say it in a form something can read (#53), because #36 would otherwise have to re-derive
+four intentions from prose or ask the user to re-enter by hand what the recipe already
+said. Two fields, both optional, both `null` on the other forty:
+
+| Field            | Values                                                     | Says                                |
+| ---------------- | ---------------------------------------------------------- | ----------------------------------- |
+| `ditherKernel`   | `bayer4` `bayer8` `clustered8` `floydSteinberg` `atkinson` | the kernel this recipe **prefers**  |
+| `levelPlacement` | `paletteShaped` (what `null` means) or `even`              | how the quantised levels are spaced |
+
+The kernel is a preference and not a lock — two of the four notes offer a choice on purpose
+("Atkinson or Floyd-Steinberg"), and the user can still switch. The declaration records the
+one each note names first, which is also the one its sibling scene names alone, so the pair
+now agree by declaration rather than by accident of prose.
+
+The five kernels are not one flat set to #36: `bayer4`, `bayer8` and `clustered8` are
+ordered screens, `floydSteinberg` and `atkinson` are error diffusion, and that partition is
+a property of the kernels rather than something each recipe restates.
+
+`levelPlacement` defaults to palette-shaped and is measured rather than picked (#52): even
+spacing loses up to 0.22 of mean linear luminance on a four-ink palette, because both
+interior steps of an even scale land in the gap the palette has no ink for. `even` stays
+reachable — it is the higher-contrast result and what the research describes — but nobody
+gets a crush without asking. The knob is inert at N=2 and on every `ramp` palette, so the
+default only bites where it helps. None of the four declares one.
+
+**Nothing reads either field yet.** #36 does. They round-trip through a fork the way the
+note does, for the same reason: a fork of a two-ink reduction is still a two-ink reduction.
+
 ### Template variables
 
 A variant may have holes in it: `{{primary}}`, `{{subject}}`. Note the brace count —
@@ -233,5 +264,6 @@ Each library forks into its **own folder**, so a scene called "Warm" and a look 
    `{{botanical}}` teaches nothing. `{{subject}}` is the exception — it is the field the
    user came here to fill.
 7. Write a `note` only where the model cannot finish the look on its own. A note is an
-   unfinished step; one on a finished look is permanent scaffolding.
+   unfinished step; one on a finished look is permanent scaffolding. Where the note names
+   a post-treatment, declare a `ditherKernel` beside it so something can read it too.
 8. Run the tests. The loader names the preset it could not read.

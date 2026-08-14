@@ -57,6 +57,7 @@
       "blurb": "Stylised mountains, cypress, rolling hills. Reduce in post.",
       "headlineZone": "lowerThirdFull",
       "note": "Dither on luminance, then map to the two inks. Atkinson, at output resolution.",
+      "ditherKernel": "atkinson",
       "variants": {
         "tags": {
           "transform": "stylised two-colour landscape illustration of {{subject}}, stacked rolling hills in the foreground, angular mountain peaks in the middle distance, tall narrow cypress trees breaking the horizon at intervals, one small perfect circular moon in the upper field, exactly two colours, {{primary}} for every lit form, {{ink}} for the field and shadow, forms simplified into clean readable silhouettes, strong light-dark separation, high contrast, graphic, poster-like",
@@ -80,6 +81,7 @@
       "blurb": "Fog, distance, restraint. Carries overlaid type better than anything else here.",
       "headlineZone": "upperLeft",
       "note": "Ordered Bayer 4x4 at output resolution.",
+      "ditherKernel": "bayer4",
       "variants": {
         "tags": {
           "transform": "high-key monochrome illustration of {{subject}} seen across water in heavy morning fog, pure white field occupying the upper-left half of the frame, subject entering from the right and receding into nothing toward the left, depth built purely from density, nearest structure almost solid black, middle distance mid-grey, far distance dissolved entirely into white, black and white only, clean simplified geometry, architectural clarity, enormous empty space, calm and cold",

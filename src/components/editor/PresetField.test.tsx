@@ -70,6 +70,8 @@ function bilingualFork(): unknown {
     aspect: null,
     headlineZone: null,
     note: null,
+    ditherKernel: null,
+    levelPlacement: null,
   })
 
   return writeUserPreset({
@@ -101,6 +103,8 @@ function savedFork({
       aspect: null,
       headlineZone: null,
       note: null,
+      ditherKernel: null,
+      levelPlacement: null,
     })
   )
 }

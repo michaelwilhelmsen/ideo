@@ -131,6 +131,7 @@
       "family": "reduction",
       "blurb": "Two colours, no greys. Generate the reduction, then dither properly in post.",
       "note": "Dither on luminance to a two-level mask, then map the mask to the two inks — Atkinson or Floyd-Steinberg, at output resolution. Picking each pixel's ink by colour first keeps the hues and loses the tonal structure this reduction is built on.",
+      "ditherKernel": "atkinson",
       "variants": {
         "tags": {
           "transform": "reduced to exactly two colours, {{primary}} for every lit form, {{ink}} for the field and shadow, every form simplified into a clean readable silhouette, strong separation between light and dark, value range compressed hard so the image survives heavy reduction, high contrast, graphic, poster-like",
@@ -152,6 +153,7 @@
       "family": "reduction",
       "blurb": "Subject dissolves into white through density falloff. Best type-carrier in the set.",
       "note": "Ordered Bayer 4x4 or clustered dither at final resolution. The regular grid stays legible under overlaid type where error diffusion fights it.",
+      "ditherKernel": "bayer4",
       "variants": {
         "tags": {
           "transform": "high-key monochrome, lightest third of the frame pushed to pure white, subject receding into nothing at that edge, depth built purely from density, nearest forms nearly solid black, middle distance mid-grey, far distance dissolved entirely into white, every tone achievable through density alone, black and white, clean architectural geometry",

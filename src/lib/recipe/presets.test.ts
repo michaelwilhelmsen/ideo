@@ -25,8 +25,10 @@ import {
   BUILT_IN_SOURCE_PRESETS,
   BUILT_IN_STYLE_PRESETS,
   composePreset,
+  DITHER_KERNELS,
   unresolvedVariables,
   isPresetId,
+  LEVEL_PLACEMENTS,
   PRESET_STRENGTH_WINDOW,
   presetIdFrom,
   presetSeedState,
@@ -202,6 +204,53 @@ describe('the built-in library', () => {
       'rs-duotone-dither',
       'rs-halftone-highkey',
     ])
+  })
+
+  it('says which kernel it wants, where the note says it in English', () => {
+    // #53. The four notes above already name a kernel — to a human. #36 reads
+    // data, so the same intention is declared beside the prose rather than
+    // re-derived from it. The note stays: it says things a schema should not
+    // try to hold ("at output resolution", "the regular grid stays legible
+    // under overlaid type"), and what it stops being is the only record.
+    const everyBuiltIn = [...BUILT_IN_SOURCE_PRESETS, ...BUILT_IN_STYLE_PRESETS]
+    const declared = everyBuiltIn.filter(preset => preset.ditherKernel !== null)
+
+    // A *preferred* kernel and not a lock. The two style notes offer a choice
+    // on purpose ("Atkinson or Floyd-Steinberg"), and the preference recorded
+    // here is the one each note names first — which is also the one its sibling
+    // scene names alone, so the pair now agree by declaration rather than by
+    // accident of prose.
+    expect(
+      Object.fromEntries(
+        declared.map(preset => [preset.id, preset.ditherKernel])
+      )
+    ).toEqual({
+      'gn-duotone-landscape': 'atkinson',
+      'rs-duotone-dither': 'atkinson',
+      'gn-halftone-highkey': 'bayer4',
+      'rs-halftone-highkey': 'bayer4',
+    })
+
+    // Exactly the recipes that carry a note, and no others: a declaration is
+    // an unfinished step the same way the note is, so one on a look the model
+    // finishes by itself would be a post-pass nobody asked for.
+    expect(declared.map(preset => preset.id)).toEqual(
+      everyBuiltIn
+        .filter(preset => preset.note !== null)
+        .map(preset => preset.id)
+    )
+
+    // Placement is a look and not a fix, so it is only declared where someone
+    // is choosing one. All four take the default — palette-shaped, which #36
+    // applies to a `null` — because even spacing loses over half the frame's
+    // light on the four-ink palettes these recipes are authored for. And a
+    // placement without a kernel would be a spacing declared for a dither
+    // nobody asked for.
+    for (const preset of everyBuiltIn) {
+      if (preset.levelPlacement !== null) {
+        expect(preset.ditherKernel, preset.id).not.toBeNull()
+      }
+    }
   })
 
   it('speaks both idioms, so no style model is left with nothing to seed', () => {
@@ -840,6 +889,8 @@ describe('template variables', () => {
       aspect: null,
       headlineZone: null,
       note: null,
+      ditherKernel: null,
+      levelPlacement: null,
     })
 
     expect(fork.variants.tags?.defaults).toEqual({})
@@ -1085,6 +1136,51 @@ describe('a preset document that is not what we expect', () => {
     ).toThrow(/headline zone/i)
   })
 
+  it('refuses a kernel or a placement we have no word for', () => {
+    // Same argument as the headline zone, one consumer along: #36 switches on
+    // these, so a value it has never heard of is a post-pass that either does
+    // nothing or does something else. Caught at load, where the file is.
+    expect(() =>
+      readPresetLibrary(
+        document({ presets: [preset({ ditherKernel: 'bayer3' })] })
+      )
+    ).toThrow(/dither kernel/i)
+    expect(() =>
+      readPresetLibrary(
+        document({ presets: [preset({ levelPlacement: 'perceptual' })] })
+      )
+    ).toThrow(/level placement/i)
+  })
+
+  it('reads every kernel and placement it claims to offer', () => {
+    // Pinned against the lists rather than one exemplar of each: a value in
+    // `DITHER_KERNELS` the loader refuses is a kernel the schema offers and no
+    // file can spell.
+    for (const kernel of DITHER_KERNELS) {
+      const only = readPresetLibrary(
+        document({ presets: [preset({ ditherKernel: kernel })] })
+      ).presets[0]
+      expect(only?.ditherKernel, kernel).toBe(kernel)
+    }
+    for (const placement of LEVEL_PLACEMENTS) {
+      const only = readPresetLibrary(
+        document({
+          presets: [
+            preset({ ditherKernel: 'atkinson', levelPlacement: placement }),
+          ],
+        })
+      ).presets[0]
+      expect(only?.levelPlacement, placement).toBe(placement)
+    }
+  })
+
+  it('takes a missing declaration as no opinion, which is 40 of the 44', () => {
+    const only = readPresetLibrary(document()).presets[0]
+
+    expect(only?.ditherKernel).toBeNull()
+    expect(only?.levelPlacement).toBeNull()
+  })
+
   it('refuses a blurb or a note that is there but empty', () => {
     // Absent means nobody wrote one, which is a fork's normal state. The empty
     // string is a field somebody started and left, and it renders as a blank
@@ -1108,8 +1204,9 @@ describe('a preset document that is not what we expect', () => {
 
   it('round-trips the display-only fields through a saved fork', () => {
     // They are on `writeUserPreset` because a fork of a scene that has to be
-    // dithered is still a scene that has to be dithered. The blurb is not: it
-    // is a line about one of ours.
+    // dithered is still a scene that has to be dithered — the note that says so
+    // in English, and the declaration that says the same thing to #36. The
+    // blurb is not: it is a line about one of ours.
     const forked = userPresetFrom({
       id: 'mine',
       name: 'Mine',
@@ -1120,8 +1217,12 @@ describe('a preset document that is not what we expect', () => {
       aspect: '16:9',
       headlineZone: 'leftThird',
       note: 'Dither this afterwards.',
+      ditherKernel: 'atkinson',
+      levelPlacement: 'even',
     })
 
+    expect(forked.ditherKernel).toBe('atkinson')
+    expect(forked.levelPlacement).toBe('even')
     expect(forked.blurb).toBeNull()
     expect(readUserPreset(writeUserPreset(forked))).toEqual(forked)
   })
@@ -1395,6 +1496,8 @@ describe('a saved fork', () => {
     aspect: null,
     headlineZone: null,
     note: null,
+    ditherKernel: null,
+    levelPlacement: null,
   } as const
 
   it('round-trips through the file it is written to', () => {
