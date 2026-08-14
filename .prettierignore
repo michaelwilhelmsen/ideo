@@ -9,6 +9,9 @@ build/
 src-tauri/target/
 src-tauri/gen/
 
+# Spike crates build their own target/ outside the app's
+spikes/*/target/
+
 # Config files that should keep their formatting
 *.config.js
 *.config.ts

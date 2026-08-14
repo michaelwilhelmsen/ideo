@@ -11,6 +11,15 @@ Search budget: 14 web searches max.
 
 ### 1a. Duotone + dithering: quantise-then-dither, or dither-then-tint?
 
+> **Superseded in part, 2026-08-14.** The #52 spike implemented both orders and rendered
+> them on three real images — see [`post-effects-measured.md`](post-effects-measured.md).
+> Three things below did not survive contact with a picture: neither order produces "mud";
+> the two orders differ on 23–49% of pixels even at a two-entry palette, so they do not
+> converge there; and the practical rule this section recommends loses a large share of the
+> frame's luminance on a palette whose inks are not evenly spaced in lightness. The reasoning
+> in this section is still the reasoning — it is just no longer the only evidence, and the
+> measured document wins where they disagree. The verdict itself is still open.
+
 Web search did not surface a primary source that names the "duotone mud" failure mode directly
 (searched: `duotone dithering order "quantize" then dither vs tint after dither mud`). No
 authoritative page addressed this specific ordering question. This is a **gap** — see below.
@@ -99,6 +108,14 @@ correct colour-space handling), rather than pull in a dependency for each. This 
 own framing that "these algorithms are short."
 
 ## 3. GPU vs CPU
+
+> **Superseded, 2026-08-14.** Every latency figure in this section is an extrapolation from
+> 2008-era hardware and is flagged as such below. The #52 spike benchmarked our own kernels
+> at our own sizes — see [`post-effects-measured.md`](post-effects-measured.md) for the
+> table. Prefer it. Two of this section's expectations were wrong in ways that matter: the
+> exact parallelisation of error diffusion is 5× _slower_ than serial on a 10-core M1 Max,
+> not faster; and the most expensive mandatory step turned out to be the linear→sRGB encode,
+> which this section does not mention at all.
 
 **Error diffusion is fundamentally sequential.** Multiple peer-reviewed sources confirm the
 current pixel's dithered value depends on quantisation error propagated from already-processed

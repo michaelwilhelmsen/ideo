@@ -1,0 +1,28 @@
+[package]
+name = "spike-post-effects"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Throwaway spike for #52 — duotone ordering A/B and post-effect latency."
+
+# Deliberately standalone: this is not part of the app crate and must never be
+# depended on by it. `src-tauri` is its own package with no workspace, so
+# nothing here is compiled by a normal app build.
+
+[dependencies]
+# Same major as the app's, so a kernel measured here would behave the same once
+# it moves into `src-tauri`.
+image = { version = "0.25.6", default-features = false, features = ["png", "jpeg"] }
+# Only for the embarrassingly-parallel kernels. Error diffusion gets a
+# hand-rolled pipelined scheme instead — see `diffusion.rs`.
+rayon = "1"
+
+# The whole point of this crate is measuring kernel throughput, so the numbers
+# have to come from optimised code even under `cargo run`.
+[profile.dev]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
