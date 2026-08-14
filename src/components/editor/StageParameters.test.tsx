@@ -15,76 +15,107 @@ import {
   ATLAS,
   LEDGER,
   MODEL_REGISTRY,
-  modelById,
+  modelsForStage,
   type StageParams,
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
 import { StageParameters } from './StageParameters'
 
+/** A Radix trigger, which is the control now — a button, not a `<select>`. */
+function trigger(name: string): HTMLElement {
+  return screen.getByRole('combobox', { name })
+}
+
+/**
+ * Opens one of the pickers and hands back its list.
+ *
+ * Radix mounts the rows only while the select is open, so anything asserting
+ * what is *offered* has to open it first.
+ */
+async function openList(name: string): Promise<HTMLElement> {
+  await userEvent.setup().click(trigger(name))
+  return await screen.findByRole('listbox')
+}
+
+/** Picks a row out of one of the pickers, by the words on it. */
+async function choose(name: string, option: string | RegExp): Promise<void> {
+  const list = await openList(name)
+  await userEvent
+    .setup()
+    .click(within(list).getByRole('option', { name: option }))
+}
+
 describe('StageParameters — model selection', () => {
-  it('offers a model the locked ratio can use', () => {
+  it('offers a model the locked ratio can use', async () => {
     // Atlas is 21:9, and Kontext declares 21:9 in its enum.
     render(<StageParameters project={ATLAS} stage="source" />)
 
-    const picker = screen.getByLabelText('Model')
     expect(
-      within(picker).getByRole('option', { name: /FLUX Kontext Pro/ })
-    ).toBeEnabled()
+      within(await openList('Model')).getByRole('option', {
+        name: /FLUX Kontext Pro/,
+      })
+    ).not.toHaveAttribute('aria-disabled')
   })
 
-  it('disables a model the locked ratio rules out, and says why', () => {
+  it('disables a model the locked ratio rules out, and says why', async () => {
     // Grok's widest enum entry is 2:1, so a 21:9 project cannot use it. The
     // refusal is here rather than at submit, where it would arrive after the
     // prompt was typed and the money spent.
     render(<StageParameters project={ATLAS} stage="source" />)
 
-    const option = within(screen.getByLabelText('Model')).getByRole('option', {
+    const option = within(await openList('Model')).getByRole('option', {
       name: /Grok Imagine/,
     })
 
-    expect(option).toBeDisabled()
+    // `aria-disabled` rather than the attribute: a Radix row is a div that says
+    // it is unavailable, not a form control that is.
+    expect(option).toHaveAttribute('aria-disabled', 'true')
     expect(option.textContent).toMatch(/21:9/)
   })
 
-  it('leaves that same model selectable on a project it can serve', () => {
+  it('leaves that same model selectable on a project it can serve', async () => {
     // The Ledger project is 16:9, which Grok does declare — so the refusal is
     // about this project's ratio and not about the model.
     render(<StageParameters project={LEDGER} stage="source" />)
 
     expect(
-      within(screen.getByLabelText('Model')).getByRole('option', {
+      within(await openList('Model')).getByRole('option', {
         name: /Grok Imagine/,
       })
-    ).toBeEnabled()
+    ).not.toHaveAttribute('aria-disabled')
   })
 
-  it('never lists a model belonging to another stage', () => {
+  it('never lists a model belonging to another stage', async () => {
     render(<StageParameters project={LEDGER} stage="animate" />)
 
-    const options = within(screen.getByLabelText('Model')).getAllByRole(
-      'option'
-    )
+    // Matched by the label on the row rather than by a value attribute, which
+    // Radix does not put in the DOM: every row offered has to be one of the
+    // models this stage declares, and nothing else can be.
+    const animate = modelsForStage(MODEL_REGISTRY, 'animate')
+    const options = within(await openList('Model')).getAllByRole('option')
+
+    expect(options.length).toBe(animate.length)
     for (const option of options) {
       expect(
-        modelById(MODEL_REGISTRY, option.getAttribute('value') ?? '').stage
-      ).toBe('animate')
+        animate.some(model => option.textContent?.startsWith(model.label))
+      ).toBe(true)
     }
   })
 
-  it('does not change the model when a control is touched', () => {
+  it('does not change the model when a control is touched', async () => {
     render(<StageParameters project={LEDGER} stage="animate" />)
 
-    const picker = screen.getByLabelText<HTMLSelectElement>('Model')
-    const before = picker.value
+    // The name the trigger reads, rather than a `value` property a button does
+    // not have — the old spelling compared `undefined` with `undefined` and so
+    // could not have failed.
+    const before = trigger('Model').textContent
 
     // Duration rather than a switch: the two switches are covered on their own
     // below. The claim is the same one — touching a parameter never moves the
     // user onto a different endpoint.
-    fireEvent.change(screen.getByLabelText('Duration'), {
-      target: { value: '9s' },
-    })
+    await choose('Duration', '9s')
 
-    expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe(before)
+    expect(trigger('Model').textContent).toBe(before)
   })
 })
 
@@ -346,12 +377,10 @@ describe('StageParameters — duration as a cost lever', () => {
     return <StageParameters project={project} stage="animate" />
   }
 
-  it('offers every second the endpoint does, and no "auto"', () => {
+  it('offers every second the endpoint does, and no "auto"', async () => {
     render(<StageParameters project={onSeedance()} stage="animate" />)
 
-    const options = within(screen.getByLabelText('Duration')).getAllByRole(
-      'option'
-    )
+    const options = within(await openList('Duration')).getAllByRole('option')
 
     expect(options).toHaveLength(27)
     expect(options.map(option => option.textContent).at(0)).toBe('4')
@@ -359,7 +388,7 @@ describe('StageParameters — duration as a cost lever', () => {
     expect(screen.queryByRole('option', { name: 'auto' })).toBeNull()
   })
 
-  it('moves the estimate when the length moves', () => {
+  it('moves the estimate when the length moves', async () => {
     useEditorStore.getState().dispatch({
       type: 'openProject',
       project: onSeedance(),
@@ -369,9 +398,7 @@ describe('StageParameters — duration as a cost lever', () => {
 
     const short = screen.getByText(/approximate/i).textContent ?? ''
 
-    fireEvent.change(screen.getByLabelText('Duration'), {
-      target: { value: '30' },
-    })
+    await choose('Duration', '30')
 
     const long = screen.getByText(/approximate/i).textContent ?? ''
     expect(short).not.toBe(long)

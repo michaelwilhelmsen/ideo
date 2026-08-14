@@ -133,16 +133,60 @@ function styleDraft(): StageRecipe {
   return project.drafts.style
 }
 
-function picker(): HTMLSelectElement {
-  return screen.getByLabelText<HTMLSelectElement>('Preset')
-}
-
-function pick(presetId: string): void {
-  fireEvent.change(picker(), { target: { value: presetId } })
+function picker(): HTMLElement {
+  return screen.getByRole('combobox', { name: 'Preset' })
 }
 
 /**
- * Every optgroup label in the picker, in order.
+ * Opens a picker and hands back the list.
+ *
+ * Radix mounts the options only while the select is open, so every assertion
+ * about what is *offered* — and every pick — has to go through here first.
+ */
+async function openPicker(
+  trigger: HTMLElement = picker()
+): Promise<HTMLElement> {
+  await userEvent.setup().click(trigger)
+  return await screen.findByRole('listbox')
+}
+
+/** Closes whichever picker is open, leaving the next interaction a clean start. */
+async function closePicker(): Promise<void> {
+  await userEvent.setup().keyboard('{Escape}')
+}
+
+/**
+ * Waits for the user's own half of a library to arrive, then closes the picker.
+ *
+ * The user's forks come from a query, so a test that picks one has to know they
+ * are there. Opening the list is the only way to see them under Radix — hence
+ * the close on the way out, so what follows starts from a shut picker like
+ * everything else.
+ */
+async function waitForYours(trigger?: HTMLElement): Promise<void> {
+  const list = await openPicker(trigger ?? picker())
+  await within(list).findByRole('group', { name: YOURS })
+  await closePicker()
+}
+
+/**
+ * Picks a preset by the name on it, in the list the user is looking at.
+ *
+ * By name rather than by id because Radix puts no `value` in the DOM at all —
+ * an item can only be found by the words on it. Anchored at the start, since a
+ * row's text carries what the component appends to the name: the aspect it was
+ * composed for, and the reason it is unusable on this model.
+ */
+async function pickNamed(name: string, list?: HTMLElement): Promise<void> {
+  const scope = within(list ?? (await openPicker()))
+  const row = await scope.findByRole('option', {
+    name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+  })
+  await userEvent.setup().click(row)
+}
+
+/**
+ * Every group label in the picker, in order.
  *
  * Asserted against by *meaning* rather than by count since #48: the built-ins
  * are grouped one group per family, so a count would be a second copy of how
@@ -151,14 +195,33 @@ function pick(presetId: string): void {
  * these tests are here for. What matters is that the user's own forks are their
  * own group and nothing of ours is in it.
  */
-function groupLabels(): string[] {
-  return [...picker().querySelectorAll('optgroup')].map(group => group.label)
+async function groupLabels(open?: HTMLElement): Promise<string[]> {
+  const list = open ?? (await openPicker())
+  // Radix names a group with `aria-labelledby` pointing at its label, so the
+  // label element is what has to be read — there is no `aria-label` to take.
+  return within(list)
+    .getAllByRole('group')
+    .map(
+      group =>
+        group.querySelector('[data-slot="select-label"]')?.textContent ?? ''
+    )
 }
 
 const YOURS = 'Yours'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Nobody's own library, in any of the three, unless a test says otherwise.
+  //
+  // `clearAllMocks` forgets the *calls* and keeps the *implementation*, so a
+  // fork installed by one test was still in the picker for every test after it.
+  // That went unnoticed while "offers nothing but the built-ins" asserted its
+  // absence on the first render — before the query it was waiting on resolved,
+  // so it passed whatever was mocked. Opening a Radix picker takes long enough
+  // for the query to land, which is what turned a false pass into a failure.
+  withSaved()
+  mockCommands.motionPresetsList.mockResolvedValue({ status: 'ok', data: [] })
+  mockCommands.sourcePresetsList.mockResolvedValue({ status: 'ok', data: [] })
   useEditorStore.getState().reset()
 })
 
@@ -167,7 +230,7 @@ describe('picking a look', () => {
     open()
     render(<LivePresetField />)
 
-    pick('glass-caustics')
+    await pickNamed(GLASS.name)
 
     await waitFor(() =>
       expect(styleDraft().prompt).toBe(
@@ -183,11 +246,9 @@ describe('picking a look', () => {
     open()
     render(<LivePresetField />)
 
-    const labels = await waitFor(() => {
-      const found = groupLabels()
-      expect(found).toContain(YOURS)
-      return found
-    })
+    const list = await openPicker()
+    const yours = await within(list).findByRole('group', { name: YOURS })
+    const labels = await groupLabels(list)
 
     // Ours are grouped one per family and every one of those groups says so;
     // the user's are last, under a heading that is only about being theirs.
@@ -196,11 +257,10 @@ describe('picking a look', () => {
       expect(label).toMatch(/^Built-in — /)
     }
 
-    const yours = [...picker().querySelectorAll('optgroup')].at(-1)
-    if (yours === undefined) throw new Error('the picker has no groups')
-
     // A name the user typed is shown as they typed it (PRD §6) — no `t()`.
-    expect(within(yours).getByRole('option', { name: 'My look' })).toBeEnabled()
+    expect(
+      within(yours).getByRole('option', { name: 'My look' })
+    ).not.toHaveAttribute('aria-disabled')
     // And nothing of ours has leaked into it.
     expect(within(yours).getAllByRole('option')).toHaveLength(1)
   })
@@ -209,7 +269,13 @@ describe('picking a look', () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() => expect(groupLabels()).not.toContain(YOURS))
+    const list = within(await openPicker())
+    // The built-ins are there, so the list has rendered — and the user's group
+    // is absent rather than empty.
+    expect(
+      list.getByRole('option', { name: new RegExp(GLASS.name) })
+    ).toBeVisible()
+    expect(list.queryByRole('group', { name: YOURS })).toBeNull()
   })
 
   it('disables a preset that cannot speak to this model, and says why', async () => {
@@ -219,11 +285,13 @@ describe('picking a look', () => {
     open()
     render(<LivePresetField />)
 
-    const option = await waitFor(() =>
-      within(picker()).getByRole('option', { name: /My look/ })
-    )
+    const option = await within(await openPicker()).findByRole('option', {
+      name: /My look/,
+    })
 
-    expect(option).toBeDisabled()
+    // `aria-disabled` rather than the `disabled` attribute: a Radix row is a div
+    // that says it is unavailable, not a form control that is.
+    expect(option).toHaveAttribute('aria-disabled', 'true')
     expect(option.textContent).toMatch(/no prose version/i)
   })
 
@@ -236,8 +304,8 @@ describe('picking a look', () => {
       .dispatch({ type: 'chooseModel', stage: 'style', modelId: QWEN.id })
     render(<LivePresetField />)
 
-    await waitFor(() => expect(groupLabels()).toContain(YOURS))
-    pick('my-look')
+    await waitForYours()
+    await pickNamed('My look')
 
     useEditorStore
       .getState()
@@ -259,7 +327,7 @@ describe('after switching models', () => {
   it('offers a re-seed without performing one', async () => {
     open()
     render(<LivePresetField />)
-    pick('glass-caustics')
+    await pickNamed(GLASS.name)
 
     const prose = styleDraft().prompt
     useEditorStore
@@ -285,7 +353,7 @@ describe('after switching models', () => {
   it('offers one after an edit too, and calls it what it is', async () => {
     open()
     render(<LivePresetField />)
-    pick('glass-caustics')
+    await pickNamed(GLASS.name)
 
     useEditorStore
       .getState()
@@ -299,7 +367,7 @@ describe('after switching models', () => {
   it('says nothing while the form still agrees with the preset', async () => {
     open()
     render(<LivePresetField />)
-    pick('glass-caustics')
+    await pickNamed(GLASS.name)
 
     await waitFor(() => expect(styleDraft().presetId).toBe('glass-caustics'))
     expect(
@@ -325,7 +393,7 @@ describe('saving a fork', () => {
     const user = userEvent.setup()
     open()
     render(<LivePresetField />)
-    pick('glass-caustics')
+    await pickNamed(GLASS.name)
 
     await user.click(
       screen.getByRole('button', { name: /save as new preset/i })
@@ -368,7 +436,7 @@ describe('saving a fork', () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() => expect(groupLabels()).toContain(YOURS))
+    await waitForYours()
     await user.click(
       screen.getByRole('button', { name: /save as new preset/i })
     )
@@ -386,8 +454,8 @@ describe('saving a fork', () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() => expect(groupLabels()).toContain(YOURS))
-    pick('my-look')
+    await waitForYours()
+    await pickNamed('My look')
     useEditorStore.getState().dispatch({
       type: 'setPrompt',
       stage: 'style',
@@ -420,8 +488,8 @@ describe('saving a fork', () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() => expect(groupLabels()).toContain(YOURS))
-    pick('my-look')
+    await waitForYours()
+    await pickNamed('My look')
     useEditorStore.getState().dispatch({
       type: 'setPrompt',
       stage: 'style',
@@ -455,8 +523,8 @@ describe('saving a fork', () => {
       .dispatch({ type: 'chooseModel', stage: 'style', modelId: QWEN.id })
     render(<LivePresetField />)
 
-    await waitFor(() => expect(groupLabels()).toContain(YOURS))
-    pick('my-look')
+    await waitForYours()
+    await pickNamed('My look')
     useEditorStore
       .getState()
       .dispatch({ type: 'chooseModel', stage: 'style', modelId: FLUX_I2I.id })
@@ -477,7 +545,7 @@ describe('saving a fork', () => {
   it('offers no update or delete on a built-in', async () => {
     open()
     render(<LivePresetField />)
-    pick('glass-caustics')
+    await pickNamed(GLASS.name)
 
     await waitFor(() => expect(styleDraft().presetId).toBe('glass-caustics'))
     // Read-only is not a failure state, so the buttons are absent rather than
@@ -496,8 +564,8 @@ describe('saving a fork', () => {
     open()
     render(<LivePresetField />)
 
-    await waitFor(() => expect(groupLabels()).toContain(YOURS))
-    pick('my-look')
+    await waitForYours()
+    await pickNamed('My look')
 
     await user.click(screen.getByRole('button', { name: /delete preset/i }))
     const confirm = await screen.findByRole('alertdialog')
@@ -525,7 +593,7 @@ describe('a saved preset that cannot be read', () => {
 
     expect(await screen.findByText(/could not be read/i)).toBeVisible()
     expect(
-      within(picker()).getByRole('option', { name: 'My look' })
+      within(await openPicker()).getByRole('option', { name: 'My look' })
     ).toBeInTheDocument()
   })
 
@@ -537,9 +605,10 @@ describe('a saved preset that cannot be read', () => {
     render(<LivePresetField />)
 
     expect(await screen.findByText(/could not be read/i)).toBeVisible()
-    expect(groupLabels()).not.toContain(YOURS)
+    const list = await openPicker()
+    expect(await groupLabels(list)).not.toContain(YOURS)
     expect(
-      within(picker()).getByRole('option', { name: 'Glass caustics' })
+      within(list).getByRole('option', { name: 'Glass caustics' })
     ).toBeInTheDocument()
   })
 })
@@ -568,8 +637,13 @@ describe('picking a movement', () => {
     return project.drafts.animate
   }
 
-  function motionPicker(): HTMLSelectElement {
-    return screen.getByLabelText<HTMLSelectElement>('Motion preset')
+  function motionPicker(): HTMLElement {
+    return screen.getByRole('combobox', { name: 'Motion preset' })
+  }
+
+  /** The movement picker's own pick, since it has its own trigger. */
+  async function pickMovement(name: string): Promise<void> {
+    await pickNamed(name, await openPicker(motionPicker()))
   }
 
   function withSavedMotion(...documents: unknown[]): void {
@@ -583,7 +657,7 @@ describe('picking a movement', () => {
     open()
     render(<LiveMotionField />)
 
-    fireEvent.change(motionPicker(), { target: { value: DRIFT.id } })
+    await pickMovement(DRIFT.name)
 
     await waitFor(() => expect(animateDraft().prompt).toBe(DRIFT.prompt))
     expect(animateDraft().presetId).toBe(DRIFT.id)
@@ -596,12 +670,16 @@ describe('picking a movement', () => {
     open()
     render(<LiveMotionField />)
 
-    const options = within(motionPicker())
+    const options = within(await openPicker(motionPicker()))
       .getAllByRole('option')
-      .filter(option => (option as HTMLOptionElement).value !== '')
+      // "None" is a row like any other under Radix, so it is dropped by the name
+      // it carries rather than by an empty value it no longer has.
+      .filter(option => option.textContent !== 'None')
 
     expect(options.length).toBeGreaterThanOrEqual(6)
-    for (const option of options) expect(option).toBeEnabled()
+    for (const option of options) {
+      expect(option).not.toHaveAttribute('aria-disabled')
+    }
   })
 
   it('writes a fork into the motion library, not the style one', async () => {
@@ -611,7 +689,7 @@ describe('picking a movement', () => {
     render(<LiveMotionField />)
 
     const user = userEvent.setup()
-    fireEvent.change(motionPicker(), { target: { value: DRIFT.id } })
+    await pickMovement(DRIFT.name)
     await waitFor(() => expect(animateDraft().prompt).toBe(DRIFT.prompt))
 
     await user.click(screen.getByRole('button', { name: /save as new/i }))
@@ -638,7 +716,7 @@ describe('picking a movement', () => {
     open()
     render(<LiveMotionField />)
 
-    fireEvent.change(motionPicker(), { target: { value: DRIFT.id } })
+    await pickMovement(DRIFT.name)
     await waitFor(() => expect(animateDraft().prompt).toBe(DRIFT.prompt))
 
     useEditorStore.getState().dispatch({
@@ -658,7 +736,7 @@ describe('picking a movement', () => {
     open()
     render(<LiveMotionField />)
 
-    fireEvent.change(motionPicker(), { target: { value: DRIFT.id } })
+    await pickMovement(DRIFT.name)
     await waitFor(() => expect(animateDraft().presetId).toBe(DRIFT.id))
 
     expect(
@@ -679,7 +757,9 @@ describe('picking a movement', () => {
 
     expect(await screen.findByText(/could not be read/i)).toBeVisible()
     expect(
-      within(motionPicker()).getByRole('option', { name: 'Mine' })
+      within(await openPicker(motionPicker())).getByRole('option', {
+        name: 'Mine',
+      })
     ).toBeInTheDocument()
   })
 })
@@ -716,7 +796,7 @@ describe('picking a scene', () => {
     open()
     render(<LiveSourceField />)
 
-    const names = within(picker())
+    const names = within(await openPicker())
       .getAllByRole('option')
       .map(option => option.textContent ?? '')
 
@@ -731,7 +811,7 @@ describe('picking a scene', () => {
     open()
     render(<LiveSourceField />)
 
-    pick(MONOLITH.id)
+    await pickNamed(MONOLITH.name)
 
     const composed =
       composePreset(MONOLITH, SOURCE_MODEL, DEFAULT_PALETTE)?.prompt ?? ''
@@ -751,7 +831,7 @@ describe('picking a scene', () => {
     open()
     render(<LiveSourceField />)
 
-    pick(MONOLITH.id)
+    await pickNamed(MONOLITH.name)
     await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
 
     // One field per `{{…}}`, named by the key so the field and the hole in the
@@ -776,7 +856,7 @@ describe('picking a scene', () => {
     open()
     render(<LiveSourceField />)
 
-    pick(MONOLITH.id)
+    await pickNamed(MONOLITH.name)
     await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
 
     // The prompt is theirs now (#28's settled rule), so a variable change must
@@ -803,7 +883,7 @@ describe('picking a scene', () => {
     open()
     render(<LiveSourceField />)
 
-    pick('gn-isometric-lineup')
+    await pickNamed('Labelled isometric lineup')
 
     await waitFor(() =>
       expect(sourceDraft().presetId).toBe('gn-isometric-lineup')
@@ -815,15 +895,18 @@ describe('picking a scene', () => {
     open()
     render(<LiveSourceField />)
 
-    const option = within(picker()).getByRole('option', {
+    const list = await openPicker()
+    const option = within(list).getByRole('option', {
       name: new RegExp(`${MONOLITH.name}.*designed for 3:2`),
     })
-    expect(option).toBeEnabled()
+    expect(option).not.toHaveAttribute('aria-disabled')
 
     // 3:2 against a 21:9 project, and still offered, still in library order:
     // the hint does not filter, sort or dim (PRD §4.4 locks the ratio anyway).
     expect(ATLAS.aspect).toBe('21:9')
-    pick(MONOLITH.id)
+    // Picked from the list already open — Radix takes focus into it, so the
+    // trigger cannot be found again until this one is dealt with.
+    await pickNamed(MONOLITH.name, list)
 
     await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
     const project = useEditorStore.getState().state.project
@@ -835,7 +918,7 @@ describe('picking a scene', () => {
     render(<LiveSourceField />)
 
     const user = userEvent.setup()
-    pick(MONOLITH.id)
+    await pickNamed(MONOLITH.name)
     await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
 
     await user.click(screen.getByRole('button', { name: /save as new/i }))

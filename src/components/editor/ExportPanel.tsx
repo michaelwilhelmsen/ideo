@@ -21,8 +21,16 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { open } from '@tauri-apps/plugin-dialog'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '@/components/ui/field'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -162,18 +170,18 @@ export function ExportPanel({
 
       {/* Where it lands, remembered between runs so the second export goes
           where the first one did without being asked again. */}
-      <div className="space-y-2">
-        <Label>{t('export.destination')}</Label>
-        <p className="truncate font-mono text-xs text-muted-foreground">
+      <Field>
+        <FieldLabel>{t('export.destination')}</FieldLabel>
+        <FieldDescription className="truncate font-mono text-xs">
           {folder ?? t('export.noFolder')}
-        </p>
+        </FieldDescription>
         <Button size="sm" variant="outline" onClick={() => void pickFolder()}>
           {t('export.chooseFolder')}
         </Button>
-      </div>
+      </Field>
 
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-medium">{t('export.formats')}</legend>
+      <FieldSet>
+        <FieldLegend variant="label">{t('export.formats')}</FieldLegend>
         {DELIVERABLES.map(deliverable => (
           <FormatBox
             key={deliverable}
@@ -186,17 +194,17 @@ export function ExportPanel({
           />
         ))}
         {medium === 'still' && (
-          <p className="text-xs text-muted-foreground">
+          <FieldDescription className="text-xs">
             {t('export.stillIsAPoster')}
-          </p>
+          </FieldDescription>
         )}
-      </fieldset>
+      </FieldSet>
 
       {/* PRD §4.5's second looping mechanism. Offered on any clip, because it
           is ffmpeg rather than the model — no registry column gates it. */}
       {medium === 'clip' && (
-        <div className="space-y-2">
-          <Label>{t('editor.field.rewind')}</Label>
+        <Field>
+          <FieldLabel>{t('editor.field.rewind')}</FieldLabel>
           <div className="flex items-center gap-2">
             <Switch
               id="export-rewind"
@@ -208,12 +216,12 @@ export function ExportPanel({
             />
             <Label htmlFor="export-rewind">{t('editor.rewind.pingPong')}</Label>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <FieldDescription className="text-xs">
             {rewindIsRedundant(selected, rewind)
               ? t('export.rewind.alreadyLoops')
               : t('export.rewind.hint')}
-          </p>
-        </div>
+          </FieldDescription>
+        </Field>
       )}
 
       {!available && <InstallPrompt />}
@@ -228,7 +236,7 @@ export function ExportPanel({
         </Button>
 
         {blocked !== null && (
-          <p className="text-xs text-muted-foreground">{t(blocked)}</p>
+          <FieldDescription className="text-xs">{t(blocked)}</FieldDescription>
         )}
 
         {!available && (
@@ -297,11 +305,16 @@ function InstallPrompt() {
   const { t } = useTranslation()
 
   return (
-    <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
-      <p className="text-xs text-muted-foreground">{t('export.needsFfmpeg')}</p>
-      <code className="block font-mono text-xs select-all">
-        {INSTALL_COMMAND}
-      </code>
-    </div>
+    // The one genuine `Alert` in the app: a missing binary is a condition the
+    // user has to act on, not help text under a control, and `Alert` renders the
+    // `role="alert"` that says so.
+    <Alert>
+      <AlertDescription className="space-y-2">
+        <p className="text-xs">{t('export.needsFfmpeg')}</p>
+        <code className="block font-mono text-xs select-all">
+          {INSTALL_COMMAND}
+        </code>
+      </AlertDescription>
+    </Alert>
   )
 }

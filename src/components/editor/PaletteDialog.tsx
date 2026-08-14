@@ -57,10 +57,20 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  NativeSelect,
-  NativeSelectOptGroup,
-  NativeSelectOption,
-} from '@/components/ui/native-select'
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from '@/components/ui/field'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Popover,
   PopoverContent,
@@ -265,60 +275,64 @@ export function PaletteDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-1">
-          <Label htmlFor="palette-library">{t('editor.palette.library')}</Label>
-          <NativeSelect
-            id="palette-library"
-            className="w-full"
+        <Field>
+          <FieldLabel htmlFor="palette-library">
+            {t('editor.palette.library')}
+          </FieldLabel>
+          <Select
             // Keyed by which half it came from as well as by its id — the two
             // halves may legitimately share one. See {@link PaletteChoice}.
+            //
+            // `''` is deliberately a value no item carries, so a draft that
+            // matches nothing shows the placeholder rather than a stale name.
+            // That is where *Custom* lives now: it is what the trigger reads
+            // when none of these six colours are a palette in the library, and
+            // as a placeholder it cannot be chosen — picking "Custom" was never
+            // an act, and under a native select it had to be an option anyway.
             value={showing?.key ?? ''}
-            onChange={event => {
-              const picked = library.find(
-                choice => choice.key === event.target.value
-              )
+            onValueChange={value => {
+              const picked = library.find(choice => choice.key === value)
               if (picked !== undefined) apply(picked)
             }}
           >
-            {/* Only offered while nothing matches, so it is never a choice that
-                does nothing: these six colours are either a palette in the
-                library or they are the user's own arrangement. */}
-            {showing === null && (
-              <NativeSelectOption value="">
-                {t('editor.palette.custom')}
-              </NativeSelectOption>
-            )}
-            {/* Ours first here, whatever order `library` resolves ties in: the
-                committed palettes are the ones somebody arriving at an empty
-                library needs to find. */}
-            <NativeSelectOptGroup label={t('editor.palette.builtIn')}>
-              {/* A name is user data, whoever wrote it (PRD §6) — no `t()` near
-                  it. Ours are authored in the committed library; theirs are
-                  typed. */}
-              {library
-                .filter(choice => !choice.yours)
-                .map(choice => (
-                  <NativeSelectOption key={choice.key} value={choice.key}>
-                    {choice.name}
-                  </NativeSelectOption>
-                ))}
-            </NativeSelectOptGroup>
-            {userPalettes.length > 0 && (
-              <NativeSelectOptGroup label={t('editor.palette.yours')}>
+            <SelectTrigger id="palette-library" className="w-full">
+              <SelectValue placeholder={t('editor.palette.custom')} />
+            </SelectTrigger>
+            <SelectContent>
+              {/* Ours first here, whatever order `library` resolves ties in: the
+                  committed palettes are the ones somebody arriving at an empty
+                  library needs to find. */}
+              <SelectGroup>
+                <SelectLabel>{t('editor.palette.builtIn')}</SelectLabel>
+                {/* A name is user data, whoever wrote it (PRD §6) — no `t()`
+                    near it. Ours are authored in the committed library; theirs
+                    are typed. */}
                 {library
-                  .filter(choice => choice.yours)
+                  .filter(choice => !choice.yours)
                   .map(choice => (
-                    <NativeSelectOption key={choice.key} value={choice.key}>
+                    <SelectItem key={choice.key} value={choice.key}>
                       {choice.name}
-                    </NativeSelectOption>
+                    </SelectItem>
                   ))}
-              </NativeSelectOptGroup>
-            )}
-          </NativeSelect>
-          <p className="text-xs text-muted-foreground">
+              </SelectGroup>
+              {userPalettes.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>{t('editor.palette.yours')}</SelectLabel>
+                  {library
+                    .filter(choice => choice.yours)
+                    .map(choice => (
+                      <SelectItem key={choice.key} value={choice.key}>
+                        {choice.name}
+                      </SelectItem>
+                    ))}
+                </SelectGroup>
+              )}
+            </SelectContent>
+          </Select>
+          <FieldDescription className="text-xs">
             {t('editor.palette.libraryHint')}
-          </p>
-        </div>
+          </FieldDescription>
+        </Field>
 
         <div className="space-y-3">
           {PALETTE_ROLES.map(role => (
@@ -360,18 +374,20 @@ export function PaletteDialog({
             — the footer does that — so it gets its own block rather than a
             fourth button in the footer. */}
         <div className="space-y-2 rounded-md border border-border p-3">
-          <Label htmlFor="palette-save-name">
-            {t('editor.palette.paletteName')}
-          </Label>
-          <Input
-            id="palette-save-name"
-            value={naming}
-            // The palette this came from, offered as what to call the next one
-            // rather than filled in: a new palette wants a new name, and
-            // pre-filling it is how somebody ends up with two called "Dusk".
-            placeholder={from?.name ?? t('editor.palette.namePlaceholder')}
-            onChange={event => setNaming(event.target.value)}
-          />
+          <Field>
+            <FieldLabel htmlFor="palette-save-name">
+              {t('editor.palette.paletteName')}
+            </FieldLabel>
+            <Input
+              id="palette-save-name"
+              value={naming}
+              // The palette this came from, offered as what to call the next one
+              // rather than filled in: a new palette wants a new name, and
+              // pre-filling it is how somebody ends up with two called "Dusk".
+              placeholder={from?.name ?? t('editor.palette.namePlaceholder')}
+              onChange={event => setNaming(event.target.value)}
+            />
+          </Field>
 
           <div className="flex flex-wrap gap-2">
             <Button
@@ -439,13 +455,16 @@ export function PaletteDialog({
 
         {/* One reason at a time, naming the entries it is about: "the palette
             is invalid" is not something anybody can act on. */}
-        {(problem !== null || !complete) && (
-          <p className="text-xs text-destructive">
-            {problem === null
-              ? t('editor.palette.problem.badHex')
-              : problemMessage(t, problem)}
-          </p>
-        )}
+        {/* `FieldError` renders `role="alert"`, which is the reason this is worth
+            a component rather than a styled paragraph: the reason a Save is
+            disabled has to reach somebody who cannot see that it went grey. */}
+        <FieldError className="text-xs">
+          {problem !== null
+            ? problemMessage(t, problem)
+            : complete
+              ? null
+              : t('editor.palette.problem.badHex')}
+        </FieldError>
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
@@ -538,16 +557,28 @@ function EntryRow({
       <Label htmlFor={`${id}-hex`}>{label}</Label>
       <div className="flex items-center gap-2">
         <Popover>
-          <PopoverTrigger
-            // Named after the row it belongs to, because six swatches called
-            // "Pick a colour" are six controls a screen reader cannot tell
-            // apart.
-            aria-label={t('editor.palette.pick', { name: label })}
-            className="size-8 shrink-0 cursor-pointer rounded-sm border border-border"
-            // The one place a hex is a colour rather than a word. Inline
-            // because it is data, and a class cannot hold a value just typed.
-            style={{ backgroundColor: valid ? entry.hex : 'transparent' }}
-          />
+          {/* A `Button` rather than the bare trigger, which renders an unstyled
+              `<button>`: what the swatch was missing was the focus ring every
+              other control in the app has, and inheriting it is better than
+              writing a second one here. `variant="outline"` for the border, and
+              its `hover:bg-accent` loses to the inline colour on purpose — a
+              swatch that changes colour under the pointer is lying about the
+              value it holds. */}
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              // Named after the row it belongs to, because six swatches called
+              // "Pick a colour" are six controls a screen reader cannot tell
+              // apart.
+              aria-label={t('editor.palette.pick', { name: label })}
+              className="shrink-0 rounded-sm"
+              // The one place a hex is a colour rather than a word. Inline
+              // because it is data, and a class cannot hold a value just typed.
+              style={{ backgroundColor: valid ? entry.hex : 'transparent' }}
+            />
+          </PopoverTrigger>
           <PopoverContent className="w-64">
             {/* Mounted only while open, which is what keeps it honest: the
                 picker is uncontrolled, so opening it re-reads whatever the hex

@@ -10,6 +10,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils'
 import {
   ATLAS,
@@ -53,8 +54,32 @@ function withSavedPalettes(...palettes: NamedPalette[]): void {
   })
 }
 
-function picker(): HTMLSelectElement {
-  return screen.getByLabelText('From the library')
+/** The trigger — a button under Radix, not a `<select>`. */
+function picker(): HTMLElement {
+  return screen.getByRole('combobox', { name: 'From the library' })
+}
+
+/**
+ * What the trigger reads.
+ *
+ * Which is also how *Custom* is asserted now: it is the placeholder rather than
+ * an option, because picking it was never an act. Under a native select it had
+ * to be an option to be displayable at all.
+ */
+function showing(): string {
+  return picker().textContent ?? ''
+}
+
+/**
+ * Opens the picker and hands back the list.
+ *
+ * Radix mounts the options only while the select is open, so a closed picker has
+ * no `option` in the DOM at all — every assertion about what is *offered* has to
+ * go through here first.
+ */
+async function openPicker(): Promise<HTMLElement> {
+  await userEvent.setup().click(picker())
+  return await screen.findByRole('listbox')
 }
 
 /**
@@ -67,17 +92,15 @@ function picker(): HTMLSelectElement {
  * it. The `group` argument is what makes the two halves distinguishable when an
  * id is shared, which is the whole point of the key.
  */
-function showing(): string {
-  return picker().selectedOptions[0]?.textContent ?? ''
-}
-
-function pick(name: string, group?: string): void {
+async function pick(name: string, group?: string): Promise<void> {
+  const list = await openPicker()
+  // Found rather than got, at both levels: the user's own half arrives from a
+  // query, so an option that is not there yet is a wait rather than a failure.
   const scope =
     group === undefined
-      ? screen
-      : within(screen.getByRole('group', { name: group }))
-  const option = scope.getByRole<HTMLOptionElement>('option', { name })
-  fireEvent.change(picker(), { target: { value: option.value } })
+      ? within(list)
+      : within(await within(list).findByRole('group', { name: group }))
+  await userEvent.setup().click(await scope.findByRole('option', { name }))
 }
 
 function open(): void {
@@ -289,10 +312,15 @@ describe('the palette library', () => {
     fireEvent.change(hexField('Primary'), { target: { value: '#2FB6BF' } })
 
     expect(showing()).toBe('Custom')
-    expect(screen.getByRole('option', { name: 'Custom' })).toBeVisible()
+    // And it is a placeholder rather than a choice: there is nothing to pick
+    // called Custom, because these six colours are either a palette in the
+    // library or they are the user's own arrangement.
+    expect(
+      within(await openPicker()).queryByRole('option', { name: 'Custom' })
+    ).toBeNull()
   })
 
-  it('replaces the roles and the whole extras list, not just the roles', () => {
+  it('replaces the roles and the whole extras list, not just the roles', async () => {
     // A project with three extras that picks a two-extra palette ends with two.
     const busy: Project = {
       ...ATLAS,
@@ -307,7 +335,7 @@ describe('the palette library', () => {
     }
 
     render(<PaletteDialog project={busy} onClose={vi.fn()} />)
-    pick(WITH_EXTRAS.name)
+    await pick(WITH_EXTRAS.name)
     fireEvent.click(saveButton())
 
     expect(paletteOf()).toEqual(WITH_EXTRAS.palette)
@@ -317,13 +345,12 @@ describe('the palette library', () => {
     withSavedPalettes(MINE)
     render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
 
-    await waitFor(() =>
-      expect(screen.getByRole('option', { name: 'Mine' })).toBeVisible()
-    )
+    const list = within(await openPicker())
+    expect(await list.findByRole('option', { name: 'Mine' })).toBeVisible()
     // Grouped rather than concatenated: one half is read-only and ships with
     // the app, the other is the user's and can be updated or deleted.
-    expect(screen.getByRole('group', { name: 'Yours' })).toBeVisible()
-    expect(screen.getByRole('group', { name: 'Built-in' })).toBeVisible()
+    expect(list.getByRole('group', { name: 'Yours' })).toBeVisible()
+    expect(list.getByRole('group', { name: 'Built-in' })).toBeVisible()
   })
 
   it('saves the edited draft as a new palette', async () => {
@@ -371,10 +398,7 @@ describe('the palette library', () => {
     withSavedPalettes(MINE)
     render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
 
-    await waitFor(() =>
-      expect(screen.getByRole('option', { name: 'Mine' })).toBeVisible()
-    )
-    pick(MINE.name)
+    await pick(MINE.name)
     fireEvent.change(hexField('Primary'), { target: { value: '#2FB6BF' } })
 
     expect(showing()).toBe('Custom')
@@ -402,10 +426,7 @@ describe('the palette library', () => {
     withSavedPalettes(MINE)
     render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
 
-    await waitFor(() =>
-      expect(screen.getByRole('option', { name: 'Mine' })).toBeVisible()
-    )
-    pick(MINE.name)
+    await pick(MINE.name)
     fireEvent.click(screen.getByRole('button', { name: /delete palette/i }))
 
     expect(await screen.findByText(/Delete Mine\?/)).toBeVisible()
@@ -432,16 +453,18 @@ describe('the palette library', () => {
       await screen.findByText(/could not be read and were skipped/i)
     ).toBeVisible()
     // And the rest of the picker is still there.
-    expect(screen.getByRole('option', { name: STUDIO.name })).toBeVisible()
+    expect(
+      within(await openPicker()).getByRole('option', { name: STUDIO.name })
+    ).toBeVisible()
   })
 
-  it('applies a palette without asking, even to a project with work in it', () => {
+  it('applies a palette without asking, even to a project with work in it', async () => {
     // Provably non-destructive — every recipe persists its expanded prose — and
     // a confirmation on a harmless action is how people learn to click through
     // the ones that matter.
     render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
 
-    pick(WITH_EXTRAS.name)
+    await pick(WITH_EXTRAS.name)
 
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(hexField('Primary')).toHaveValue(
@@ -466,8 +489,7 @@ describe('a palette of yours that shares an id with one of ours', () => {
     withSavedPalettes(SHADOW)
     render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
 
-    await screen.findByRole('group', { name: 'Yours' })
-    pick('My studio', 'Yours')
+    await pick('My studio', 'Yours')
 
     expect(hexField('Primary')).toHaveValue(
       WITH_EXTRAS.palette.roles.primary.hex
@@ -479,8 +501,18 @@ describe('a palette of yours that shares an id with one of ours', () => {
     withSavedPalettes(SHADOW)
     render(<PaletteDialog project={ATLAS} onClose={vi.fn()} />)
 
-    await screen.findByRole('group', { name: 'Yours' })
-    pick(STUDIO.name, 'Built-in')
+    // Opened once and held open: waiting for the Yours group is what proves the
+    // fork has arrived, and re-opening the picker to click ours would close it.
+    const list = within(await openPicker())
+    await list.findByRole('group', { name: 'Yours' })
+    await userEvent
+      .setup()
+      .click(
+        within(list.getByRole('group', { name: 'Built-in' })).getByRole(
+          'option',
+          { name: STUDIO.name }
+        )
+      )
 
     expect(screen.queryByRole('button', { name: /update this/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /delete palette/i })).toBeNull()

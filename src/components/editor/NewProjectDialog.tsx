@@ -19,8 +19,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import { ASPECTS, DEFAULT_ASPECT, type AspectId } from '@/lib/recipe'
 import { newProject, useCreateProject } from '@/services/projects'
@@ -63,10 +69,10 @@ export function NewProjectDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="new-project-name">
+          <Field>
+            <FieldLabel htmlFor="new-project-name">
               {t('editor.newProject.name')}
-            </Label>
+            </FieldLabel>
             <Input
               id="new-project-name"
               autoFocus
@@ -77,15 +83,15 @@ export function NewProjectDialog({
               }}
               placeholder={t('editor.newProject.namePlaceholder')}
             />
-          </div>
+          </Field>
 
-          <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">
+          <FieldSet>
+            <FieldLegend variant="label">
               {t('editor.newProject.aspect')}
-            </legend>
-            <p className="text-xs text-muted-foreground">
+            </FieldLegend>
+            <FieldDescription className="text-xs">
               {t('editor.newProject.aspectLocked')}
-            </p>
+            </FieldDescription>
 
             <div className="grid grid-cols-2 gap-2">
               {ASPECTS.map(candidate => (
@@ -115,7 +121,7 @@ export function NewProjectDialog({
                 </button>
               ))}
             </div>
-          </fieldset>
+          </FieldSet>
         </div>
 
         <DialogFooter>

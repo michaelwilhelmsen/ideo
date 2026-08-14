@@ -15,7 +15,19 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from '@/components/ui/field'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
@@ -101,41 +113,43 @@ export function StageParameters({
 
       {/* Model — per generation, not per project (PRD §10), and validated
           against the locked aspect ratio here rather than at submit. */}
-      <Field label={t('editor.field.model')}>
-        <NativeSelect
-          className="w-full"
-          // Named for assistive tech as well as sighted users: `Field` renders
-          // a label beside the control, not one bound to it.
-          aria-label={t('editor.field.model')}
+      <StageField label={t('editor.field.model')}>
+        <Select
           value={draft.modelId}
-          onChange={event =>
-            dispatch({
-              type: 'chooseModel',
-              stage,
-              modelId: event.target.value,
-            })
+          onValueChange={modelId =>
+            dispatch({ type: 'chooseModel', stage, modelId })
           }
         >
-          {modelsForStage(MODEL_REGISTRY, stage).map(candidate => {
-            const usable = modelAvailability(candidate, project.aspect)
-            return (
-              <NativeSelectOption
-                key={candidate.id}
-                value={candidate.id}
-                disabled={usable.state !== 'available'}
-              >
-                {candidate.label}
-                {usable.state === 'disabled'
-                  ? ` — ${t(usable.reasonKey, { aspect: project.aspect })}`
-                  : ''}
-              </NativeSelectOption>
-            )
-          })}
-        </NativeSelect>
-        <p className="text-xs text-muted-foreground">{model.notes}</p>
-      </Field>
+          <SelectTrigger
+            className="w-full"
+            // Named for assistive tech as well as sighted users: `FieldLabel`
+            // renders a label beside the control, not one bound to it.
+            aria-label={t('editor.field.model')}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {modelsForStage(MODEL_REGISTRY, stage).map(candidate => {
+              const usable = modelAvailability(candidate, project.aspect)
+              return (
+                <SelectItem
+                  key={candidate.id}
+                  value={candidate.id}
+                  disabled={usable.state !== 'available'}
+                >
+                  {candidate.label}
+                  {usable.state === 'disabled'
+                    ? ` — ${t(usable.reasonKey, { aspect: project.aspect })}`
+                    : ''}
+                </SelectItem>
+              )
+            })}
+          </SelectContent>
+        </Select>
+        <FieldDescription className="text-xs">{model.notes}</FieldDescription>
+      </StageField>
 
-      <Field label={t('editor.field.prompt')}>
+      <StageField label={t('editor.field.prompt')}>
         <Textarea
           rows={3}
           value={draft.prompt}
@@ -146,10 +160,10 @@ export function StageParameters({
         {/* PRD §5's `promptStyle`, said out loud. The registry knows Qwen reads
             a keyword list and everything else reads prose; without this the
             user finds out by writing the wrong kind of prompt and paying. */}
-        <p className="text-xs text-muted-foreground">
+        <FieldDescription className="text-xs">
           {t(`editor.promptStyle.${model.promptStyle}`)}
-        </p>
-      </Field>
+        </FieldDescription>
+      </StageField>
 
       {/* Its own component because a style preset is a *seed* (#28): choosing
           one pre-fills the fields above, which brings a re-seed offer, a fork
@@ -199,9 +213,9 @@ export function StageParameters({
                     })
                   }
                 />
-                <p className="text-xs text-muted-foreground">
+                <FieldDescription className="text-xs">
                   {t('editor.seed.collapsesBatch')}
-                </p>
+                </FieldDescription>
               </>
             )}
           </div>
@@ -211,7 +225,7 @@ export function StageParameters({
       {/* PRD §4.2 — how many candidates one click produces, per project and
           per stage (PRD §11). The number is the project's, not the app's, so
           raising the default later leaves this project alone. */}
-      <Field label={t('editor.field.batchSize')}>
+      <StageField label={t('editor.field.batchSize')}>
         <Input
           type="number"
           min={MIN_BATCH_SIZE}
@@ -227,14 +241,16 @@ export function StageParameters({
             })
           }
         />
-        <p className="text-xs text-muted-foreground">
+        <FieldDescription className="text-xs">
           {t('editor.batch.hint')}
-        </p>
-      </Field>
+        </FieldDescription>
+      </StageField>
 
       {/* Plumbing: named by the model, so the label comes from the registry. */}
       {model.strengthParam !== null && strength !== null && (
-        <Field label={`${t('editor.field.strength')} (${model.strengthParam})`}>
+        <StageField
+          label={`${t('editor.field.strength')} (${model.strengthParam})`}
+        >
           <Input
             type="number"
             min={0.1}
@@ -250,23 +266,23 @@ export function StageParameters({
               })
             }
           />
-          <p
-            className={cn(
-              'text-xs',
-              strength > STRENGTH_WARNING_ABOVE
-                ? 'text-destructive'
-                : 'text-muted-foreground'
-            )}
-          >
-            {strength > STRENGTH_WARNING_ABOVE
-              ? t('editor.strength.tooHigh')
-              : t('editor.strength.window')}
-          </p>
-        </Field>
+          {/* Two components rather than one with a swapped colour: past the
+              window this stops being guidance and becomes a warning, and
+              `FieldError` is the one that says so with `role="alert"`. */}
+          {strength > STRENGTH_WARNING_ABOVE ? (
+            <FieldError className="text-xs">
+              {t('editor.strength.tooHigh')}
+            </FieldError>
+          ) : (
+            <FieldDescription className="text-xs">
+              {t('editor.strength.window')}
+            </FieldDescription>
+          )}
+        </StageField>
       )}
 
       {model.negativePromptParam !== null && (
-        <Field label={t('editor.field.negativePrompt')}>
+        <StageField label={t('editor.field.negativePrompt')}>
           <Textarea
             rows={2}
             value={String(draft.params[model.negativePromptParam] ?? '')}
@@ -279,7 +295,7 @@ export function StageParameters({
               })
             }
           />
-        </Field>
+        </StageField>
       )}
 
       {stage === 'animate' && (
@@ -289,55 +305,68 @@ export function StageParameters({
             label={t('editor.field.duration')}
           >
             {disabled => (
-              <NativeSelect
-                className="w-full"
-                // Named for assistive tech as well: `Gated`, like `Field`,
-                // renders a label beside the control rather than bound to it.
-                aria-label={t('editor.field.duration')}
+              <Select
                 disabled={disabled}
                 value={String(
                   draft.params[model.durationParam ?? 'duration'] ?? ''
                 )}
-                onChange={event =>
+                onValueChange={value =>
                   dispatch({
                     type: 'setParam',
                     stage,
                     key: model.durationParam ?? 'duration',
-                    value: event.target.value,
+                    value,
                   })
                 }
               >
-                {model.durations.map(duration => (
-                  <NativeSelectOption key={duration} value={duration}>
-                    {duration}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
+                <SelectTrigger
+                  className="w-full"
+                  // Named for assistive tech as well: `Gated`, like
+                  // `StageField`, renders a label beside the control rather
+                  // than bound to it.
+                  aria-label={t('editor.field.duration')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {model.durations.map(duration => (
+                    <SelectItem key={duration} value={duration}>
+                      {duration}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </Gated>
 
           {model.resolutionParam !== null && (
-            <Field label={t('editor.field.resolution')}>
-              <NativeSelect
-                className="w-full"
-                aria-label={t('editor.field.resolution')}
+            <StageField label={t('editor.field.resolution')}>
+              <Select
                 value={String(draft.params[model.resolutionParam] ?? '')}
-                onChange={event =>
+                onValueChange={value =>
                   dispatch({
                     type: 'setParam',
                     stage,
                     key: model.resolutionParam ?? 'resolution',
-                    value: event.target.value,
+                    value,
                   })
                 }
               >
-                {model.resolutions.map(resolution => (
-                  <NativeSelectOption key={resolution} value={resolution}>
-                    {resolution}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </Field>
+                <SelectTrigger
+                  className="w-full"
+                  aria-label={t('editor.field.resolution')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {model.resolutions.map(resolution => (
+                    <SelectItem key={resolution} value={resolution}>
+                      {resolution}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </StageField>
           )}
 
           {/* Looping is real since #30: the still goes out again as the end
@@ -435,9 +464,9 @@ export function StageParameters({
         </Button>
 
         {blocked !== null && (
-          <p className="text-xs text-destructive">
+          <FieldError className="text-xs">
             {t(blocked, { aspect: project.aspect })}
-          </p>
+          </FieldError>
         )}
 
         {isRunning && inFlight.length === 0 && (
@@ -469,12 +498,12 @@ function UnresolvedWarning({ texts }: { texts: readonly string[] }) {
   if (unresolved.length === 0) return null
 
   return (
-    <p className="text-xs text-destructive">
+    <FieldError className="text-xs">
       {t('editor.prompt.unresolved', {
         count: unresolved.length,
         keys: unresolved.map(key => `{{${key}}}`).join(', '),
       })}
-    </p>
+    </FieldError>
   )
 }
 
@@ -513,9 +542,9 @@ function CostEstimate({
 
   if (estimate === null || model.price === null) {
     return (
-      <p className="text-xs text-muted-foreground">
+      <FieldDescription className="text-xs">
         {t('editor.price.unknown')}
-      </p>
+      </FieldDescription>
     )
   }
 
@@ -528,7 +557,7 @@ function CostEstimate({
   })
 
   return (
-    <p className="text-xs text-muted-foreground">
+    <FieldDescription className="text-xs">
       {t('editor.price.approximate', {
         // Two decimals, because that is what a price looks like — except when
         // two decimals would round a real charge to zero, which reads as free.
@@ -540,7 +569,7 @@ function CostEstimate({
             : money.format(estimate),
         date: model.price.verifiedOn,
       })}
-    </p>
+    </FieldDescription>
   )
 }
 
@@ -595,9 +624,9 @@ function RunningJobs({
 
       {/* PRD §3.3 — cancelling may or may not prevent the charge, so this
           never says "free" and never says "refund". */}
-      <p className="text-xs text-muted-foreground">
+      <FieldDescription className="text-xs">
         {t('generate.job.noRefund')}
-      </p>
+      </FieldDescription>
     </div>
   )
 }
@@ -620,7 +649,15 @@ function statusLine(
   })
 }
 
-function Field({
+/**
+ * A labelled control, on shadcn's `Field`.
+ *
+ * The wrapper survives the move rather than being inlined at all six call sites
+ * because of the `label` shorthand, and because {@link Gated} is the same shape
+ * with a reason attached — two spellings of "label above control" in one file is
+ * how they drift apart.
+ */
+function StageField({
   label,
   children,
 }: {
@@ -628,10 +665,10 @@ function Field({
   children: React.ReactNode
 }) {
   return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
       {children}
-    </div>
+    </Field>
   )
 }
 
@@ -664,12 +701,12 @@ function Gated({
   const reasonKey = 'reasonKey' in availability ? availability.reasonKey : null
 
   return (
-    <div className={cn('space-y-2', disabled && 'opacity-60')}>
-      <Label>{label}</Label>
+    <Field className={cn(disabled && 'opacity-60')}>
+      <FieldLabel>{label}</FieldLabel>
       {children(disabled)}
       {reasonKey !== null && (
-        <p className="text-xs text-muted-foreground">{t(reasonKey)}</p>
+        <FieldDescription className="text-xs">{t(reasonKey)}</FieldDescription>
       )}
-    </div>
+    </Field>
   )
 }

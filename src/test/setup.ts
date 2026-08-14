@@ -26,6 +26,20 @@ globalThis.ResizeObserver ??= class NoLayoutResizeObserver implements ResizeObse
   disconnect = vi.fn()
 }
 
+// The same missing-layout story, for the four DOM methods Radix's Select reaches
+// for when it opens: it captures the pointer to track a drag off the trigger,
+// and it scrolls the checked item into view. jsdom implements none of them, and
+// each is a hard throw rather than a degraded render — so a select that opens in
+// the app would be untestable without these.
+//
+// Stubbed rather than simulated. `hasPointerCapture` answering `false` is the
+// honest reply when nothing can capture a pointer, and it is what makes Radix
+// treat a click as a click rather than as the end of a drag.
+Element.prototype.scrollIntoView ??= vi.fn()
+Element.prototype.hasPointerCapture ??= vi.fn(() => false)
+Element.prototype.setPointerCapture ??= vi.fn()
+Element.prototype.releasePointerCapture ??= vi.fn()
+
 // Mock Tauri APIs for tests
 vi.mock('@tauri-apps/api/core', () => ({
   // Asset URLs go through the webview's protocol handler, which does not exist

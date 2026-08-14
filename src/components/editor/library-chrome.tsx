@@ -30,6 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { FieldError } from '@/components/ui/field'
 
 /**
  * What deleting needs to know: which file, and what to call it.
@@ -117,7 +118,10 @@ export function UnreadableNotice({
 }) {
   const { t } = useTranslation()
 
+  // `FieldError` renders nothing for empty children, so the count could be left
+  // to it — but a zero here is not an error with no text, it is the normal case,
+  // and saying so is clearer than relying on that.
   if (count === 0) return null
 
-  return <p className="text-xs text-destructive">{t(messageKey)}</p>
+  return <FieldError className="text-xs">{t(messageKey)}</FieldError>
 }

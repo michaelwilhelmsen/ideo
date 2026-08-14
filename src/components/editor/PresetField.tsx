@@ -47,11 +47,16 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { FieldDescription } from '@/components/ui/field'
 import {
-  NativeSelect,
-  NativeSelectOptGroup,
-  NativeSelectOption,
-} from '@/components/ui/native-select'
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   composePreset,
   MODEL_REGISTRY,
@@ -96,6 +101,17 @@ import {
 } from '@/services/source-presets'
 import { useEditorStore } from '@/store/editor-store'
 import { ConfirmDeleteDialog, UnreadableNotice } from './library-chrome'
+
+/**
+ * The value the "None" row carries.
+ *
+ * Radix spells "nothing is selected" as `value=""` on the root and refuses it on
+ * an item, so deselecting needs a token of its own — and *None* is a genuine
+ * choice here, unlike the palette picker's *Custom*, so it cannot become a
+ * placeholder. The colon is what makes a collision impossible: `isPresetId`
+ * accepts only `[A-Za-z0-9_-]`, so no preset id can ever be this.
+ */
+const NO_PRESET = ':none'
 
 export function PresetField({
   project,
@@ -265,7 +281,7 @@ function ComposingPresetField({
   const option = (preset: Preset) => {
     const usable = presetSupportsModel(preset, model)
     return (
-      <NativeSelectOption key={preset.id} value={preset.id} disabled={!usable}>
+      <SelectItem key={preset.id} value={preset.id} disabled={!usable}>
         {/* A name is user data, whoever wrote it (PRD §6) — no `t()` near it.
             Everything appended to it is ours, and is translated. */}
         {preset.name}
@@ -281,7 +297,7 @@ function ComposingPresetField({
         {usable
           ? ''
           : ` — ${t('editor.preset.noIdiom', { idiom: idiomOf(t, model) })}`}
-      </NativeSelectOption>
+      </SelectItem>
     )
   }
 
@@ -334,54 +350,58 @@ function ComposingPresetField({
     <div className="space-y-2">
       <Label>{t('editor.field.preset')}</Label>
 
-      <NativeSelect
-        className="w-full"
-        aria-label={t('editor.field.preset')}
-        value={draft.presetId ?? ''}
-        onChange={event => {
-          const id = event.target.value
+      <Select
+        value={draft.presetId ?? NO_PRESET}
+        onValueChange={id => {
           // A value typed for one scene's `{{subject}}` says nothing about the
           // next one's, so the fields start empty again with every pick.
           setValues(NO_VARIABLE_VALUES)
           choose(
-            id === ''
+            id === NO_PRESET
               ? null
               : (library.find(preset => preset.id === id) ?? null),
             NO_VARIABLE_VALUES
           )
         }}
       >
-        <NativeSelectOption value="">
-          {t('editor.preset.none')}
-        </NativeSelectOption>
-        {/* Grouped by family rather than listed flat (#48). Twenty-eight looks
-            and twenty-four scenes is what `family` exists for — a single list
-            that long is one the user has to read end to end to find anything,
-            and the families are already the vocabulary the library was authored
-            in. The user's own forks stay one group: they are grouped by being
-            yours, which is the only thing they have in common. */}
-        {familiesOf(builtIns).map(([family, presets]) => (
-          <NativeSelectOptGroup
-            key={family}
-            // The family is the author's word and stays as written; "Built-in"
-            // around it is ours and is translated. Kept on every group rather
-            // than said once at the top, because an optgroup label is the only
-            // heading a native select has — drop it and the read-only half of a
-            // fifty-entry picker stops being distinguishable from the user's.
-            label={t('editor.preset.builtInFamily', { family })}
-          >
-            {presets.map(option)}
-          </NativeSelectOptGroup>
-        ))}
-        {userPresets.length > 0 && (
-          <NativeSelectOptGroup label={t('editor.preset.yours')}>
-            {userPresets.map(option)}
-          </NativeSelectOptGroup>
-        )}
-      </NativeSelect>
+        {/* The name goes on the trigger, not on the root: Radix's root is a
+            context provider that renders nothing, so an `aria-label` there
+            reaches no element at all. */}
+        <SelectTrigger className="w-full" aria-label={t('editor.field.preset')}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_PRESET}>{t('editor.preset.none')}</SelectItem>
+          {/* Grouped by family rather than listed flat (#48). Twenty-eight looks
+              and twenty-four scenes is what `family` exists for — a single list
+              that long is one the user has to read end to end to find anything,
+              and the families are already the vocabulary the library was
+              authored in. The user's own forks stay one group: they are grouped
+              by being yours, which is the only thing they have in common. */}
+          {familiesOf(builtIns).map(([family, presets]) => (
+            <SelectGroup key={family}>
+              {/* The family is the author's word and stays as written;
+                  "Built-in" around it is ours and is translated. Kept on every
+                  group rather than said once at the top: drop it and the
+                  read-only half of a fifty-entry picker stops being
+                  distinguishable from the user's. */}
+              <SelectLabel>
+                {t('editor.preset.builtInFamily', { family })}
+              </SelectLabel>
+              {presets.map(option)}
+            </SelectGroup>
+          ))}
+          {userPresets.length > 0 && (
+            <SelectGroup>
+              <SelectLabel>{t('editor.preset.yours')}</SelectLabel>
+              {userPresets.map(option)}
+            </SelectGroup>
+          )}
+        </SelectContent>
+      </Select>
 
       {hintKey !== null && (
-        <p className="text-xs text-muted-foreground">{t(hintKey)}</p>
+        <FieldDescription className="text-xs">{t(hintKey)}</FieldDescription>
       )}
 
       <PresetNotes preset={selected} />
@@ -395,9 +415,9 @@ function ComposingPresetField({
       {/* The selected preset cannot seed the selected model — usually because a
           model switch landed on an idiom this fork was never saved in. */}
       {seed.state === 'unsupported' && (
-        <p className="text-xs text-muted-foreground">
+        <FieldDescription className="text-xs">
           {t('editor.preset.unsupported', { idiom: idiomOf(t, model) })}
-        </p>
+        </FieldDescription>
       )}
 
       {/* Offered, never forced (#28): the text in the box may be the user's own
@@ -411,7 +431,9 @@ function ComposingPresetField({
           >
             {t('editor.preset.reseed')}
           </Button>
-          <p className="text-xs text-muted-foreground">{t(seed.reasonKey)}</p>
+          <FieldDescription className="text-xs">
+            {t(seed.reasonKey)}
+          </FieldDescription>
         </div>
       )}
 
@@ -560,46 +582,51 @@ function MotionPresetField({ project }: { project: Project }) {
     <div className="space-y-2">
       <Label>{t('editor.field.motionPreset')}</Label>
 
-      <NativeSelect
-        className="w-full"
-        aria-label={t('editor.field.motionPreset')}
-        value={draft.presetId ?? ''}
-        onChange={event => {
-          const id = event.target.value
+      <Select
+        value={draft.presetId ?? NO_PRESET}
+        onValueChange={id => {
           choose(
-            id === ''
+            id === NO_PRESET
               ? null
               : (library.find(preset => preset.id === id) ?? null)
           )
         }}
       >
-        <NativeSelectOption value="">
-          {t('editor.preset.none')}
-        </NativeSelectOption>
-        <NativeSelectOptGroup label={t('editor.preset.builtIn')}>
-          {builtIns.map(preset => (
-            /* A name is user data, whoever wrote it (PRD §6) — no `t()` near
-               it. And nothing here is ever disabled: a motion preset speaks to
-               every video model, because there is only one idiom. */
-            <NativeSelectOption key={preset.id} value={preset.id}>
-              {preset.name}
-            </NativeSelectOption>
-          ))}
-        </NativeSelectOptGroup>
-        {userPresets.length > 0 && (
-          <NativeSelectOptGroup label={t('editor.preset.yours')}>
-            {userPresets.map(preset => (
-              <NativeSelectOption key={preset.id} value={preset.id}>
+        <SelectTrigger
+          className="w-full"
+          aria-label={t('editor.field.motionPreset')}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_PRESET}>{t('editor.preset.none')}</SelectItem>
+          <SelectGroup>
+            <SelectLabel>{t('editor.preset.builtIn')}</SelectLabel>
+            {builtIns.map(preset => (
+              /* A name is user data, whoever wrote it (PRD §6) — no `t()` near
+                 it. And nothing here is ever disabled: a motion preset speaks to
+                 every video model, because there is only one idiom. */
+              <SelectItem key={preset.id} value={preset.id}>
                 {preset.name}
-              </NativeSelectOption>
+              </SelectItem>
             ))}
-          </NativeSelectOptGroup>
-        )}
-      </NativeSelect>
+          </SelectGroup>
+          {userPresets.length > 0 && (
+            <SelectGroup>
+              <SelectLabel>{t('editor.preset.yours')}</SelectLabel>
+              {userPresets.map(preset => (
+                <SelectItem key={preset.id} value={preset.id}>
+                  {preset.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          )}
+        </SelectContent>
+      </Select>
 
-      <p className="text-xs text-muted-foreground">
+      <FieldDescription className="text-xs">
         {t('editor.preset.motionHint')}
-      </p>
+      </FieldDescription>
 
       {/* Offered, never forced: the text in the box may be the user's own by
           now, and re-seeding would spend their edit for them. */}
@@ -612,9 +639,9 @@ function MotionPresetField({ project }: { project: Project }) {
           >
             {t('editor.preset.reseed')}
           </Button>
-          <p className="text-xs text-muted-foreground">
+          <FieldDescription className="text-xs">
             {t('editor.preset.staleEdited')}
-          </p>
+          </FieldDescription>
         </div>
       )}
 
@@ -757,23 +784,23 @@ function PresetNotes({ preset }: { preset: Preset | null }) {
   return (
     <div className="space-y-1">
       {preset.blurb !== null && (
-        <p className="text-xs text-muted-foreground">{preset.blurb}</p>
+        <FieldDescription className="text-xs">{preset.blurb}</FieldDescription>
       )}
 
       {preset.headlineZone !== null && (
-        <p className="text-xs text-muted-foreground">
+        <FieldDescription className="text-xs">
           {t(`editor.preset.headlineZone.${preset.headlineZone}`)}
-        </p>
+        </FieldDescription>
       )}
 
       {preset.note !== null && (
         <div className="rounded-md border border-dashed border-border p-2">
           <p className="text-xs font-medium">{t('editor.preset.noteTitle')}</p>
           {/* The instruction itself is the preset's, in its own words. */}
-          <p className="text-xs text-muted-foreground">{preset.note}</p>
-          <p className="text-xs text-muted-foreground">
+          <FieldDescription className="text-xs">{preset.note}</FieldDescription>
+          <FieldDescription className="text-xs">
             {t('editor.preset.noteNotApplied')}
-          </p>
+          </FieldDescription>
         </div>
       )}
     </div>
@@ -835,9 +862,9 @@ function PresetVariableFields({
 
   return (
     <div className="space-y-2 rounded-md border border-border p-3">
-      <p className="text-xs text-muted-foreground">
+      <FieldDescription className="text-xs">
         {t('editor.preset.variablesHint')}
-      </p>
+      </FieldDescription>
 
       {variables.map(variable => (
         <div key={variable.key} className="space-y-1">
@@ -855,11 +882,11 @@ function PresetVariableFields({
             onChange={event => onChange(variable.key, event.target.value)}
           />
           {variable.fromPalette && (
-            <p className="text-xs text-muted-foreground">
+            <FieldDescription className="text-xs">
               {variable.value === ''
                 ? t('editor.preset.variableNoColour')
                 : t('editor.preset.variableFromPalette')}
-            </p>
+            </FieldDescription>
           )}
         </div>
       ))}
