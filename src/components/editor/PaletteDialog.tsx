@@ -329,9 +329,7 @@ export function PaletteDialog({
               )}
             </SelectContent>
           </Select>
-          <FieldDescription className="text-xs">
-            {t('editor.palette.libraryHint')}
-          </FieldDescription>
+          <FieldDescription>{t('editor.palette.libraryHint')}</FieldDescription>
         </Field>
 
         <div className="space-y-3">
@@ -458,7 +456,7 @@ export function PaletteDialog({
         {/* `FieldError` renders `role="alert"`, which is the reason this is worth
             a component rather than a styled paragraph: the reason a Save is
             disabled has to reach somebody who cannot see that it went grey. */}
-        <FieldError className="text-xs">
+        <FieldError>
           {problem !== null
             ? problemMessage(t, problem)
             : complete

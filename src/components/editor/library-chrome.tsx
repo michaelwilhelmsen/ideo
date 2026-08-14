@@ -123,5 +123,5 @@ export function UnreadableNotice({
   // and saying so is clearer than relying on that.
   if (count === 0) return null
 
-  return <FieldError className="text-xs">{t(messageKey)}</FieldError>
+  return <FieldError>{t(messageKey)}</FieldError>
 }

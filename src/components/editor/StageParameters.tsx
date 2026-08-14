@@ -146,7 +146,7 @@ export function StageParameters({
             })}
           </SelectContent>
         </Select>
-        <FieldDescription className="text-xs">{model.notes}</FieldDescription>
+        <FieldDescription>{model.notes}</FieldDescription>
       </StageField>
 
       <StageField label={t('editor.field.prompt')}>
@@ -160,7 +160,7 @@ export function StageParameters({
         {/* PRD §5's `promptStyle`, said out loud. The registry knows Qwen reads
             a keyword list and everything else reads prose; without this the
             user finds out by writing the wrong kind of prompt and paying. */}
-        <FieldDescription className="text-xs">
+        <FieldDescription>
           {t(`editor.promptStyle.${model.promptStyle}`)}
         </FieldDescription>
       </StageField>
@@ -213,7 +213,7 @@ export function StageParameters({
                     })
                   }
                 />
-                <FieldDescription className="text-xs">
+                <FieldDescription>
                   {t('editor.seed.collapsesBatch')}
                 </FieldDescription>
               </>
@@ -241,9 +241,7 @@ export function StageParameters({
             })
           }
         />
-        <FieldDescription className="text-xs">
-          {t('editor.batch.hint')}
-        </FieldDescription>
+        <FieldDescription>{t('editor.batch.hint')}</FieldDescription>
       </StageField>
 
       {/* Plumbing: named by the model, so the label comes from the registry. */}
@@ -270,13 +268,9 @@ export function StageParameters({
               window this stops being guidance and becomes a warning, and
               `FieldError` is the one that says so with `role="alert"`. */}
           {strength > STRENGTH_WARNING_ABOVE ? (
-            <FieldError className="text-xs">
-              {t('editor.strength.tooHigh')}
-            </FieldError>
+            <FieldError>{t('editor.strength.tooHigh')}</FieldError>
           ) : (
-            <FieldDescription className="text-xs">
-              {t('editor.strength.window')}
-            </FieldDescription>
+            <FieldDescription>{t('editor.strength.window')}</FieldDescription>
           )}
         </StageField>
       )}
@@ -464,13 +458,11 @@ export function StageParameters({
         </Button>
 
         {blocked !== null && (
-          <FieldError className="text-xs">
-            {t(blocked, { aspect: project.aspect })}
-          </FieldError>
+          <FieldError>{t(blocked, { aspect: project.aspect })}</FieldError>
         )}
 
         {isRunning && inFlight.length === 0 && (
-          <p className="text-xs">{t('generate.submitting')}</p>
+          <FieldDescription>{t('generate.submitting')}</FieldDescription>
         )}
 
         <RunningJobs jobs={inFlight} projectId={project.id} />
@@ -498,7 +490,7 @@ function UnresolvedWarning({ texts }: { texts: readonly string[] }) {
   if (unresolved.length === 0) return null
 
   return (
-    <FieldError className="text-xs">
+    <FieldError>
       {t('editor.prompt.unresolved', {
         count: unresolved.length,
         keys: unresolved.map(key => `{{${key}}}`).join(', '),
@@ -541,11 +533,7 @@ function CostEstimate({
   })
 
   if (estimate === null || model.price === null) {
-    return (
-      <FieldDescription className="text-xs">
-        {t('editor.price.unknown')}
-      </FieldDescription>
-    )
+    return <FieldDescription>{t('editor.price.unknown')}</FieldDescription>
   }
 
   // The currency is fixed and the formatting is not: fal.ai bills in US
@@ -557,7 +545,7 @@ function CostEstimate({
   })
 
   return (
-    <FieldDescription className="text-xs">
+    <FieldDescription>
       {t('editor.price.approximate', {
         // Two decimals, because that is what a price looks like — except when
         // two decimals would round a real charge to zero, which reads as free.
@@ -624,9 +612,7 @@ function RunningJobs({
 
       {/* PRD §3.3 — cancelling may or may not prevent the charge, so this
           never says "free" and never says "refund". */}
-      <FieldDescription className="text-xs">
-        {t('generate.job.noRefund')}
-      </FieldDescription>
+      <FieldDescription>{t('generate.job.noRefund')}</FieldDescription>
     </div>
   )
 }
@@ -705,7 +691,7 @@ function Gated({
       <FieldLabel>{label}</FieldLabel>
       {children(disabled)}
       {reasonKey !== null && (
-        <FieldDescription className="text-xs">{t(reasonKey)}</FieldDescription>
+        <FieldDescription>{t(reasonKey)}</FieldDescription>
       )}
     </Field>
   )

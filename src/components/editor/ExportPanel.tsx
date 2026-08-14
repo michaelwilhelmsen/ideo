@@ -172,7 +172,7 @@ export function ExportPanel({
           where the first one did without being asked again. */}
       <Field>
         <FieldLabel>{t('export.destination')}</FieldLabel>
-        <FieldDescription className="truncate font-mono text-xs">
+        <FieldDescription className="truncate font-mono">
           {folder ?? t('export.noFolder')}
         </FieldDescription>
         <Button size="sm" variant="outline" onClick={() => void pickFolder()}>
@@ -194,9 +194,7 @@ export function ExportPanel({
           />
         ))}
         {medium === 'still' && (
-          <FieldDescription className="text-xs">
-            {t('export.stillIsAPoster')}
-          </FieldDescription>
+          <FieldDescription>{t('export.stillIsAPoster')}</FieldDescription>
         )}
       </FieldSet>
 
@@ -216,7 +214,7 @@ export function ExportPanel({
             />
             <Label htmlFor="export-rewind">{t('editor.rewind.pingPong')}</Label>
           </div>
-          <FieldDescription className="text-xs">
+          <FieldDescription>
             {rewindIsRedundant(selected, rewind)
               ? t('export.rewind.alreadyLoops')
               : t('export.rewind.hint')}
@@ -235,9 +233,7 @@ export function ExportPanel({
           {exporter.isPending ? t('export.working') : t('export.action')}
         </Button>
 
-        {blocked !== null && (
-          <FieldDescription className="text-xs">{t(blocked)}</FieldDescription>
-        )}
+        {blocked !== null && <FieldDescription>{t(blocked)}</FieldDescription>}
 
         {!available && (
           <Button
@@ -310,7 +306,9 @@ function InstallPrompt() {
     // `role="alert"` that says so.
     <Alert>
       <AlertDescription className="space-y-2">
-        <p className="text-xs">{t('export.needsFfmpeg')}</p>
+        <p>{t('export.needsFfmpeg')}</p>
+        {/* Left a step down: monospace at the same nominal size reads larger
+            than the sentence above it, and the command has to fit one line. */}
         <code className="block font-mono text-xs select-all">
           {INSTALL_COMMAND}
         </code>

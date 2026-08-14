@@ -47,7 +47,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { FieldDescription } from '@/components/ui/field'
+import { FieldDescription, FieldTitle } from '@/components/ui/field'
 import {
   Select,
   SelectContent,
@@ -400,9 +400,7 @@ function ComposingPresetField({
         </SelectContent>
       </Select>
 
-      {hintKey !== null && (
-        <FieldDescription className="text-xs">{t(hintKey)}</FieldDescription>
-      )}
+      {hintKey !== null && <FieldDescription>{t(hintKey)}</FieldDescription>}
 
       <PresetNotes preset={selected} />
 
@@ -415,7 +413,7 @@ function ComposingPresetField({
       {/* The selected preset cannot seed the selected model — usually because a
           model switch landed on an idiom this fork was never saved in. */}
       {seed.state === 'unsupported' && (
-        <FieldDescription className="text-xs">
+        <FieldDescription>
           {t('editor.preset.unsupported', { idiom: idiomOf(t, model) })}
         </FieldDescription>
       )}
@@ -431,9 +429,7 @@ function ComposingPresetField({
           >
             {t('editor.preset.reseed')}
           </Button>
-          <FieldDescription className="text-xs">
-            {t(seed.reasonKey)}
-          </FieldDescription>
+          <FieldDescription>{t(seed.reasonKey)}</FieldDescription>
         </div>
       )}
 
@@ -624,9 +620,7 @@ function MotionPresetField({ project }: { project: Project }) {
         </SelectContent>
       </Select>
 
-      <FieldDescription className="text-xs">
-        {t('editor.preset.motionHint')}
-      </FieldDescription>
+      <FieldDescription>{t('editor.preset.motionHint')}</FieldDescription>
 
       {/* Offered, never forced: the text in the box may be the user's own by
           now, and re-seeding would spend their edit for them. */}
@@ -639,9 +633,7 @@ function MotionPresetField({ project }: { project: Project }) {
           >
             {t('editor.preset.reseed')}
           </Button>
-          <FieldDescription className="text-xs">
-            {t('editor.preset.staleEdited')}
-          </FieldDescription>
+          <FieldDescription>{t('editor.preset.staleEdited')}</FieldDescription>
         </div>
       )}
 
@@ -784,21 +776,21 @@ function PresetNotes({ preset }: { preset: Preset | null }) {
   return (
     <div className="space-y-1">
       {preset.blurb !== null && (
-        <FieldDescription className="text-xs">{preset.blurb}</FieldDescription>
+        <FieldDescription>{preset.blurb}</FieldDescription>
       )}
 
       {preset.headlineZone !== null && (
-        <FieldDescription className="text-xs">
+        <FieldDescription>
           {t(`editor.preset.headlineZone.${preset.headlineZone}`)}
         </FieldDescription>
       )}
 
       {preset.note !== null && (
         <div className="rounded-md border border-dashed border-border p-2">
-          <p className="text-xs font-medium">{t('editor.preset.noteTitle')}</p>
+          <FieldTitle>{t('editor.preset.noteTitle')}</FieldTitle>
           {/* The instruction itself is the preset's, in its own words. */}
-          <FieldDescription className="text-xs">{preset.note}</FieldDescription>
-          <FieldDescription className="text-xs">
+          <FieldDescription>{preset.note}</FieldDescription>
+          <FieldDescription>
             {t('editor.preset.noteNotApplied')}
           </FieldDescription>
         </div>
@@ -862,9 +854,7 @@ function PresetVariableFields({
 
   return (
     <div className="space-y-2 rounded-md border border-border p-3">
-      <FieldDescription className="text-xs">
-        {t('editor.preset.variablesHint')}
-      </FieldDescription>
+      <FieldDescription>{t('editor.preset.variablesHint')}</FieldDescription>
 
       {variables.map(variable => (
         <div key={variable.key} className="space-y-1">
@@ -882,7 +872,7 @@ function PresetVariableFields({
             onChange={event => onChange(variable.key, event.target.value)}
           />
           {variable.fromPalette && (
-            <FieldDescription className="text-xs">
+            <FieldDescription>
               {variable.value === ''
                 ? t('editor.preset.variableNoColour')
                 : t('editor.preset.variableFromPalette')}

@@ -89,7 +89,7 @@ export function NewProjectDialog({
             <FieldLegend variant="label">
               {t('editor.newProject.aspect')}
             </FieldLegend>
-            <FieldDescription className="text-xs">
+            <FieldDescription>
               {t('editor.newProject.aspectLocked')}
             </FieldDescription>
 
