@@ -213,14 +213,30 @@ async function videoStability(frames: HTMLImageElement[]): Promise<Blob> {
 }
 
 /**
- * One source, one look, six cell sizes — the question the other sheets raise.
+ * One source, one look, the whole cell range — the arbiter of #54.
  *
- * A halftone screen antialiases against its own gradient, and `fwidth` of a
- * coordinate measured in cells is about `1 / cell`. At cell 6 that puts the
- * transition band at a third of the cell, so every dot is a smear and the tone
- * comes out heavier than its ink fraction. Whether that is a defect or the
- * grain of a fine screen is a look question, and a ladder is the honest way to
- * ask it.
+ * The screen used to antialias against its own gradient, and `fwidth` of a
+ * coordinate measured in cells is about `1 / cell`: a sliver of a coarse cell
+ * and a third of a fine one. The band was therefore also a tone curve, and it
+ * compressed the picture toward mid grey as the ruling got finer — measured at
+ * cell 2 as 10% ink arriving as 15.5% and 75% as 69.5%.
+ *
+ * #54 replaced it. The screen now thresholds the *area* a dot covers rather
+ * than a distance against a radius, so the soft edge trades equal areas and
+ * cannot move the tone; the CPU model in `halftone-tone.test.ts` holds that to
+ * ±0.02 across this range. That is the arithmetic, and this is the picture:
+ * both ends of the shipped slider on one frame, at delivery scale.
+ *
+ * What to look for, in this order:
+ *
+ * 1. **Tone.** Squint, or step back far enough that the dots fuse. Every cell
+ *    in the ladder should read as the same picture at the same weight. A
+ *    ladder that darkens or flattens toward the left is the defect back.
+ * 2. **Edges.** At cell 2 and 3, up close: the dots should be soft, not
+ *    stair-stepped. That is what the band was there for and what the footprint
+ *    bracket replaces it with.
+ * 3. **Shadows.** At the dark end the dots meet and the paper is what is left
+ *    in the corners. It should close smoothly to solid rather than stalling.
  */
 async function halftoneLadder(
   image: HTMLImageElement,
@@ -228,7 +244,9 @@ async function halftoneLadder(
 ): Promise<Blob> {
   const look = lookOf('fx-halftone')
   const base = valuesFor(look)
-  const sizes = [3, 4, 6, 8, 12, 18]
+  // The ends of the slider and four steps between them, rather than the middle
+  // of its range: the defect lived at the fine end, so the fine end is on it.
+  const sizes = [2, 3, 6, 12, 20, 32]
 
   const cells: Cell[] = sizes.map(cell => ({
     label: `cell ${cell}${cell === base.cell ? ' — default' : ''}`,
@@ -236,9 +254,9 @@ async function halftoneLadder(
   }))
 
   return grid({
-    title: `#36 — halftone, cell size ladder · ${slug}`,
+    title: `#54 — halftone, the whole cell ladder · ${slug}`,
     subtitle:
-      'everything else at its default (45°, round). The antialias band is about one pixel wide whatever the cell, so it is a larger fraction of a small cell — which is why a fine screen reads heavier than its ink fraction',
+      'everything else at its default (45°, round), cropped rather than scaled so a cell of 2 is two pixels here exactly as in the export. Cell size sets how big the dots are; it must not set how dark the picture is — squint, and every panel should weigh the same',
     columns: 3,
     cellWidth: DETAIL.width,
     cellHeight: DETAIL.height,

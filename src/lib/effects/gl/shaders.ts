@@ -194,23 +194,52 @@ void main() {
  * clustered-dot 8×8 matrix, because a screen at an arbitrary angle is a
  * per-pixel coordinate rotation and that is free here and expensive there.
  *
- * Dot *area* is what carries tone, so each shape's radius is whatever makes the
- * covered fraction equal the ink fraction — and the three shapes need three
- * different constants to say the same thing:
+ * ## Tone is area, so the screen is written as an area
  *
- * - **round** — area is `πr²`, so `r = sqrt(ink/π)`, and 1/√π is 0.5642.
- * - **square** — area is `4r²` at half-width `r`, so `r = sqrt(ink)/2`.
- * - **line** — coverage is `2r` for a band of half-width `r`, so `r = ink/2`.
- *   Linear in the tone rather than in its square root, because a line grows in
- *   one dimension and a dot grows in two.
+ * Dot *area* is what carries tone. The obvious way to say that — size a radius
+ * from the ink, threshold the distance against it, soften the edge — says it
+ * only in the limit, and #54 measured what the softening costs on the way
+ * there: the antialias band is about one output pixel wide whatever the ruling,
+ * which is a sliver of a coarse cell and a large fraction of a fine one, so it
+ * doubles as a tone curve nobody asked for. It lifted a 10% tone to 15.5% and
+ * dropped a 75% tone to 69.5% at cell 2 — a contrast compression that tightens
+ * as the screen gets finer, and one a radius correction cannot undo, because a
+ * radius is one number and the error has two sides.
  *
- * Getting the round constant wrong is not subtle and does not look like a bug:
- * the half-diagonal (0.7071) over-inks by exactly π/2, which turns a near-white
- * frame into a dense grey checkerboard and reads as "the halftone is too dark"
- * rather than as arithmetic. A circle of radius 0.5642 overflows the cell
- * slightly at full ink and is clipped by `fract`, which is what lets the
- * darkest tone reach solid instead of topping out at the 78.5% coverage of an
- * inscribed circle.
+ * So the screen is not written as a radius at all. `nearerThan` gives the
+ * fraction of a cell lying nearer the dot centre than some distance — the
+ * *area* the dot would cover if it reached that far — and the ink region is
+ * simply where that fraction is below the ink fraction. Its area is then the
+ * ink fraction by construction, at every cell size, because that is what the
+ * function means. The three constants of the old form are still here, as the
+ * arithmetic they were shorthand for: `πd²` for a circle, `4d²` for a square of
+ * half-width `d`, `2d` for a band. Solving `πd² = ink` still gives the same
+ * 0.5642·√ink, and the dots are the same dots — what changes is that the edge
+ * can now be softened without moving the tone, since softening an area measure
+ * trades equal areas across the boundary.
+ *
+ * A circle only *fits* the cell up to 78.5% ink; past that it overflows and the
+ * corners are what is left of the paper. `nearerThan` subtracts the four
+ * overflowing segments so the field stays an honest area right up to solid,
+ * which is what makes the shadow end land where it is asked to rather than
+ * topping out.
+ *
+ * ## The edge, and why it is sampled
+ *
+ * The soft edge is the pixel's own footprint: the field at the near and far
+ * edges of the footprint bracket the tone, and the ink coverage is where the
+ * requested fraction falls between them. That is an antialias measured in
+ * output pixels — the delivery scale everything else here is arranged around —
+ * and it costs no tone, because the two brackets are areas.
+ *
+ * At a fine ruling one pixel spans a large, curved piece of the cell and a
+ * single bracket is too coarse a description of it, so the footprint is
+ * sub-divided. The count is driven by the ruling rather than fixed, because
+ * that is where the need is: at cell 2 a pixel is a quarter of a cell and takes
+ * 6×6, by cell 16 the bracket alone is exact and it takes one. Without it the
+ * worst case is 9% at cell 2; with it, under 2% everywhere in the shipped
+ * range — including at 0°, where the cell grid lines up with the pixel grid and
+ * point sampling has nothing left to average over.
  */
 const HALFTONE = `
 uniform vec3 u_inkDark;
@@ -219,37 +248,77 @@ uniform float u_cell;
 uniform float u_angle;
 uniform int u_shape;
 
+/**
+ * The fraction of one cell lying nearer the dot centre than \`d\`.
+ *
+ * Monotone from 0 at the centre to 1 at the furthest corner, which is what
+ * makes thresholding it at the ink fraction cover exactly that fraction.
+ */
+float nearerThan(float d, int shape) {
+  // A band of half-width d covers 2d of the cell; a square of half-width d,
+  // 4d². Both reach the whole cell at d = 0.5.
+  if (shape == 2) return clamp(2.0 * d, 0.0, 1.0);
+  if (shape == 1) return clamp(4.0 * d * d, 0.0, 1.0);
+
+  // A circle, area pi*d² — until it reaches past the cell's edges at d = 0.5,
+  // beyond which the four segments hanging outside are no longer cell.
+  if (d <= 0.5) return 3.14159265 * d * d;
+  if (d >= 0.70710678) return 1.0;
+  float segment = d * d * acos(0.5 / d) - 0.5 * sqrt(max(d * d - 0.25, 0.0));
+  return clamp(3.14159265 * d * d - 4.0 * segment, 0.0, 1.0);
+}
+
 void main() {
   float y = luminance(texture(uSource, vUv).rgb);
-
-  float a = radians(u_angle);
-  mat2 turn = mat2(cos(a), -sin(a), sin(a), cos(a));
-  vec2 cell = (turn * gl_FragCoord.xy) / max(u_cell, 1.0);
-  vec2 offset = fract(cell) - 0.5;
-
   float ink = clamp(1.0 - y, 0.0, 1.0);
-  float distance;
-  float radius;
 
-  if (u_shape == 0) {
-    // 1/sqrt(pi) — the radius at which a circle's area *is* the ink fraction.
-    distance = length(offset);
-    radius = sqrt(ink) * 0.56418958;
-  } else if (u_shape == 1) {
-    distance = max(abs(offset.x), abs(offset.y));
-    radius = sqrt(ink) * 0.5;
-  } else {
-    // A line screen: one axis only, so coverage is linear in the tone rather
-    // than in its square root.
-    distance = abs(offset.y);
-    radius = ink * 0.5;
+  float size = max(u_cell, 1.0);
+  float turnX = cos(radians(u_angle));
+  float turnY = sin(radians(u_angle));
+  mat2 turn = mat2(turnX, -turnY, turnY, turnX);
+  // How far either screen axis moves across one whole output pixel.
+  float perPixel = (abs(turnX) + abs(turnY)) / size;
+
+  // Enough sub-samples that one footprint is a small piece of a cell. Driven
+  // by the ruling, and one tap by the time the cell is 16 pixels across.
+  int taps = int(clamp(ceil(16.0 / size), 1.0, 6.0));
+  float stride = 1.0 / float(taps);
+
+  float covered = 0.0;
+  for (int row = 0; row < 6; row++) {
+    if (row >= taps) break;
+    for (int column = 0; column < 6; column++) {
+      if (column >= taps) break;
+
+      vec2 at = gl_FragCoord.xy + (vec2(float(column), float(row)) + 0.5) * stride - 0.5;
+      vec2 offset = fract((turn * at) / size) - 0.5;
+
+      float distance;
+      float reach;
+      if (u_shape == 0) {
+        distance = length(offset);
+        // The footprint's radial span: the offset back in screen axes, which
+        // is how much the radius moves for a step along each of them.
+        vec2 along = vec2(dot(offset, vec2(turnX, turnY)), dot(offset, vec2(-turnY, turnX)));
+        reach = (stride * (abs(along.x) + abs(along.y))) / (max(distance, 1e-6) * size);
+      } else {
+        distance = u_shape == 1 ? max(abs(offset.x), abs(offset.y)) : abs(offset.y);
+        reach = stride * perPixel;
+      }
+
+      // The area the dot would need to reach the near and the far edge of this
+      // footprint. The requested ink falls somewhere between the two, and where
+      // it falls is how much of the footprint the dot covers.
+      float furthest = u_shape == 0 ? 0.70710678 : 0.5;
+      float nearArea = nearerThan(max(distance - reach * 0.5, 0.0), u_shape);
+      float farArea = nearerThan(min(distance + reach * 0.5, furthest), u_shape);
+      covered += farArea - nearArea < 1e-9
+        ? (nearArea < ink ? 1.0 : 0.0)
+        : clamp((ink - nearArea) / (farArea - nearArea), 0.0, 1.0);
+    }
   }
 
-  // Antialiased against the screen's own gradient, so the dot edge stays clean
-  // at every cell size instead of stair-stepping at small ones.
-  float softness = max(fwidth(distance), 1e-4);
-  float paper = smoothstep(radius - softness, radius + softness, distance);
-
+  float paper = 1.0 - covered / float(taps * taps);
   fragColor = vec4(encode(mix(u_inkDark, u_inkLight, paper)), 1.0);
 }
 `

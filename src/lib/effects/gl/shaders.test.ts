@@ -216,10 +216,23 @@ describe('the halftone screen’s tone mapping', () => {
    */
   const HALFTONE = fragmentSourceFor('halftone')
 
+  /**
+   * #54 took the radius out: the shader thresholds the *area* a dot would cover
+   * rather than sizing a radius and thresholding a distance, because an area is
+   * the thing a soft edge can be traded across without moving the tone. The
+   * three constants below are still what the screen is built on — they are now
+   * the area laws themselves rather than three roots of them — so this reads as
+   * "no radius survives" rather than as "the radius is 0.5642".
+   *
+   * `0.70710678` is legitimately present now, as the cell's corner: how far a
+   * round dot can reach before it has covered the whole cell. Sizing the dot
+   * *by* the half-diagonal is the original defect, and `sqrt(ink)` is the form
+   * that defect had, so that is what is barred.
+   */
   it('sizes a round dot by area, not by the cell’s diagonal', () => {
-    // 1/sqrt(pi). The failure is silent and reads as a look decision.
-    expect(HALFTONE).toContain('0.56418958')
-    expect(HALFTONE).not.toContain('0.70710678')
+    expect(HALFTONE).toContain('3.14159265 * d * d')
+    expect(HALFTONE).not.toContain('sqrt(ink)')
+    expect(HALFTONE).not.toContain('0.56418958')
   })
 
   it('keeps each shape’s constant the one that makes coverage equal the ink', () => {
