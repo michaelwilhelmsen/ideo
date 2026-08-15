@@ -118,8 +118,12 @@ export function useExportGeneration() {
  * failed matters when three were asked for and one is missing, and ffmpeg's own
  * last words are the part that distinguishes a codec this build lacks from a
  * disk that filled up.
+ *
+ * Exported because a bake fails with the same `ExportError` from the same Rust
+ * module (`services/bake.ts`): the errors are one set, so the sentences said
+ * about them are too.
  */
-function explain(error: ExportError | Error): string {
+export function explain(error: ExportError | Error): string {
   if (error instanceof Error) return i18n.t('export.error.unknown')
 
   switch (error.reason) {

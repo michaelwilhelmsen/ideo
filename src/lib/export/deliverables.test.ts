@@ -13,6 +13,7 @@ import {
   anyRequested,
   availableFormats,
   exportBaseName,
+  exportSizeOf,
   mediumOf,
   requestedFormats,
   rewindIsRedundant,
@@ -138,5 +139,37 @@ describe('what the files are called', () => {
     expect(exportBaseName('※※', candidate('source', 'a.png'))).toMatch(
       /^export-source-/
     )
+  })
+})
+
+describe('the size a deliverable ships at', () => {
+  // The same cases `export_size` asserts in `export/bake.rs`. Two languages
+  // computing one number is only safe while they agree about it, and what the
+  // preview draws its pattern at is whatever this says.
+  it('caps at the export width and never upscales past it', () => {
+    expect(exportSizeOf(3840, 2160)).toEqual([1920, 1080])
+    expect(exportSizeOf(2560, 1440)).toEqual([1920, 1080])
+    expect(exportSizeOf(1280, 720)).toEqual([1280, 720])
+  })
+
+  it('keeps both axes even', () => {
+    // An odd height is a hard 4:2:0 failure rather than a slightly wrong
+    // picture, which is why the filter graph says `-2` and not `-1`.
+    const odd: readonly (readonly [number, number])[] = [
+      [1000, 563],
+      [1920, 1081],
+      [999, 999],
+    ]
+
+    for (const [width, height] of odd) {
+      const [wide, high] = exportSizeOf(width, height)
+      expect(wide % 2).toBe(0)
+      expect(high % 2).toBe(0)
+    }
+  })
+
+  it('still produces something encodable from a degenerate size', () => {
+    expect(exportSizeOf(0, 0)).toEqual([2, 2])
+    expect(exportSizeOf(1, 1)).toEqual([2, 2])
   })
 })

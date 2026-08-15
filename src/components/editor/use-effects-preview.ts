@@ -20,10 +20,13 @@
  * something React is not displaying.
  *
  * The render size is the whole of what "fit versus 1:1" means. The pattern is
- * measured in output pixels, so drawing at the size actually on screen makes 1:1
- * *exact* rather than an upscaled approximation of a smaller render — which is
- * why the superseded CPU plan had to label its diffusion preview "approximate"
- * and this does not.
+ * measured in output pixels, so 1:1 is *exact* rather than an upscaled
+ * approximation of a smaller render — which is why the superseded CPU plan had
+ * to label its diffusion preview "approximate" and this does not. Exactness has
+ * two conditions, and both are in {@link sizeOf}: draw in **device** pixels,
+ * and draw at the size the **file** will be. Missing either one shows a pattern
+ * that is coarser than the one about to be written, and nothing on screen says
+ * so.
  */
 
 import { useEffect, useRef, useState, type RefObject } from 'react'
@@ -34,6 +37,7 @@ import {
   type EffectSource,
 } from '@/lib/effects/gl/renderer'
 import type { EffectsLook, Ink, KnobValue } from '@/lib/effects'
+import { exportSizeOf } from '@/lib/export'
 
 export interface EffectsPreview {
   readonly canvas: RefObject<HTMLCanvasElement | null>
@@ -148,7 +152,21 @@ export function useEffectsPreview({
 
         const active = renderer.current
         if (active !== null) {
-          const [width, height] = sizeOf(from, frame.current, actualSize)
+          const { render, display } = sizeOf(
+            from,
+            frame.current,
+            actualSize,
+            window.devicePixelRatio
+          )
+          const [width, height] = render
+
+          // The element's own size, in CSS pixels. Set explicitly rather than
+          // left to the backing store's dimensions: those are now device
+          // pixels, and a canvas laid out from them would be twice its box on
+          // a 2× display.
+          surface.style.width = `${display[0]}px`
+          surface.style.height = `${display[1]}px`
+
           // A clip's texture changes every frame; a still's does not, so the
           // same picture is not redrawn sixty times a second on a laptop
           // battery. The signature is everything that changes the output.
@@ -196,19 +214,65 @@ export function useEffectsPreview({
  * pattern — the same argument that makes the bake render at the export
  * resolution rather than before the width cap.
  */
-function sizeOf(
+/**
+ * How big to draw, and how big to show it — two answers, not one.
+ *
+ * They differ by the device pixel ratio, and conflating them is why a halftone
+ * looked coarser on screen than in the file it was about to produce. A canvas
+ * sized from `clientWidth` holds *CSS* pixels; on a 2× display the webview then
+ * stretches every one of them across two device pixels, so a pattern drawn at
+ * one dot per pixel arrives on the retina at one dot per *four*. The dots the
+ * user judged were twice the size of the dots the shader made.
+ *
+ * `render` is therefore in device pixels and `display` in CSS pixels, and the
+ * caller has to set both — the backing store from the first, the element's own
+ * width and height from the second.
+ *
+ * **1:1 means the export**, not the source. The file ships at
+ * {@link exportSizeOf}, and a model that returned 2560 wide is capped on the
+ * way out — so previewing at 2560 would be showing a pattern density that no
+ * deliverable will ever have. This is the zoom that answers "what will the file
+ * look like", and it can only answer it in the file's own pixels.
+ */
+export function sizeOf(
   source: EffectSource,
   frame: HTMLDivElement | null,
-  actualSize: boolean
-): readonly [number, number] {
+  actualSize: boolean,
+  devicePixelRatio: number
+): {
+  readonly render: readonly [number, number]
+  readonly display: readonly [number, number]
+} {
+  const ratio = devicePixelRatio > 0 ? devicePixelRatio : 1
   const natural = naturalSizeOf(source)
-  if (actualSize || frame === null) return natural
+  const shipped = exportSizeOf(natural[0], natural[1])
+
+  if (actualSize || frame === null) {
+    return {
+      render: shipped,
+      // One drawn pixel per device pixel — which on a 2× display is half as
+      // many CSS pixels, and is the whole meaning of "actual size" here.
+      display: [shipped[0] / ratio, shipped[1] / ratio],
+    }
+  }
 
   const available = frame.clientWidth
-  if (available <= 0 || natural[0] <= 0) return natural
+  if (available <= 0 || shipped[0] <= 0) {
+    return {
+      render: shipped,
+      display: [shipped[0] / ratio, shipped[1] / ratio],
+    }
+  }
 
-  const scale = Math.min(1, available / natural[0])
-  return [Math.round(natural[0] * scale), Math.round(natural[1] * scale)]
+  // Never wider than the file itself: past that there is no more pattern to
+  // show, only the same one enlarged.
+  const width = Math.min(available, shipped[0] / ratio)
+  const height = (shipped[1] * width) / shipped[0]
+
+  return {
+    render: [Math.round(width * ratio), Math.round(height * ratio)],
+    display: [width, height],
+  }
 }
 
 function naturalSizeOf(source: EffectSource): readonly [number, number] {

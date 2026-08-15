@@ -84,6 +84,20 @@ impl Input {
     fn needs_scaling(&self) -> bool {
         matches!(self, Input::Source(_))
     }
+
+    /// Whether a treatment has been rendered into these pixels.
+    ///
+    /// Worth asking because a treated frame is a fundamentally different
+    /// picture to encode. Model output is photographic — smooth gradients,
+    /// colour that varies slowly — and every default in a web encoder is tuned
+    /// for it. A dither is the opposite: a two-colour pattern at the pixel
+    /// grid, carrying its tone in the arrangement rather than in the colours.
+    /// The settings that are right for one are wrong for the other, which is
+    /// what {@link Deliverable::extension} and the WebM's pixel format both
+    /// turn on.
+    fn is_treated(&self) -> bool {
+        !matches!(self, Input::Source(_))
+    }
 }
 
 /// One of the three files PRD §8 promises.
@@ -103,10 +117,21 @@ impl Deliverable {
         }
     }
 
-    fn extension(self) -> &'static str {
+    /// What the file is called, which for the poster depends on what is in it.
+    ///
+    /// A treated poster is a PNG. JPEG's chroma subsampling is the same knife
+    /// that ruins the video — measured on a two-ink Bayer ramp, PNG comes back
+    /// pixel-exact at 24 KB where JPEG is 1.75 MB and still slightly wrong. A
+    /// dither is nearly the ideal case for PNG's filters and nearly the worst
+    /// case for a DCT, so this is smaller *and* correct, not a trade.
+    ///
+    /// Untreated posters stay JPEG: model output is photographic, and there
+    /// PNG would be several times the weight of the JPEG for no visible gain.
+    fn extension(self, treated: bool) -> &'static str {
         match self {
             Deliverable::Mp4 => "mp4",
             Deliverable::WebM => "webm",
+            Deliverable::Poster if treated => "png",
             Deliverable::Poster => "jpg",
         }
     }
@@ -214,8 +239,18 @@ pub fn plan(
                 "libx264",
                 "-profile:v",
                 "high",
+                // 4:2:0 even on a treated export, where it visibly ruins the
+                // dither. The faithful alternative is High 4:4:4 Predictive,
+                // which no browser decodes — so an MP4 in it would not be a
+                // better hero, it would be a file the page cannot play. The
+                // WebM below carries the honest version for everyone whose
+                // browser will take it; this stays the one that always plays.
                 "-pix_fmt",
                 "yuv420p",
+                // Left at the usual web setting on purpose. Measured on a
+                // two-ink dither, taking this from 23 to 12 moved the error by
+                // 0.2 of 255 and nearly doubled the file: the damage here is
+                // the chroma format, and no quality setting reaches it.
                 "-crf",
                 H264_CRF,
                 "-preset",
@@ -242,7 +277,7 @@ pub fn plan(
                 "-c:v",
                 "libvpx-vp9",
                 "-pix_fmt",
-                "yuv420p",
+                webm_pixel_format(input),
                 "-crf",
                 VP9_CRF,
                 "-b:v",
@@ -262,16 +297,38 @@ pub fn plan(
         // The first frame, and the first frame of the *forward* pass either way
         // — a ping-pong clip starts where the original does, so the poster is
         // the same picture whether or not rewind is on.
-        steps.push(step(
-            Deliverable::Poster,
-            input,
-            base_name,
-            false,
-            &["-frames:v", "1", "-q:v", POSTER_QUALITY, "-f", "image2"],
-        ));
+        //
+        // A PNG carries no quality knob: it is lossless, so the JPEG scale
+        // would be a setting with nothing to set.
+        let poster: &[&str] = if input.is_treated() {
+            &["-frames:v", "1", "-f", "image2"]
+        } else {
+            &["-frames:v", "1", "-q:v", POSTER_QUALITY, "-f", "image2"]
+        };
+
+        steps.push(step(Deliverable::Poster, input, base_name, false, poster));
     }
 
     Ok(Plan { steps })
+}
+
+/// What the WebM stores colour at.
+///
+/// 4:2:0 keeps one colour sample per four pixels, which is invisible on
+/// photographic output and fatal to a dither: two inks alternating pixel by
+/// pixel average into one wrong colour before the codec starts. Measured on a
+/// two-ink Bayer ramp, 4:2:0 leaves 21% of pixels anywhere near an ink and 4:4:4
+/// leaves 100%.
+///
+/// Only VP9 can be asked. It costs bytes — roughly double on that same ramp —
+/// which is why an untreated export does not pay it: there is nothing there
+/// that subsampling harms.
+fn webm_pixel_format(input: &Input) -> &'static str {
+    if input.is_treated() {
+        "yuv444p"
+    } else {
+        "yuv420p"
+    }
 }
 
 fn step(
@@ -284,7 +341,7 @@ fn step(
     let file_name = format!(
         "{base_name}{}.{}",
         deliverable.suffix(),
-        deliverable.extension()
+        deliverable.extension(input.is_treated())
     );
 
     let scaled = input.needs_scaling();
@@ -672,6 +729,91 @@ mod tests {
             );
             assert!(filters.contains("setsar=1"), "{:?}", step.deliverable);
         }
+    }
+
+    #[test]
+    fn the_webview_agrees_about_how_wide_a_deliverable_is() {
+        // The preview draws the pattern at the size the file will be, so it has
+        // to know this number, and asking Rust for a constant once per frame
+        // would be absurd. Mirrored means it can drift — and drift here is
+        // silent: the preview would simply show a pattern at a density the
+        // export does not have, which is the exact bug the mirroring is for.
+        let mirrored = include_str!("../../../src/lib/export/deliverables.ts");
+        let line = mirrored
+            .lines()
+            .find(|line| line.contains("MAX_EXPORT_WIDTH ="))
+            .expect("the mirrored width in deliverables.ts");
+
+        assert!(
+            line.contains(&MAX_WEB_WIDTH.to_string()),
+            "the webview caps exports at a different width: {line}"
+        );
+    }
+
+    #[test]
+    fn a_treated_webm_keeps_its_colour_at_full_resolution() {
+        // The bug this is here for: a two-ink dither through 4:2:0 averages
+        // into one wrong colour, because the inks differ in chroma and 4:2:0
+        // keeps one chroma sample per four pixels. Measured on a Bayer ramp,
+        // 21% of pixels landed near an ink at 4:2:0 against 100% at 4:4:4.
+        let treated = args_for(
+            &plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap(),
+            Deliverable::WebM,
+        );
+        assert!(treated.windows(2).any(|w| w == ["-pix_fmt", "yuv444p"]));
+
+        // Untreated output is photographic, where subsampling is invisible and
+        // 4:4:4 would be bytes for nothing.
+        let plain = args_for(
+            &plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap(),
+            Deliverable::WebM,
+        );
+        assert!(plain.windows(2).any(|w| w == ["-pix_fmt", "yuv420p"]));
+    }
+
+    #[test]
+    fn a_treated_mp4_stays_in_the_format_browsers_decode() {
+        // Deliberately *not* fixed the way the WebM is. H.264 at 4:4:4 means
+        // High 4:4:4 Predictive, which no browser decodes — the dither would
+        // survive into a file the landing page cannot play. This is the one
+        // deliverable that always plays, and it is allowed to be the soft one.
+        let args = args_for(
+            &plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap(),
+            Deliverable::Mp4,
+        );
+
+        assert!(args.windows(2).any(|w| w == ["-pix_fmt", "yuv420p"]));
+    }
+
+    #[test]
+    fn a_treated_poster_is_a_png_and_an_untreated_one_is_a_jpeg() {
+        // JPEG subsamples chroma exactly as 4:2:0 does. On a two-ink dither the
+        // PNG came back pixel-exact at 24 KB where the JPEG was 1.75 MB and
+        // still wrong — smaller *and* correct, which is why this is not a
+        // trade-off that needs a setting.
+        let treated = plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap();
+        let poster = treated
+            .steps
+            .iter()
+            .find(|step| step.deliverable == Deliverable::Poster)
+            .unwrap();
+
+        assert_eq!(poster.file_name, "hero-poster.png");
+        // A quality scale on a lossless format is a knob attached to nothing.
+        assert!(!poster.args.iter().any(|arg| arg == "-q:v"));
+
+        let plain = plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap();
+        let plain_poster = plain
+            .steps
+            .iter()
+            .find(|step| step.deliverable == Deliverable::Poster)
+            .unwrap();
+
+        assert_eq!(plain_poster.file_name, "hero-poster.jpg");
+        assert!(plain_poster
+            .args
+            .windows(2)
+            .any(|w| w == ["-q:v", POSTER_QUALITY]));
     }
 
     #[test]

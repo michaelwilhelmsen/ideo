@@ -103,9 +103,20 @@ export async function canvasPng(
   return new Uint8Array(await blob.arrayBuffer())
 }
 
-/** An image element, once it has actually decoded. */
+/**
+ * An image element, once it has actually decoded.
+ *
+ * `crossOrigin` before `src`, and it is not optional: the frame comes from the
+ * asset protocol, which is a different origin from the page, and an image
+ * fetched without asking for CORS is tainted whatever headers come back.
+ * WebGL refuses a tainted texture outright — `texImage2D` throws
+ * `SecurityError` rather than drawing something wrong — so every frame of
+ * every bake fails on upload. Setting it after `src` is the same bug, silently:
+ * the load has already started under the old mode.
+ */
 export async function loadImage(source: string): Promise<HTMLImageElement> {
   const image = new Image()
+  image.crossOrigin = 'anonymous'
   image.src = source
   await image.decode()
   return image

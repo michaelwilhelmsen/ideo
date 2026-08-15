@@ -341,6 +341,61 @@ describe('a treated candidate (#36)', () => {
     expect(exportGeneration).not.toHaveBeenCalled()
   })
 
+  it('shows the wait before the decode comes back, not after', async () => {
+    // `beginBake` is ffmpeg decoding every frame of the clip — seconds of it,
+    // and the frame count that drives the bar does not exist until it returns.
+    // A button waiting for that spends those seconds looking untouched, so the
+    // press reads as missed and the next one starts a second bake.
+    // Assigned by the executor below, which runs before this line returns.
+    let decoded!: () => void
+    vi.mocked(commands.beginBake).mockReturnValue(
+      new Promise(resolve => {
+        decoded = () =>
+          resolve({
+            status: 'ok',
+            data: {
+              id: 'bake-1',
+              frames: ['/tmp/f-000000.png'],
+              width: 1920,
+              height: 1080,
+              fps: null,
+            },
+          })
+      })
+    )
+
+    render(<ExportPanel project={treated()} stage="style" />)
+
+    const button = await screen.findByRole('button', { name: 'Export' })
+    await userEvent.setup().click(button)
+
+    // Still mid-decode: nothing has resolved, and the panel already says so.
+    expect(commands.beginBake).toHaveBeenCalledOnce()
+    expect(
+      await screen.findByRole('button', { name: 'Encoding…' })
+    ).toBeDisabled()
+    expect(screen.getByText(/Reading the clip/i)).toBeVisible()
+
+    decoded()
+  })
+
+  it('names the poster after the file it will actually write', async () => {
+    // A treated poster ships as PNG — JPEG subsamples chroma, which is what
+    // dissolves a two-ink dither. A box still saying JPEG would describe a file
+    // that is not the one landing in the folder.
+    render(<ExportPanel project={treated()} stage="style" />)
+
+    expect(await screen.findByLabelText('Poster (PNG)')).toBeInTheDocument()
+
+    // Off the treatment, it is a JPEG again: an untreated poster is
+    // photographic, where PNG is several times the weight for no visible gain.
+    await userEvent
+      .setup()
+      .click(screen.getByRole('switch', { name: /Bake in Halftone/ }))
+
+    expect(await screen.findByLabelText('Poster (JPEG)')).toBeInTheDocument()
+  })
+
   it('gives back the clean plate when the toggle is off', async () => {
     // "Hand the untreated image to someone else" is a real need, and without
     // the toggle the only way to get one would be to destroy the treatment.

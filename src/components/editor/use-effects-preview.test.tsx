@@ -20,7 +20,7 @@ import { useRef, useState } from 'react'
 import { render, screen } from '@/test/test-utils'
 import userEvent from '@testing-library/user-event'
 import { lookById, type EffectsLook } from '@/lib/effects'
-import { useEffectsPreview } from './use-effects-preview'
+import { sizeOf, useEffectsPreview } from './use-effects-preview'
 
 const dispose = vi.fn()
 const renderFrame = vi.fn()
@@ -179,5 +179,58 @@ describe('the preview’s WebGL context', () => {
     await settle()
 
     expect(createEffectsRenderer).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('how big to draw, and how big to show it', () => {
+  /** A source of a known size, without a decoder to produce one. */
+  function image(width: number, height: number): HTMLImageElement {
+    const element = new Image()
+    Object.defineProperty(element, 'naturalWidth', { value: width })
+    Object.defineProperty(element, 'naturalHeight', { value: height })
+    return element
+  }
+
+  /** A container of a known CSS width, without a layout engine. */
+  function box(width: number): HTMLDivElement {
+    const element = document.createElement('div')
+    Object.defineProperty(element, 'clientWidth', { value: width })
+    return element
+  }
+
+  it('draws in device pixels rather than CSS pixels', () => {
+    // The bug this is here for. A canvas sized from `clientWidth` is stretched
+    // across two device pixels on a retina display, so a halftone dot drawn one
+    // pixel wide lands on screen two wide — and the pattern the user tuned was
+    // half the density of the one written to the file.
+    const { render, display } = sizeOf(image(1920, 1080), box(600), false, 2)
+
+    expect(display).toEqual([600, 337.5])
+    expect(render).toEqual([1200, 675])
+  })
+
+  it('treats a display with no ratio as 1:1 rather than collapsing', () => {
+    const { render, display } = sizeOf(image(1920, 1080), box(600), false, 0)
+
+    expect(render).toEqual([600, 338])
+    expect(display).toEqual([600, 337.5])
+  })
+
+  it('makes 1:1 mean the file, not the source', () => {
+    // A model that returned 2560 wide ships at 1920, and a pattern previewed at
+    // 2560 is a density no deliverable will ever have.
+    const { render, display } = sizeOf(image(2560, 1440), box(600), true, 2)
+
+    expect(render).toEqual([1920, 1080])
+    // One drawn pixel per device pixel is half as many CSS pixels at 2×.
+    expect(display).toEqual([960, 540])
+  })
+
+  it('never previews wider than the file itself', () => {
+    // Past the export width there is no more pattern to show, only the same one
+    // enlarged — which would put the fit view back where this started.
+    const { render } = sizeOf(image(1920, 1080), box(1800), false, 2)
+
+    expect(render[0]).toBe(1920)
   })
 })

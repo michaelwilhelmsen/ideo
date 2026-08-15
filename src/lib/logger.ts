@@ -1,9 +1,18 @@
 /**
  * Simple logging utility for the frontend
  *
- * In development: logs to browser console
- * In production: can optionally send to Tauri backend for system logging
+ * Everything goes to the browser console in development. Warnings and errors
+ * also go to the log file Rust already writes, because the console can only be
+ * read by someone with devtools open at the time: a bake that failed an hour
+ * ago on someone else's machine has to have left something behind. Nothing
+ * below `warn` is forwarded — the file is for what is worth reading after the
+ * fact, not a transcript.
  */
+
+import {
+  warn as toFileWarn,
+  error as toFileError,
+} from '@tauri-apps/plugin-log'
 
 type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error'
 
@@ -69,13 +78,28 @@ class Logger {
       this.logToConsole(entry)
     }
 
-    // In production, you could optionally send logs to Tauri backend
-    // This is commented out to keep it simple, but here's how you might do it:
-    /*
-    if (!this.isDevelopment && (level === 'warn' || level === 'error')) {
-      this.logToBackend(entry)
+    if (level === 'warn' || level === 'error') {
+      this.logToFile(entry)
     }
-    */
+  }
+
+  /**
+   * Into the same file Rust logs to, one line, fire and forget.
+   *
+   * Never awaited and never allowed to throw: a log line failing to be written
+   * must not take down the thing it was reporting on, and every caller here is
+   * already in the middle of handling a problem.
+   */
+  private logToFile(entry: LogEntry): void {
+    const line = entry.context
+      ? `${entry.message} ${describe(entry.context)}`
+      : entry.message
+
+    const write = entry.level === 'warn' ? toFileWarn : toFileError
+    void write(line).catch(() => {
+      // Outside a webview — a test, or the plugin is gone. The console line
+      // above is what is left, and it is enough.
+    })
   }
 
   private logToConsole(entry: LogEntry): void {
@@ -102,22 +126,26 @@ class Logger {
         break
     }
   }
+}
 
-  /*
-  // Optional: Send logs to Tauri backend for system logging
-  private async logToBackend(entry: LogEntry): Promise<void> {
-    try {
-      await invoke('log_from_frontend', {
-        level: entry.level,
-        message: entry.message,
-        timestamp: entry.timestamp.toISOString(),
-        context: entry.context,
-      })
-    } catch (error) {
-      console.warn('Failed to send log to backend:', error)
-    }
+/**
+ * The context, as one line of text.
+ *
+ * `JSON.stringify` turns an `Error` into `{}` — name, message and stack are
+ * all non-enumerable — so the one thing worth logging is the one thing it
+ * drops. Errors are unwrapped by hand for that reason; anything unserializable
+ * is named rather than allowed to throw from inside a logger.
+ */
+function describe(context: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(context, (_key, value: unknown) =>
+      value instanceof Error
+        ? { name: value.name, message: value.message, stack: value.stack }
+        : value
+    )
+  } catch {
+    return '[context could not be serialized]'
   }
-  */
 }
 
 // Export a singleton logger instance

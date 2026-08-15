@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { bakeFrames, BakeCancelled, type BakeProgress } from './bake'
+import { bakeFrames, BakeCancelled, loadImage, type BakeProgress } from './bake'
 
 const SIZE = { width: 1920, height: 1080 }
 
@@ -130,5 +130,54 @@ describe('baking a sequence', () => {
 
     expect(it.stored).toEqual([0])
     expect(it.reports.at(-1)).toEqual({ done: 1, total: 1 })
+  })
+})
+
+describe('loading a frame to treat', () => {
+  it('asks for CORS before the load starts', async () => {
+    // The frames come from the asset protocol, which is a different origin
+    // from the page. Without this the image is tainted, and WebGL throws
+    // `SecurityError` from `texImage2D` rather than drawing anything — every
+    // frame of every bake, on upload. Order matters as much as the value:
+    // setting it after `src` leaves the load already running under no-cors.
+    const order: string[] = []
+
+    class Recording {
+      #crossOrigin: string | null = null
+      #src = ''
+
+      set crossOrigin(value: string | null) {
+        order.push(`crossOrigin=${value}`)
+        this.#crossOrigin = value
+      }
+      get crossOrigin(): string | null {
+        return this.#crossOrigin
+      }
+
+      set src(value: string) {
+        order.push(`src=${value}`)
+        this.#src = value
+      }
+      get src(): string {
+        return this.#src
+      }
+
+      decode(): Promise<void> {
+        return Promise.resolve()
+      }
+    }
+
+    vi.stubGlobal('Image', Recording)
+
+    try {
+      await loadImage('asset://localhost/frame.png')
+
+      expect(order).toEqual([
+        'crossOrigin=anonymous',
+        'src=asset://localhost/frame.png',
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

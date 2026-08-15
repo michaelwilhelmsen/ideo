@@ -126,6 +126,39 @@ export function rewindIsRedundant(
 }
 
 /**
+ * The widest a hero is ever delivered — `MAX_WEB_WIDTH` in `export/plan.rs`.
+ *
+ * Mirrored rather than fetched because the preview needs it every frame, and a
+ * command round trip per frame to learn a constant would be absurd. A Rust test
+ * reads this file and fails if the two numbers drift apart.
+ */
+export const MAX_EXPORT_WIDTH = 1920
+
+/**
+ * The size a deliverable ships at — `export_size` in `export/bake.rs`, in the
+ * one other place that has to know it.
+ *
+ * The preview needs this because a treatment's pattern is generated at the
+ * resolution it is drawn at: cell size is in output pixels, so the *only* zoom
+ * at which the screen shows the pattern the file will carry is the one that
+ * renders at the size the file will be. Anything else is a different picture,
+ * not a smaller one.
+ */
+export function exportSizeOf(
+  width: number,
+  height: number
+): readonly [number, number] {
+  const capped = Math.min(Math.max(Math.round(width), 2), MAX_EXPORT_WIDTH)
+  const scaled =
+    width <= 0 ? Math.round(height) : Math.round((height * capped) / width)
+
+  // Even on both axes, for the reason `-2` is in the filter graph: 4:2:0 chroma
+  // cannot express an odd number of rows, and an odd height is a hard encoder
+  // failure rather than a slightly wrong picture.
+  return [capped & ~1, Math.max(scaled, 2) & ~1]
+}
+
+/**
  * What the files are called, before the extension.
  *
  * Built from the project name and the candidate's own coordinates rather than

@@ -159,7 +159,14 @@ export function ExportPanel({
   const treatment = treatmentToBake(selected, library, project)
   const cleanPlate =
     plate !== null && plate.generationId === selected?.id ? plate.clean : false
-  const baking = bake.progress !== null
+  // Whether this click bakes, which decides both which path runs and what the
+  // poster is called: a treated poster ships as PNG, because a dither is the
+  // one thing JPEG is worst at and PNG is best at.
+  const bakes = treatment !== null && !cleanPlate
+  // From the click, not from the first frame: ffmpeg decodes the whole clip
+  // before there is a frame to report, and a button that waits for one spends
+  // those seconds looking like it was never pressed.
+  const baking = bake.running
 
   const blocked =
     medium === 'nothing'
@@ -202,7 +209,7 @@ export function ExportPanel({
     // Every deliverable carries the treatment or none of them do. A clean
     // poster advertising a dithered video is a lie about the file it
     // represents, and the poster is one more frame through the same shader.
-    if (treatment !== null && !cleanPlate) {
+    if (bakes && treatment !== null) {
       void bake.run({ request, ...treatment })
       return
     }
@@ -239,6 +246,14 @@ export function ExportPanel({
           <FormatBox
             key={deliverable}
             deliverable={deliverable}
+            // The box names the file it will actually write. A treated poster
+            // is a PNG, and a checkbox still saying JPEG would be the panel
+            // describing a file that is not the one landing in the folder.
+            labelKey={
+              deliverable === 'poster' && bakes
+                ? 'export.format.posterPng'
+                : `export.format.${deliverable}`
+            }
             checked={formats[deliverable]}
             disabled={!possible[deliverable]}
             onChange={next =>
@@ -309,6 +324,14 @@ export function ExportPanel({
             : t('export.action')}
         </Button>
 
+        {/* The decode, which is ffmpeg and not us, and which owns the seconds
+            between the click and the first frame. Said rather than left blank:
+            a determinate bar cannot start until the frame count exists, and an
+            empty gap under a working button reads as a hang. */}
+        {baking && bake.progress === null && (
+          <FieldDescription>{t('export.preparing')}</FieldDescription>
+        )}
+
         {/* Determinate, and honestly so: the frame count is known before the
             first frame. Nothing else in this app can say a percentage without
             making one up. */}
@@ -371,11 +394,13 @@ export function ExportPanel({
  */
 function FormatBox({
   deliverable,
+  labelKey,
   checked,
   disabled,
   onChange,
 }: {
   deliverable: Deliverable
+  labelKey: string
   checked: boolean
   disabled: boolean
   onChange: (next: boolean) => void
@@ -394,7 +419,7 @@ function FormatBox({
         }}
       />
       <Label htmlFor={id} className={disabled ? 'opacity-60' : undefined}>
-        {t(`export.format.${deliverable}`)}
+        {t(labelKey)}
       </Label>
     </div>
   )

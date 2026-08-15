@@ -427,4 +427,23 @@ mod tests {
         // Sweeping a root that is not there is not a failure.
         sweep(app_data.path());
     }
+
+    #[test]
+    fn the_scratch_folder_is_readable_by_the_webview() {
+        // The frames this module decodes are loaded back through the asset
+        // protocol, which serves nothing outside its configured scope. That
+        // scope lives in a JSON file no compiler checks against this constant,
+        // and when the two disagree every clip bake dies on the first frame
+        // with a message about ffmpeg — so the disagreement is caught here.
+        let config = include_str!("../../tauri.conf.json");
+        let scope = config
+            .lines()
+            .find(|line| line.contains("$APPDATA/"))
+            .expect("the asset protocol scope");
+
+        assert!(
+            scope.contains(&format!("$APPDATA/{BAKES_DIR}/**")),
+            "the bake scratch folder is not in the asset protocol scope: {scope}"
+        );
+    }
 }
