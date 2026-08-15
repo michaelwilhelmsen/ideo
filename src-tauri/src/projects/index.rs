@@ -21,7 +21,7 @@ use super::store::{self, ProjectSummary};
 /// Bumped when the columns change. The whole table is a cache, so an
 /// unrecognised schema is dropped rather than migrated — the manifests it was
 /// summarising have not moved.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
@@ -51,13 +51,19 @@ fn prepare(connection: &Connection) -> Result<(), String> {
     connection
         .execute(
             "CREATE TABLE IF NOT EXISTS projects (
-                id               TEXT PRIMARY KEY,
-                name             TEXT NOT NULL,
-                aspect           TEXT NOT NULL,
-                created_at       INTEGER NOT NULL,
-                updated_at       INTEGER NOT NULL,
-                generation_count INTEGER NOT NULL,
-                directory        TEXT NOT NULL
+                id                 TEXT PRIMARY KEY,
+                name               TEXT NOT NULL,
+                aspect             TEXT NOT NULL,
+                created_at         INTEGER NOT NULL,
+                updated_at         INTEGER NOT NULL,
+                generation_count   INTEGER NOT NULL,
+                directory          TEXT NOT NULL,
+                latest_activity_at INTEGER NOT NULL,
+                thumbnail          TEXT,
+                thumbnail_asset    TEXT,
+                thumbnail_is_video INTEGER NOT NULL,
+                cost_usd           REAL NOT NULL,
+                uncosted_count     INTEGER NOT NULL
             )",
             [],
         )
@@ -73,15 +79,25 @@ fn prepare(connection: &Connection) -> Result<(), String> {
 pub fn upsert(connection: &Connection, summary: &ProjectSummary) -> Result<(), String> {
     connection
         .execute(
-            "INSERT INTO projects (id, name, aspect, created_at, updated_at, generation_count, directory)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO projects (
+                id, name, aspect, created_at, updated_at, generation_count, directory,
+                latest_activity_at, thumbnail, thumbnail_asset, thumbnail_is_video,
+                cost_usd, uncosted_count
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 aspect = excluded.aspect,
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
                 generation_count = excluded.generation_count,
-                directory = excluded.directory",
+                directory = excluded.directory,
+                latest_activity_at = excluded.latest_activity_at,
+                thumbnail = excluded.thumbnail,
+                thumbnail_asset = excluded.thumbnail_asset,
+                thumbnail_is_video = excluded.thumbnail_is_video,
+                cost_usd = excluded.cost_usd,
+                uncosted_count = excluded.uncosted_count",
             params![
                 summary.id,
                 summary.name,
@@ -90,6 +106,12 @@ pub fn upsert(connection: &Connection, summary: &ProjectSummary) -> Result<(), S
                 summary.updated_at as i64,
                 summary.generation_count,
                 summary.directory,
+                summary.latest_activity_at as i64,
+                summary.thumbnail,
+                summary.thumbnail_asset,
+                summary.thumbnail_is_video,
+                summary.cost_usd,
+                summary.uncosted_count,
             ],
         )
         .map(|_| ())
@@ -103,12 +125,17 @@ pub fn remove(connection: &Connection, id: &str) -> Result<(), String> {
         .map_err(|e| format!("Could not un-index the project: {e}"))
 }
 
-/// The project list, most recently touched first.
+/// The project list, most recently *worked in* first.
+///
+/// Ordered by the newest generation rather than by the manifest's timestamp
+/// (ADR 0004): the overview is a grid of work, and a rename is not work.
 pub fn list(connection: &Connection) -> Result<Vec<ProjectSummary>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT id, name, aspect, created_at, updated_at, generation_count, directory
-             FROM projects ORDER BY updated_at DESC",
+            "SELECT id, name, aspect, created_at, updated_at, generation_count, directory,
+                    latest_activity_at, thumbnail, thumbnail_asset, thumbnail_is_video,
+                    cost_usd, uncosted_count
+             FROM projects ORDER BY latest_activity_at DESC, id ASC",
         )
         .map_err(|e| format!("Could not read the project index: {e}"))?;
 
@@ -122,6 +149,12 @@ pub fn list(connection: &Connection) -> Result<Vec<ProjectSummary>, String> {
                 updated_at: row.get::<_, i64>(4)? as f64,
                 generation_count: row.get(5)?,
                 directory: row.get(6)?,
+                latest_activity_at: row.get::<_, i64>(7)? as f64,
+                thumbnail: row.get(8)?,
+                thumbnail_asset: row.get(9)?,
+                thumbnail_is_video: row.get(10)?,
+                cost_usd: row.get(11)?,
+                uncosted_count: row.get(12)?,
             })
         })
         .map_err(|e| format!("Could not read the project index: {e}"))?;
@@ -184,6 +217,18 @@ mod tests {
             "selection": {},
             "generations": [],
         })
+    }
+
+    /// The same manifest, with one generation dated so the overview can order
+    /// on it.
+    fn worked_on(id: &str, name: &str, generation_at: i64) -> serde_json::Value {
+        let mut document = manifest(id, name, 1_700_000_000_000);
+        document["generations"] = json!([{
+            "id": format!("{id}-gen-1"),
+            "verdict": "unrated",
+            "createdAt": generation_at,
+        }]);
+        document
     }
 
     /// A library on disk, and an index next to it.
@@ -265,6 +310,35 @@ mod tests {
             .map(|s| s.id)
             .collect();
         assert_eq!(listed, vec!["atlas"]);
+    }
+
+    #[test]
+    fn the_overview_is_ordered_by_work_rather_than_by_the_manifests_timestamp() {
+        // #55 — a rename writes the manifest, and sorting on that would put a
+        // rename at the front of a grid whose whole subject is generations.
+        let root = TempDir::new().unwrap();
+        store::save(root.path(), &worked_on("atlas", "Atlas", 1_700_000_000_100)).unwrap();
+        store::save(
+            root.path(),
+            &worked_on("ledger", "Ledger", 1_700_000_000_900),
+        )
+        .unwrap();
+        let connection = open(&root.path().join("index.sqlite")).unwrap();
+        reconcile(&connection, root.path()).unwrap();
+
+        // Rename the older one, which writes it with the newest `updatedAt` in
+        // the library.
+        let mut renamed = worked_on("atlas", "Atlas, renamed", 1_700_000_000_100);
+        renamed["updatedAt"] = json!(1_800_000_000_000_i64);
+        store::save(root.path(), &renamed).unwrap();
+        reconcile(&connection, root.path()).unwrap();
+
+        let listed: Vec<String> = list(&connection)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(listed, vec!["ledger", "atlas"]);
     }
 
     #[test]

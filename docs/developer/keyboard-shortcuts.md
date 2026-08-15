@@ -8,7 +8,7 @@ Centralized keyboard shortcut management using native DOM event listeners.
 | -------------------- | ----- | ------------- | --------------------- |
 | Open Preferences     | Cmd+, | Ctrl+,        | Opens settings dialog |
 | Command Palette      | Cmd+K | Ctrl+K        | Opens command search  |
-| Toggle Left Sidebar  | Cmd+1 | Ctrl+1        | Show/hide left panel  |
+| Overview             | Cmd+1 | Ctrl+1        | Back to the overview  |
 | Toggle Right Sidebar | Cmd+2 | Ctrl+2        | Show/hide right panel |
 
 ## Architecture
@@ -30,9 +30,7 @@ export function useMainWindowEventListeners() {
           }
           case '1': {
             e.preventDefault()
-            const { leftSidebarVisible, setLeftSidebarVisible } =
-              useUIStore.getState()
-            setLeftSidebarVisible(!leftSidebarVisible)
+            useUIStore.getState().setView('overview')
             break
           }
         }

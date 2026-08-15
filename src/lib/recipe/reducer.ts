@@ -23,6 +23,7 @@ import {
   loopsOnEndFrame,
   modelById,
   reconcileParams,
+  stampedCost,
   type ModelCapabilities,
 } from './registry'
 import {
@@ -88,6 +89,17 @@ export interface CompletedRun {
    * the grouping.
    */
   readonly runId: string | null
+  /**
+   * What it cost, in USD, or `null` when there is nothing honest to say
+   * (ADR 0003).
+   *
+   * A fact carried in rather than derived here, like `seed` and `asset`, and
+   * for the same reason: the reducer mints nothing. Estimating needs the model
+   * registry and the project's ratio, which is the collector's business.
+   */
+  readonly costUsd: number | null
+  /** fal's id for the call, kept before claiming destroys it (ADR 0003). */
+  readonly requestId: string | null
 }
 
 /** The editor with nothing open — where the app now starts. */
@@ -658,6 +670,13 @@ export function createEditorReducer(
                   seed: null,
                   asset: action.asset,
                   runId: null,
+                  // Nobody was charged for a file the user already had. Zero
+                  // rather than `null`: this is a known cost, and counting it
+                  // among the unknowns would put a permanent asterisk on the
+                  // total of every project holding an upload.
+                  costUsd: 0,
+                  // Nothing was submitted, so there is nothing to reconcile.
+                  requestId: null,
                 },
               ],
               action.at,
@@ -916,6 +935,13 @@ function runStage(
       ordinal: ordinal++,
       asset: run.asset,
       runId: run.runId,
+      // Stamped from the registry as it reads today (ADR 0003), the same way
+      // a collected job's is — a fixture-driven candidate and a paid one have
+      // to price identically, or the overview's total would depend on which
+      // path produced the work.
+      costUsd: stampedCost(registry, project.aspect, frozen),
+      // A fixture stage makes no call, so there is nothing to reconcile.
+      requestId: null,
       // Untreated until somebody opens the effects tab on it (#36).
       treatment: null,
     }
@@ -1159,6 +1185,8 @@ export function withCollectedGenerations(
       ordinal,
       asset: entry.asset,
       runId: entry.runId,
+      costUsd: entry.costUsd,
+      requestId: entry.requestId,
       treatment: null,
     }
   })

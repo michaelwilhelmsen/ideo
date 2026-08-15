@@ -17,6 +17,7 @@ import type {
   PixelSize,
   StageKind,
   StageParams,
+  StageRecipe,
 } from './types'
 
 /**
@@ -547,6 +548,37 @@ export function estimateCost(
       return price.amount * seconds * basis.batch
     }
   }
+}
+
+/**
+ * What one finished candidate cost, from the recipe that produced it
+ * (ADR 0003).
+ *
+ * The submit-time counterpart of {@link estimateCost}, at a batch of one: a
+ * candidate is one call, whatever else was submitted alongside it. Separate
+ * from the estimate the button shows because that one answers "what is this
+ * click about to cost" from a draft, and this one answers "what did this cost"
+ * from a fact — and only the second is stamped onto the record.
+ *
+ * `null` when there is nothing honest to say: a model the registry no longer
+ * lists, a token-priced one, or a recipe this build cannot read. Never a
+ * guessed zero — a project's total has to be able to say some of it is unknown.
+ */
+export function stampedCost(
+  registry: readonly ModelCapabilities[],
+  aspect: AspectId,
+  recipe: StageRecipe
+): number | null {
+  const model = registry.find(entry => entry.id === recipe.modelId)
+  if (model === undefined) return null
+
+  const chosen = recipe.params[model.durationParam ?? '']
+
+  return estimateCost(model, {
+    aspect,
+    batch: 1,
+    duration: chosen === undefined ? undefined : String(chosen),
+  })
 }
 
 /**

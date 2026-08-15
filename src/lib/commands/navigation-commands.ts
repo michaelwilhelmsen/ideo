@@ -1,38 +1,30 @@
-import { Sidebar, PanelRight, Settings } from 'lucide-react'
+import { LayoutGrid, PanelRight, Settings } from 'lucide-react'
 import { useUIStore } from '@/store/ui-store'
 import type { AppCommand } from './types'
 
 export const navigationCommands: AppCommand[] = [
+  /**
+   * Back to the front door (#55).
+   *
+   * What used to be here was a pair of commands for showing and hiding the
+   * project list. The list is gone: projects are now managed on the overview,
+   * and the way to another project is to go there rather than to reveal a panel
+   * beside the one you are in.
+   */
   {
-    id: 'show-left-sidebar',
-    labelKey: 'commands.showLeftSidebar.label',
-    descriptionKey: 'commands.showLeftSidebar.description',
-    icon: Sidebar,
+    id: 'show-overview',
+    labelKey: 'commands.showOverview.label',
+    descriptionKey: 'commands.showOverview.description',
+    icon: LayoutGrid,
     group: 'navigation',
     shortcut: '⌘+1',
-    keywords: ['sidebar', 'left', 'panel', 'show'],
+    keywords: ['overview', 'projects', 'library', 'home', 'back'],
 
     execute: () => {
-      useUIStore.getState().setLeftSidebarVisible(true)
+      useUIStore.getState().setView('overview')
     },
 
-    isAvailable: () => !useUIStore.getState().leftSidebarVisible,
-  },
-
-  {
-    id: 'hide-left-sidebar',
-    labelKey: 'commands.hideLeftSidebar.label',
-    descriptionKey: 'commands.hideLeftSidebar.description',
-    icon: Sidebar,
-    group: 'navigation',
-    shortcut: '⌘+1',
-    keywords: ['sidebar', 'left', 'panel', 'hide'],
-
-    execute: () => {
-      useUIStore.getState().setLeftSidebarVisible(false)
-    },
-
-    isAvailable: () => useUIStore.getState().leftSidebarVisible,
+    isAvailable: () => useUIStore.getState().view !== 'overview',
   },
 
   {

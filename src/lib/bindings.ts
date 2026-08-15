@@ -114,6 +114,36 @@ async finishedJobs(projectId: string) : Promise<Result<Job[], string>> {
 }
 },
 /**
+ * What the whole library has in flight (ADR 0002).
+ * 
+ * The overview's cards cover projects nobody has open, and a card that could
+ * only see the open project's work would mark the wrong projects as busy.
+ */
+async activeJobsEverywhere() : Promise<Result<Job[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("active_jobs_everywhere") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Every finished job across the library, waiting to be written into whichever
+ * manifest it belongs to.
+ * 
+ * Collection stopped being bound to the open project (ADR 0002): a result is
+ * paid for whether or not anyone is looking at it, and the point of a front
+ * door is watching work arrive.
+ */
+async finishedJobsEverywhere() : Promise<Result<Job[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("finished_jobs_everywhere") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Takes a collected job off the books.
  * 
  * Called after the manifest has been written, never before: the row is the
@@ -144,7 +174,7 @@ async cancelJob(requestId: string) : Promise<Result<null, string>> {
 }
 },
 /**
- * The project list (PRD §10's left sidebar).
+ * The project list — the overview's grid of cards (#55).
  * 
  * Reconciles first, so a deleted database, a project restored from a backup
  * and a folder copied in by hand all show up as simply "the projects".
@@ -237,6 +267,26 @@ async cleanupUnusedAssets(projectId: string) : Promise<Result<CleanupOutcome, st
 async importSourceImage(projectId: string, generationId: string, sourcePath: string) : Promise<Result<ImportedImage, ImportError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("import_source_image", { projectId, generationId, sourcePath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Files the poster the webview drew for a clip (ADR 0004).
+ * 
+ * The one thumbnail Rust cannot make for itself. Capturing a frame needs a
+ * decoder, and the webview already has one — the alternative is an
+ * ffmpeg-class dependency for a single frame.
+ * 
+ * The bytes cross as bytes, the way a baked frame does (`write_baked_frame`),
+ * and they are decoded and re-encoded before being filed: a card picture that
+ * is not an image would survive every rebuild, since the file being there is
+ * what tells the next listing there is nothing to do.
+ */
+async saveVideoPoster(projectId: string, asset: string, poster: number[]) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_video_poster", { projectId, asset, poster }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1215,7 +1265,51 @@ createdAt: number; updatedAt: number; generationCount: number;
  * Where the manifest was found. Not stored in the manifest: a copied
  * folder must not insist it still lives where it was copied from.
  */
-directory: string }
+directory: string; 
+/**
+ * When this project last actually produced something — the newest
+ * generation's creation time, falling back to the project's own.
+ * 
+ * Deliberately **not** `updated_at` (ADR 0004). The overview is ordered by
+ * this, and renaming a project writes the manifest: sorting on the file's
+ * timestamp would put a rename at the front of a grid whose whole subject
+ * is work.
+ */
+latestActivityAt: number; 
+/**
+ * The card's picture, as a bare name inside `assets` — never a path, for
+ * the reason a generation's asset is not one (PRD §3.2).
+ * 
+ * `None` while a project has nothing to show, or while a clip is waiting
+ * for the webview to draw its poster.
+ */
+thumbnail: string | null; 
+/**
+ * The generation's own file, which the card's thumbnail was made from.
+ * 
+ * Carried because a card with no poster and a video here is precisely the
+ * case the webview has to capture a frame from (ADR 0004).
+ */
+thumbnailAsset: string | null; 
+/**
+ * Whether that file is a clip — a card shows a play affordance rather than
+ * an autoplaying element (ADR 0004).
+ */
+thumbnailIsVideo: boolean; 
+/**
+ * What the project has cost, in USD, as far as anything can tell.
+ * 
+ * A sum of the per-generation estimates stamped at collection (ADR 0003).
+ * Approximate by construction until reconciliation against fal lands, and
+ * labelled that way wherever it is shown.
+ */
+costUsd: number; 
+/**
+ * Generations carrying no cost at all — token-priced models, and anything
+ * recorded before costs were stamped. Named rather than folded into the
+ * sum, so "unknown" and "free" never look the same (ADR 0003).
+ */
+uncostedCount: number }
 /**
  * What a project costs on disk, and how much of that nothing refers to
  * (PRD §10.3 — the visible pressure valve).

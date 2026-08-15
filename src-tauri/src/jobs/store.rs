@@ -267,6 +267,30 @@ pub fn for_project(
         .map_err(|e| format!("Could not read a job row: {e}"))
 }
 
+/// Every job in one state, whatever project it belongs to (ADR 0002).
+///
+/// The overview watches the whole library at once: a card that only knew what
+/// was running in the project you happen to have open would be a status readout
+/// for one project and a lie about the rest. Same order as [`for_project`], so
+/// a batch numbers its candidates identically whichever query found it.
+pub fn with_status(connection: &Connection, status: JobStatus) -> Result<Vec<Job>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT request_id, project_id, generation_id, stage, recipe, model_id,
+                    status, seed, asset, submitted_at
+             FROM jobs WHERE status = ?1
+             ORDER BY submitted_at ASC, request_id ASC",
+        )
+        .map_err(|e| format!("Could not read the job store: {e}"))?;
+
+    let rows = statement
+        .query_map(params![status.as_str()], read_job)
+        .map_err(|e| format!("Could not read the job store: {e}"))?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Could not read a job row: {e}"))
+}
+
 /// Every job still owed a result, whatever project it belongs to — what a
 /// relaunch picks up.
 ///
@@ -597,6 +621,28 @@ mod tests {
 
         assert_eq!(atlas.len(), 1);
         assert_eq!(atlas[0].project_id, "atlas");
+    }
+
+    #[test]
+    fn the_whole_library_can_be_asked_what_is_running() {
+        // ADR 0002: the overview's cards cover projects that are not open, so
+        // "what is in flight" stopped being a question about one project.
+        let connection = store();
+        submit(&connection, "req-1", "atlas", 1.0);
+        submit(&connection, "req-2", "ledger", 2.0);
+        submit(&connection, "req-3", "atlas", 3.0);
+        finish(&connection, "req-3", "gen-req-3.jpeg", None).unwrap();
+
+        let running = with_status(&connection, JobStatus::Running).unwrap();
+
+        let ids: Vec<&str> = running.iter().map(|job| job.request_id.as_str()).collect();
+        assert_eq!(ids, vec!["req-1", "req-2"]);
+        assert_eq!(
+            with_status(&connection, JobStatus::Completed)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

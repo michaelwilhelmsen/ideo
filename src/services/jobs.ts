@@ -26,13 +26,17 @@ import i18n from '@/i18n/config'
 import { generationErrorMessage } from '@/components/editor/errors'
 import { logger } from '@/lib/logger'
 import {
+  isAspectId,
   isStageKind,
   mintRunId,
+  MODEL_REGISTRY,
   readRecipe,
   runIdForGeneration,
+  stampedCost,
   STAGE_ORDER,
   stagesWithoutSelection,
   withCollectedGenerations,
+  type AspectId,
   type CompletedRun,
   type StageKind,
   type StageRecipe,
@@ -48,7 +52,7 @@ import {
   type SubmittedJob,
 } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
-import { openProjectById, saveProject } from './projects'
+import { openProjectById, projectKeys, saveProject } from './projects'
 
 /** Both match `src-tauri/src/jobs/runner.rs`. */
 const PROGRESS_EVENT = 'generation-progress'
@@ -73,6 +77,8 @@ const SESSION_STARTED_AT = Date.now()
 export const jobKeys = {
   all: ['jobs'] as const,
   active: (projectId: string) => [...jobKeys.all, projectId, 'active'] as const,
+  /** Every project's running jobs — what the overview watches (ADR 0002). */
+  everywhere: () => [...jobKeys.all, 'everywhere'] as const,
 }
 
 /** What Rust needs to put one generation on the queue. */
@@ -167,6 +173,78 @@ export function useActiveJobs(projectId: string | null) {
     refetchInterval: query =>
       (query.state.data?.length ?? 0) > 0 ? SWEEP_INTERVAL_MS : false,
   })
+}
+
+/**
+ * What the whole library has in flight, by project (ADR 0002).
+ *
+ * The overview's unit is the project, so this is folded to a count per project
+ * rather than handed over as a list: a card says "three running", and nothing
+ * on the overview cares which three.
+ *
+ * Polled unconditionally rather than only while something is running, unlike
+ * {@link useActiveJobs}: the front door's whole job is noticing work that
+ * started somewhere else, and "nothing is running" is exactly the state a new
+ * arrival changes.
+ */
+export function useRunningEverywhere(): ReadonlyMap<string, number> {
+  const { data } = useQuery({
+    queryKey: jobKeys.everywhere(),
+    queryFn: async (): Promise<readonly Job[]> => {
+      const result = await commands.activeJobsEverywhere()
+      if (result.status === 'error') throw new Error(result.error)
+      return result.data
+    },
+    refetchInterval: SWEEP_INTERVAL_MS,
+  })
+
+  const running = new Map<string, number>()
+  for (const job of data ?? []) {
+    running.set(job.projectId, (running.get(job.projectId) ?? 0) + 1)
+  }
+  return running
+}
+
+/**
+ * Collects results for every project that has one waiting, open or not
+ * (ADR 0002).
+ *
+ * The rule used to be "collection happens on open". A card that only refreshed
+ * when you navigated into its project would be a status readout rather than an
+ * arrival, so the rule is now "on open **and** while the overview is up".
+ *
+ * Mount it on the overview only, and nowhere else — mounting *is* the switch,
+ * which is why there is no flag to pass. The widening ADR 0002 allowed is a
+ * view writing to manifests of projects nobody is looking at; extending it
+ * anywhere else is another decision, not a refactor.
+ */
+export function useOverviewCollection(): void {
+  const queryClient = useQueryClient()
+  const { data: finished } = useQuery({
+    queryKey: [...jobKeys.all, 'finished', 'everywhere'] as const,
+    queryFn: async (): Promise<readonly Job[]> => {
+      const result = await commands.finishedJobsEverywhere()
+      if (result.status === 'error') throw new Error(result.error)
+      return result.data
+    },
+    refetchInterval: SWEEP_INTERVAL_MS,
+  })
+
+  useEffect(() => {
+    if (finished === undefined || finished.length === 0) return
+
+    const projectIds = [...new Set(finished.map(job => job.projectId))]
+
+    Promise.all(projectIds.map(collectFinished))
+      .then(async () => {
+        // The card's picture, date and cost all come off the index, and a
+        // collection is the only thing that moves them.
+        await queryClient.invalidateQueries({ queryKey: projectKeys.list() })
+      })
+      .catch((error: unknown) => {
+        logger.warn('Could not collect from the overview', { error })
+      })
+  }, [finished, queryClient])
 }
 
 /**
@@ -416,6 +494,30 @@ function useSettledJobs(): void {
   }, [queryClient])
 }
 
+/**
+ * The ratio a project was created at, for pricing a candidate that has landed.
+ *
+ * From the index rather than the manifest, because this runs for projects
+ * nobody has open and reading one back off disk to price a generation would be
+ * a file read per arrival.
+ *
+ * `null` rather than a default when nothing knows the ratio yet. A guess would
+ * be stamped onto the record permanently and read as a figure afterwards, and a
+ * megapixel-billed model's price is exactly what the ratio decides — ADR 0003's
+ * rule is that a cost nothing can establish is named as unknown rather than
+ * approximated into the total.
+ */
+function aspectOf(projectId: string): AspectId | null {
+  const open = useEditorStore.getState().state.project
+  if (open?.id === projectId) return open.aspect
+
+  const summary = useEditorStore
+    .getState()
+    .state.summaries.find(candidate => candidate.id === projectId)
+
+  return isAspectId(summary?.aspect) ? summary.aspect : null
+}
+
 /** Projects currently being collected, so two triggers do not race. */
 const collecting = new Set<string>()
 
@@ -444,8 +546,9 @@ export async function collectFinished(projectId: string): Promise<void> {
       adoptRuns(projectId, finished)
     }
 
+    const aspect = aspectOf(projectId)
     const entries = finished
-      .map(asCompletedRun)
+      .map(job => asCompletedRun(job, aspect))
       .filter((entry): entry is CompletedRun => entry !== null)
 
     // Nothing readable in the batch: claiming is how those rows stop being
@@ -537,8 +640,16 @@ async function record(
  * Dropped rather than thrown on, for the reason `readManifest` drops an
  * unreadable candidate: one job written by a newer build is not a reason to
  * withhold the rest of a batch the user paid for.
+ *
+ * The aspect ratio comes in rather than being read off the project, because a
+ * megapixel-billed model's price depends on the geometry it was asked for and
+ * this runs for projects nobody has open. `null` there means nothing knows it,
+ * and the candidate is recorded with an unknown cost rather than a guessed one.
  */
-function asCompletedRun(job: Job): CompletedRun | null {
+function asCompletedRun(
+  job: Job,
+  aspect: AspectId | null
+): CompletedRun | null {
   const recipe = readRecipe(job.recipe)
 
   if (recipe === null || !isStageKind(job.stage)) {
@@ -550,6 +661,15 @@ function asCompletedRun(job: Job): CompletedRun | null {
   }
 
   return {
+    // Stamped here, at collection, using the price table as it reads today
+    // (ADR 0003). Recomputing a project's total from the registry later would
+    // keep restating what old work costs *now*, and the overview has to be
+    // able to sum it without opening a manifest.
+    costUsd:
+      aspect === null ? null : stampedCost(MODEL_REGISTRY, aspect, recipe),
+    // Kept now because claiming this job is about to delete the only other
+    // copy, and fal's billing window is 90 days (ADR 0003).
+    requestId: job.requestId,
     id: job.generationId,
     stage: job.stage,
     recipe,

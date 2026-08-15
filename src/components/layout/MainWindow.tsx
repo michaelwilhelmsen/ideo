@@ -4,10 +4,9 @@ import {
   ResizableHandle,
 } from '@/components/ui/resizable'
 import { TitleBar } from '@/components/titlebar/TitleBar'
-import { LeftSideBar } from './LeftSideBar'
 import { RightSideBar } from './RightSideBar'
 import { MainWindowContent } from './MainWindowContent'
-import { ProjectList } from '@/components/editor/ProjectList'
+import { Overview } from '@/components/overview/Overview'
 import { StageEditor } from '@/components/editor/StageEditor'
 import { ActiveStageParameters } from '@/components/editor/ActiveStageParameters'
 import { CommandPalette } from '@/components/command-palette/CommandPalette'
@@ -22,23 +21,24 @@ import { useProjectLibrary } from '@/services/projects'
 import { cn } from '@/lib/utils'
 
 /**
- * Layout sizing configuration for resizable panels.
+ * Layout sizing configuration for the editor's resizable panels.
  * All values are percentages of total width.
- * Sidebar defaults + main default must equal 100.
+ *
+ * One sidebar since #55: the project list is gone, and the overview it was
+ * replaced by has no sidebars at all — it is a whole view rather than a panel
+ * beside one.
  */
 const LAYOUT = {
-  leftSidebar: { default: 20, min: 15, max: 40 },
   rightSidebar: { default: 20, min: 15, max: 40 },
   main: { min: 30 },
 } as const
 
 // Main content default is calculated to ensure totals sum to 100%
-const MAIN_CONTENT_DEFAULT =
-  100 - LAYOUT.leftSidebar.default - LAYOUT.rightSidebar.default
+const MAIN_CONTENT_DEFAULT = 100 - LAYOUT.rightSidebar.default
 
 export function MainWindow() {
   const { theme } = useTheme()
-  const leftSidebarVisible = useUIStore(state => state.leftSidebarVisible)
+  const view = useUIStore(state => state.view)
   const rightSidebarVisible = useUIStore(state => state.rightSidebarVisible)
 
   // Set up global event listeners (keyboard shortcuts, etc.)
@@ -56,43 +56,37 @@ export function MainWindow() {
     <div className="flex h-screen w-full flex-col overflow-hidden rounded-[var(--app-corner-radius)] bg-background">
       <TitleBar />
 
+      {/* The two views are mutually exclusive (#55): the sidebar belongs to
+          the editor, not to the front door, and a window showing both would be
+          a third layout nobody drew. */}
       <div className="flex flex-1 overflow-hidden">
-        <ResizablePanelGroup direction="horizontal">
-          <ResizablePanel
-            defaultSize={LAYOUT.leftSidebar.default}
-            minSize={LAYOUT.leftSidebar.min}
-            maxSize={LAYOUT.leftSidebar.max}
-            className={cn(!leftSidebarVisible && 'hidden')}
-          >
-            <LeftSideBar>
-              <ProjectList />
-            </LeftSideBar>
-          </ResizablePanel>
+        {view === 'overview' ? (
+          <Overview />
+        ) : (
+          <ResizablePanelGroup direction="horizontal">
+            <ResizablePanel
+              defaultSize={MAIN_CONTENT_DEFAULT}
+              minSize={LAYOUT.main.min}
+            >
+              <MainWindowContent>
+                <StageEditor />
+              </MainWindowContent>
+            </ResizablePanel>
 
-          <ResizableHandle className={cn(!leftSidebarVisible && 'hidden')} />
+            <ResizableHandle className={cn(!rightSidebarVisible && 'hidden')} />
 
-          <ResizablePanel
-            defaultSize={MAIN_CONTENT_DEFAULT}
-            minSize={LAYOUT.main.min}
-          >
-            <MainWindowContent>
-              <StageEditor />
-            </MainWindowContent>
-          </ResizablePanel>
-
-          <ResizableHandle className={cn(!rightSidebarVisible && 'hidden')} />
-
-          <ResizablePanel
-            defaultSize={LAYOUT.rightSidebar.default}
-            minSize={LAYOUT.rightSidebar.min}
-            maxSize={LAYOUT.rightSidebar.max}
-            className={cn(!rightSidebarVisible && 'hidden')}
-          >
-            <RightSideBar className="overflow-y-auto">
-              <ActiveStageParameters />
-            </RightSideBar>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+            <ResizablePanel
+              defaultSize={LAYOUT.rightSidebar.default}
+              minSize={LAYOUT.rightSidebar.min}
+              maxSize={LAYOUT.rightSidebar.max}
+              className={cn(!rightSidebarVisible && 'hidden')}
+            >
+              <RightSideBar className="overflow-y-auto">
+                <ActiveStageParameters />
+              </RightSideBar>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
       </div>
 
       {/* Global UI Components (hidden until triggered) */}

@@ -6,7 +6,7 @@
 
 ## Context
 
-The app has always shown cost as an *estimate*: a static price table, dated with
+The app has always shown cost as an _estimate_: a static price table, dated with
 the day each price was read, multiplied by the request's basis. It is presented
 honestly — a leading tilde, the word "approximate", and the verification date —
 and it exists to tell you what a click is about to cost before you make it.

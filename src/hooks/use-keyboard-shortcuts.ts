@@ -7,8 +7,8 @@ import type { CommandContext } from '@/lib/commands/types'
  *
  * Currently handles:
  * - Cmd/Ctrl+, : Open preferences
- * - Cmd/Ctrl+1 : Toggle left sidebar
- * - Cmd/Ctrl+2 : Toggle right sidebar
+ * - Cmd/Ctrl+1 : Back to the overview (#55)
+ * - Cmd/Ctrl+2 : Toggle the parameters panel
  */
 export function useKeyboardShortcuts(commandContext: CommandContext) {
   useEffect(() => {
@@ -22,9 +22,9 @@ export function useKeyboardShortcuts(commandContext: CommandContext) {
           }
           case '1': {
             e.preventDefault()
-            const { leftSidebarVisible, setLeftSidebarVisible } =
-              useUIStore.getState()
-            setLeftSidebarVisible(!leftSidebarVisible)
+            // One-way on purpose: the way *into* a project is clicking its
+            // card, which is a choice of project and not a toggle.
+            useUIStore.getState().setView('overview')
             break
           }
           case '2': {

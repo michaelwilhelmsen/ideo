@@ -21,6 +21,7 @@ import {
 } from '@/lib/recipe'
 import { commands, type Job, type JsonValue } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
+import { useUIStore } from '@/store/ui-store'
 import { collectFinished } from './jobs'
 
 /** A job the store was holding when the app started. */
@@ -60,6 +61,8 @@ async function openAtlas() {
     },
   })
 
+  // The app lands on the overview now (#55); these tests are about the editor.
+  useUIStore.setState({ view: 'editor' })
   render(<App />)
   await screen.findByRole('heading', { name: 'Atlas — hero' })
 }
@@ -104,6 +107,27 @@ describe('collecting work that survived a quit', () => {
       )
       expect(saved?.asset).toBe('gen-from-last-time.jpeg')
       expect(saved?.seed).toBe(1234)
+    })
+  })
+
+  it('records what the generation cost, and what fal called it', async () => {
+    // ADR 0003 — the estimate is stamped at collection, because prices drift
+    // and the overview has to sum a project without opening its manifest. The
+    // request id is kept at the same moment because claiming the job is about
+    // to delete the only other copy, and fal's billing window is 90 days.
+    vi.mocked(commands.finishedJobs).mockResolvedValue({
+      status: 'ok',
+      data: [finishedJob()],
+    })
+
+    await openAtlas()
+
+    await waitFor(() => {
+      const saved = lastSavedProject().generations.find(
+        generation => generation.id === 'gen-from-last-time'
+      )
+      expect(saved?.requestId).toBe('req-from-last-time')
+      expect(saved?.costUsd).toBeGreaterThan(0)
     })
   })
 
@@ -347,5 +371,60 @@ describe('a collected candidate remembers its run', () => {
       expect(commands.activeJobs).toHaveBeenCalled()
     })
     expect(useEditorStore.getState().state.runs).toHaveLength(0)
+  })
+})
+
+/**
+ * ADR 0002's new hazard, as an assertion.
+ *
+ * Collection used to happen on open, which meant one trigger. The overview
+ * collects for projects nobody has open, so the same result can now be reached
+ * twice at nearly the same moment — and a paid generation recorded twice is a
+ * duplicate the user has to reason about, in the one file that is the source of
+ * truth.
+ */
+describe('two triggers collecting the same result', () => {
+  beforeEach(() => {
+    useEditorStore.getState().reset()
+    vi.mocked(commands.saveProject).mockClear()
+    vi.mocked(commands.claimJob).mockClear()
+    vi.mocked(commands.loadProject).mockResolvedValue({
+      status: 'ok',
+      data: {
+        directory: '/tmp/projects/project-atlas',
+        manifest: writeManifest(ATLAS, 1) as unknown as JsonValue,
+      },
+    })
+    vi.mocked(commands.finishedJobs).mockResolvedValue({
+      status: 'ok',
+      data: [finishedJob()],
+    })
+  })
+
+  it('produces exactly one manifest entry', async () => {
+    // The overview and an opening project, at the same moment.
+    await Promise.all([collectFinished(ATLAS.id), collectFinished(ATLAS.id)])
+
+    const saved = vi
+      .mocked(commands.saveProject)
+      .mock.calls.map(call => readManifest(call[0]))
+
+    expect(saved.length).toBeGreaterThan(0)
+    for (const project of saved) {
+      expect(
+        project.generations.filter(
+          generation => generation.id === 'gen-from-last-time'
+        )
+      ).toHaveLength(1)
+    }
+  })
+
+  it('claims the job once, and only after it is on disk', async () => {
+    await Promise.all([collectFinished(ATLAS.id), collectFinished(ATLAS.id)])
+
+    expect(vi.mocked(commands.claimJob).mock.calls).toEqual([
+      ['req-from-last-time'],
+    ])
+    expect(vi.mocked(commands.saveProject)).toHaveBeenCalled()
   })
 })

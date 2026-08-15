@@ -295,6 +295,8 @@ describe('an upload survives the manifest (#27)', () => {
     stage: 'source',
     recipe: uploadRecipe('hero-plate.png'),
     treatment: null,
+    costUsd: 0,
+    requestId: null,
     seed: null,
     verdict: 'unrated',
     createdAt: 1_700_000_000,

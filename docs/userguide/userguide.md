@@ -13,7 +13,7 @@ Welcome! This guide covers the core features available in the app.
 | Command Palette | Cmd+K        | Ctrl+K        | Open command palette  |
 | Preferences     | Cmd+,        | Ctrl+,        | Open preferences      |
 | Quick Pane      | Configurable | Configurable  | Open quick entry pane |
-| Left Sidebar    | Cmd+1        | Ctrl+1        | Toggle left sidebar   |
+| Overview        | Cmd+1        | Ctrl+1        | Back to the overview  |
 | Right Sidebar   | Cmd+2        | Ctrl+2        | Toggle right sidebar  |
 
 ## Core Features
@@ -48,9 +48,9 @@ All menu items have keyboard shortcuts and are also available in the command pal
 ## Layout
 
 - **Title Bar**: Window controls and app title
-- **Left Sidebar**: Collapsible panel (Cmd+1)
-- **Main Content**: Primary app content
-- **Right Sidebar**: Collapsible panel (Cmd+2)
+- **Overview**: The grid of project cards the app opens on (Cmd+1)
+- **Main Content**: The stage editor for the open project
+- **Right Sidebar**: Collapsible parameters panel (Cmd+2)
 
 ## Updates
 

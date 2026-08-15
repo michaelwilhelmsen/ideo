@@ -8,3 +8,4 @@
 pub mod import;
 pub mod index;
 pub mod store;
+pub mod thumbnail;

@@ -39,5 +39,5 @@ natural design is precisely the inversion this ADR declines.
   before your first prompt — **remains**. This is the known cost. If it proves
   to be the real complaint, this ADR is the one to reopen, and reopening it
   means revisiting #23's model rather than adjusting a view.
-- Because creation stays explicit, the *New project* action needs a home on the
+- Because creation stays explicit, the _New project_ action needs a home on the
   overview once the sidebar that used to host it is gone.

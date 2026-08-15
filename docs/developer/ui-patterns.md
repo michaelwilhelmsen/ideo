@@ -221,9 +221,10 @@ Apply `data-tauri-drag-region` to elements that should drag the window (like tit
 src/components/
 ├── layout/           # App structure
 │   ├── MainWindow.tsx
-│   ├── LeftSideBar.tsx
 │   ├── RightSideBar.tsx
 │   └── MainWindowContent.tsx
+├── overview/         # The front door — project cards (#55)
+├── editor/           # The stage editor for the open project
 ├── titlebar/         # Window chrome
 │   ├── TitleBar.tsx
 │   ├── MacOSWindowControls.tsx
@@ -443,7 +444,7 @@ interface SideBarProps {
   className?: string
 }
 
-export function LeftSideBar({ children, className }: SideBarProps) {
+export function RightSideBar({ children, className }: SideBarProps) {
   return (
     <div className={cn('flex flex-col h-full overflow-hidden', className)}>
       {children}
@@ -454,7 +455,10 @@ export function LeftSideBar({ children, className }: SideBarProps) {
 
 ### Visibility with CSS
 
-For panels that toggle visibility, prefer CSS over conditional rendering:
+For **panels that toggle** within a view, prefer CSS over conditional rendering.
+This does not apply to swapping one whole view for another — the overview and
+the editor are mutually exclusive (#55), and keeping the hidden one mounted
+would leave it polling and collecting behind the one on screen:
 
 ```tsx
 // Good: Preserves component state
@@ -469,6 +473,14 @@ For panels that toggle visibility, prefer CSS over conditional rendering:
 ```
 
 This preserves scroll position, form state, and resize dimensions.
+
+```tsx
+// Also good: a whole-view swap, where there is no state worth preserving and
+// the hidden view would keep doing work.
+{
+  view === 'overview' ? <Overview /> : <Editor />
+}
+```
 
 ## Best Practices
 

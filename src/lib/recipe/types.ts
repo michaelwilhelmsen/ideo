@@ -198,6 +198,41 @@ export interface Generation {
    */
   readonly asset: string | null
   /**
+   * What this generation cost, in USD — the estimate as the price table read
+   * on the day it was collected (ADR 0003).
+   *
+   * Stamped rather than derived, and that is the whole point: prices drift, and
+   * a project's total recomputed from today's table would keep restating what
+   * last year's work costs *now*. It also has to be a field the index can sum
+   * without a model registry, since the overview must not parse every manifest
+   * to draw a grid of cards.
+   *
+   * `null` is a real answer and not a gap: a token-priced model has no
+   * per-image number, an imported image cost nothing to make, and a candidate
+   * recorded before this field existed has none. Those are counted and named
+   * separately rather than summed as zero — "unknown" and "free" must not look
+   * the same.
+   *
+   * An estimate for now. ADR 0003's second half replaces it with fal's actual
+   * charge, per generation, which is why this is a number on the record rather
+   * than something recomputed at read time.
+   */
+  readonly costUsd: number | null
+  /**
+   * fal's own id for the call that produced this, or `null` when there was no
+   * call — an imported image, or a fixture-driven candidate.
+   *
+   * Persisted here because it is about to be destroyed everywhere else:
+   * `request_id` lives on the job row, and claiming a collected job takes that
+   * row off the books (ADR 0003). It is the only thing fal's billing events can
+   * be joined on, and their window is 90 days — so a generation collected
+   * without it is permanently unreconcilable, whatever lands later.
+   *
+   * Nothing reads it yet. That is the point: the value has to be kept at the
+   * one moment it exists, not at the moment something wants it.
+   */
+  readonly requestId: string | null
+  /**
    * The effect applied to this candidate, or `null` for an untreated one (#36).
    *
    * One treatment per generation. Several treatments of one frame, held side by

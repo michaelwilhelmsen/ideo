@@ -67,6 +67,9 @@ function generation(
     runId,
     createdAt: T0 + minutes * MINUTE,
     recipe: stageRecipe,
+    // A fixture was never charged for, and a known zero is not an unknown.
+    costUsd: 0,
+    requestId: null,
     // No file behind a fixture — which is also the state of a real generation
     // whose stage has no model call yet, so nothing special-cases it.
     asset: null,
@@ -297,6 +300,13 @@ export function summaryOf(project: Project): ProjectSummary {
     updatedAt: project.createdAt,
     generationCount: project.generations.length,
     directory: `/tmp/ideo-fixture/${project.id}`,
+    latestActivityAt:
+      project.generations.at(-1)?.createdAt ?? project.createdAt,
+    thumbnail: null,
+    thumbnailAsset: null,
+    thumbnailIsVideo: false,
+    costUsd: 0,
+    uncostedCount: 0,
   }
 }
 

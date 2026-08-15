@@ -84,21 +84,25 @@ pub fn plan(source: Source) -> Plan {
         return Plan::AsIs;
     }
 
-    let (width, height) = fit_within(source.width, source.height);
+    let (width, height) = fit_within(source.width, source.height, MAX_EDGE);
     Plan::Reencode { width, height }
 }
 
-/// The largest size inside the cap with the source's own proportions.
+/// The largest size inside a cap with the source's own proportions.
 ///
 /// Only ever shrinks. A source already inside the cap comes back unchanged
 /// rather than stretched: upscaling invents detail and costs bytes to carry it.
-fn fit_within(width: u32, height: u32) -> (u32, u32) {
+///
+/// The cap is a parameter rather than [`MAX_EDGE`] because card thumbnails
+/// (#55) shrink the same pixels to a different number, and two copies of this
+/// arithmetic is how one of them ends up stretching an image.
+pub fn fit_within(width: u32, height: u32, max_edge: u32) -> (u32, u32) {
     let longest = width.max(height);
-    if longest <= MAX_EDGE {
+    if longest <= max_edge {
         return (width, height);
     }
 
-    let scale = f64::from(MAX_EDGE) / f64::from(longest);
+    let scale = f64::from(max_edge) / f64::from(longest);
     (
         edge(f64::from(width) * scale),
         edge(f64::from(height) * scale),
@@ -173,7 +177,12 @@ pub fn apply(bytes: Vec<u8>) -> Vec<u8> {
 /// artefact here can be reproduced and amplified in everything downstream.
 const JPEG_QUALITY: u8 = 88;
 
-fn reencode(bytes: &[u8], width: u32, height: u32) -> Result<Vec<u8>, image::ImageError> {
+/// Decode, resize, re-encode — the one place pixels are actually touched.
+///
+/// Public because card thumbnails (#55) are the same operation at a smaller
+/// number, and ADR 0004 says so explicitly: a second decode/resize path would
+/// be a second set of answers about alpha, filtering and quality.
+pub fn reencode(bytes: &[u8], width: u32, height: u32) -> Result<Vec<u8>, image::ImageError> {
     let decoded = image::load_from_memory(bytes)?;
 
     let resized = if decoded.width() == width && decoded.height() == height {

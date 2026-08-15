@@ -22,6 +22,7 @@ import {
 import { commands, type JsonValue } from '@/lib/tauri-bindings'
 import { newProject } from '@/services/projects'
 import { useEditorStore } from '@/store/editor-store'
+import { useUIStore } from '@/store/ui-store'
 
 /** The most recent manifest handed to Rust, as a project again. */
 function lastSavedProject() {
@@ -43,6 +44,8 @@ async function openAtlas() {
     },
   })
 
+  // The app lands on the overview now (#55); these tests are about the editor.
+  useUIStore.setState({ view: 'editor' })
   render(<App />)
   await screen.findByRole('heading', { name: 'Atlas — hero' })
 }

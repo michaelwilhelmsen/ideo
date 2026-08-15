@@ -52,6 +52,28 @@ pub async fn finished_jobs(app: AppHandle, project_id: String) -> Result<Vec<Job
     runner::jobs_for(&app, &project_id, JobStatus::Completed)
 }
 
+/// What the whole library has in flight (ADR 0002).
+///
+/// The overview's cards cover projects nobody has open, and a card that could
+/// only see the open project's work would mark the wrong projects as busy.
+#[tauri::command]
+#[specta::specta]
+pub async fn active_jobs_everywhere(app: AppHandle) -> Result<Vec<Job>, String> {
+    runner::jobs_everywhere(&app, JobStatus::Running)
+}
+
+/// Every finished job across the library, waiting to be written into whichever
+/// manifest it belongs to.
+///
+/// Collection stopped being bound to the open project (ADR 0002): a result is
+/// paid for whether or not anyone is looking at it, and the point of a front
+/// door is watching work arrive.
+#[tauri::command]
+#[specta::specta]
+pub async fn finished_jobs_everywhere(app: AppHandle) -> Result<Vec<Job>, String> {
+    runner::jobs_everywhere(&app, JobStatus::Completed)
+}
+
 /// Takes a collected job off the books.
 ///
 /// Called after the manifest has been written, never before: the row is the

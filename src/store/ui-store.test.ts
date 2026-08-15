@@ -5,7 +5,7 @@ describe('UIStore', () => {
   beforeEach(() => {
     // Reset store state before each test
     useUIStore.setState({
-      leftSidebarVisible: true,
+      view: 'overview',
       rightSidebarVisible: true,
       commandPaletteOpen: false,
       preferencesOpen: false,
@@ -14,30 +14,21 @@ describe('UIStore', () => {
 
   it('has correct initial state', () => {
     const state = useUIStore.getState()
-    expect(state.leftSidebarVisible).toBe(true)
+    // #55 — the app lands on the front door, not on the editor.
+    expect(state.view).toBe('overview')
     expect(state.rightSidebarVisible).toBe(true)
     expect(state.commandPaletteOpen).toBe(false)
     expect(state.preferencesOpen).toBe(false)
   })
 
-  it('toggles left sidebar visibility', () => {
-    const { toggleLeftSidebar } = useUIStore.getState()
+  it('swaps between the overview and the editor', () => {
+    const { setView } = useUIStore.getState()
 
-    toggleLeftSidebar()
-    expect(useUIStore.getState().leftSidebarVisible).toBe(false)
+    setView('editor')
+    expect(useUIStore.getState().view).toBe('editor')
 
-    toggleLeftSidebar()
-    expect(useUIStore.getState().leftSidebarVisible).toBe(true)
-  })
-
-  it('sets left sidebar visibility directly', () => {
-    const { setLeftSidebarVisible } = useUIStore.getState()
-
-    setLeftSidebarVisible(false)
-    expect(useUIStore.getState().leftSidebarVisible).toBe(false)
-
-    setLeftSidebarVisible(true)
-    expect(useUIStore.getState().leftSidebarVisible).toBe(true)
+    setView('overview')
+    expect(useUIStore.getState().view).toBe('overview')
   })
 
   it('toggles preferences dialog', () => {

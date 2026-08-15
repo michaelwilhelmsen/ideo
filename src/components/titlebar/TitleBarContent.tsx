@@ -2,41 +2,36 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { useUIStore } from '@/store/ui-store'
 import { executeCommand, useCommandContext } from '@/lib/commands'
-import {
-  PanelLeft,
-  PanelLeftClose,
-  PanelRight,
-  PanelRightClose,
-  Settings,
-} from 'lucide-react'
+import { LayoutGrid, PanelRight, PanelRightClose, Settings } from 'lucide-react'
 
 /**
- * Left-side toolbar actions (sidebar toggle).
+ * The way back to the overview (#55).
+ *
+ * Where the project-list toggle used to be, and deliberately in the same place:
+ * this is the one piece of chrome that says the editor is somewhere you went
+ * rather than the whole app. Absent on the overview itself, because a front
+ * door with a way back to itself is a button that does nothing.
+ *
  * Place this after window controls on macOS, or at the start on Windows/Linux.
  */
 export function TitleBarLeftActions() {
   const { t } = useTranslation()
-  const leftSidebarVisible = useUIStore(state => state.leftSidebarVisible)
-  const toggleLeftSidebar = useUIStore(state => state.toggleLeftSidebar)
+  const view = useUIStore(state => state.view)
+  const setView = useUIStore(state => state.setView)
+
+  if (view === 'overview') return <div className="flex items-center gap-1" />
 
   return (
     <div className="flex items-center gap-1">
       <Button
-        onClick={toggleLeftSidebar}
+        onClick={() => setView('overview')}
         variant="ghost"
         size="icon"
         className="h-6 w-6 text-foreground/70 hover:text-foreground"
-        title={t(
-          leftSidebarVisible
-            ? 'titlebar.hideLeftSidebar'
-            : 'titlebar.showLeftSidebar'
-        )}
+        title={t('titlebar.showOverview')}
+        aria-label={t('titlebar.showOverview')}
       >
-        {leftSidebarVisible ? (
-          <PanelLeftClose className="h-3 w-3" />
-        ) : (
-          <PanelLeft className="h-3 w-3" />
-        )}
+        <LayoutGrid className="h-3 w-3" />
       </Button>
     </div>
   )

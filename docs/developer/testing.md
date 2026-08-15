@@ -131,13 +131,13 @@ import { useUIStore } from '@/store/ui-store'
 test('toggles sidebar visibility', () => {
   const { result } = renderHook(() => useUIStore())
 
-  expect(result.current.leftSidebarVisible).toBe(true)
+  expect(result.current.rightSidebarVisible).toBe(true)
 
   act(() => {
-    result.current.setLeftSidebarVisible(false)
+    result.current.setRightSidebarVisible(false)
   })
 
-  expect(result.current.leftSidebarVisible).toBe(false)
+  expect(result.current.rightSidebarVisible).toBe(false)
 })
 ```
 

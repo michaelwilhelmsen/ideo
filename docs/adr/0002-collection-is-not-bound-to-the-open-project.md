@@ -7,7 +7,7 @@
 ## Context
 
 A generation outlives the click that started it (#24). Rust writes the job down
-before it polls, and the result is *collected* — written into the project's
+before it polls, and the result is _collected_ — written into the project's
 manifest — either when a settled event arrives or when a project is opened and
 the store is asked what it has been holding.
 

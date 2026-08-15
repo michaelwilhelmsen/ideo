@@ -4,9 +4,9 @@ import type { CommandContext, AppCommand } from './types'
 
 const mockUIStore = {
   getState: vi.fn(() => ({
-    leftSidebarVisible: true,
+    view: 'overview' as 'overview' | 'editor',
     commandPaletteOpen: false,
-    setLeftSidebarVisible: vi.fn(),
+    setView: vi.fn(),
   })),
 }
 
@@ -26,10 +26,8 @@ const createMockContext = (): CommandContext => ({
 // Mock translation function for testing
 const mockT = ((key: string): string => {
   const translations: Record<string, string> = {
-    'commands.showLeftSidebar.label': 'Show Left Sidebar',
-    'commands.showLeftSidebar.description': 'Show the left sidebar',
-    'commands.hideLeftSidebar.label': 'Hide Left Sidebar',
-    'commands.hideLeftSidebar.description': 'Hide the left sidebar',
+    'commands.showOverview.label': 'Show Overview',
+    'commands.showOverview.description': 'Go back to the project overview',
     'commands.showRightSidebar.label': 'Show Right Sidebar',
     'commands.showRightSidebar.description': 'Show the right sidebar',
     'commands.hideRightSidebar.label': 'Hide Right Sidebar',
@@ -58,29 +56,32 @@ describe('Simplified Command System', () => {
       expect(commands.length).toBeGreaterThan(0)
 
       const sidebarCommand = commands.find(
-        cmd => cmd.id === 'show-left-sidebar' || cmd.id === 'hide-left-sidebar'
+        cmd =>
+          cmd.id === 'show-right-sidebar' || cmd.id === 'hide-right-sidebar'
       )
       expect(sidebarCommand).toBeDefined()
       expect(mockT(sidebarCommand?.labelKey ?? '')).toContain('Sidebar')
     })
 
     it('filters commands by availability', () => {
+      // On the overview there is nowhere to go back to (#55).
       mockUIStore.getState.mockReturnValue({
-        leftSidebarVisible: false,
+        view: 'overview' as const,
         commandPaletteOpen: false,
-        setLeftSidebarVisible: vi.fn(),
+        setView: vi.fn(),
       })
+      expect(
+        getAllCommands(mockContext).find(cmd => cmd.id === 'show-overview')
+      ).toBeUndefined()
 
-      const availableCommands = getAllCommands(mockContext)
-      const showSidebarCommand = availableCommands.find(
-        cmd => cmd.id === 'show-left-sidebar'
-      )
-      const hideSidebarCommand = availableCommands.find(
-        cmd => cmd.id === 'hide-left-sidebar'
-      )
-
-      expect(showSidebarCommand).toBeDefined()
-      expect(hideSidebarCommand).toBeUndefined()
+      mockUIStore.getState.mockReturnValue({
+        view: 'editor' as const,
+        commandPaletteOpen: false,
+        setView: vi.fn(),
+      })
+      expect(
+        getAllCommands(mockContext).find(cmd => cmd.id === 'show-overview')
+      ).toBeDefined()
     })
 
     it('filters commands by search term using translations', () => {
@@ -101,26 +102,26 @@ describe('Simplified Command System', () => {
   })
 
   describe('Command Execution', () => {
-    it('executes show-left-sidebar command correctly', async () => {
+    it('executes show-overview command correctly', async () => {
       mockUIStore.getState.mockReturnValue({
-        leftSidebarVisible: false,
+        view: 'editor' as const,
         commandPaletteOpen: false,
-        setLeftSidebarVisible: vi.fn(),
+        setView: vi.fn(),
       })
 
-      const result = await executeCommand('show-left-sidebar', mockContext)
+      const result = await executeCommand('show-overview', mockContext)
 
       expect(result.success).toBe(true)
     })
 
     it('fails to execute unavailable command', async () => {
       mockUIStore.getState.mockReturnValue({
-        leftSidebarVisible: true,
+        view: 'overview' as const,
         commandPaletteOpen: false,
-        setLeftSidebarVisible: vi.fn(),
+        setView: vi.fn(),
       })
 
-      const result = await executeCommand('show-left-sidebar', mockContext)
+      const result = await executeCommand('show-overview', mockContext)
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('not available')

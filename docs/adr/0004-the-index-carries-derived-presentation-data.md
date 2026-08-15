@@ -17,7 +17,7 @@ twenty cards decodes on the order of a hundred megabytes to draw small pictures,
 and a finished clip currently renders as an autoplaying video element — twenty
 of which is twenty decoders.
 
-The index has to store *something* for the card to point at either way, because
+The index has to store _something_ for the card to point at either way, because
 it holds no per-generation data today. So the question is only whether that
 pointer names an original or a purpose-built thumbnail.
 

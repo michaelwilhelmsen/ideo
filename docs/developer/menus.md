@@ -27,7 +27,7 @@ App Name
 └── Quit App Name            (Cmd+Q)
 
 View
-├── Toggle Left Sidebar      (Cmd+1)
+├── Overview                 (Cmd+1)
 └── Toggle Right Sidebar     (Cmd+2)
 ```
 
@@ -162,9 +162,9 @@ Add the same key to all language files in `/locales/`.
 Menu actions use Zustand's `getState()` pattern for accessing current state:
 
 ```typescript
-function handleToggleLeftSidebar(): void {
+function handleToggleRightSidebar(): void {
   const store = useUIStore.getState()
-  store.setLeftSidebarVisible(!store.leftSidebarVisible)
+  store.setRightSidebarVisible(!store.rightSidebarVisible)
 }
 ```
 

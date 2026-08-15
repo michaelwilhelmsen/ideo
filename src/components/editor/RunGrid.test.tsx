@@ -88,6 +88,8 @@ function arrived(
     stage: 'source',
     recipe: LEDGER.drafts.source,
     treatment: null,
+    costUsd: 0,
+    requestId: null,
     seed: 1_000 + ordinal,
     verdict: 'unrated',
     createdAt: 1,

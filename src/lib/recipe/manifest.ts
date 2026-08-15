@@ -58,6 +58,10 @@ export interface ManifestGeneration {
   readonly recipe: unknown
   /** #26. Absent in manifests older than the slice, which read as `null`. */
   readonly runId: string | null
+  /** #55. Absent in manifests older than the slice, which read as `null`. */
+  readonly costUsd: number | null
+  /** #55, for ADR 0003's reconciliation. Absent in older manifests. */
+  readonly requestId: string | null
   /** #36. Absent in manifests older than the slice, which read as `null`. */
   readonly treatment: unknown
 }
@@ -118,6 +122,8 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
       asset: generation.asset,
       recipe: generation.recipe,
       runId: generation.runId,
+      costUsd: generation.costUsd,
+      requestId: generation.requestId,
       treatment:
         generation.treatment === null
           ? null
@@ -199,6 +205,17 @@ function readGeneration(document: unknown): Generation | null {
     // `null` says. Losing the grouping costs a divider in the strip; refusing
     // the candidate over it would cost the recipe.
     runId: typeof document.runId === 'string' ? document.runId : null,
+    // #55. Absent on anything recorded before costs were stamped, which reads
+    // as `null` — an unknown cost, deliberately not a zero one.
+    costUsd:
+      typeof document.costUsd === 'number' && Number.isFinite(document.costUsd)
+        ? document.costUsd
+        : null,
+    // #55. The join key for fal's billing events (ADR 0003). Absent on
+    // anything collected before it was persisted, which reads as `null` — a
+    // generation that can never be reconciled, and says so.
+    requestId:
+      typeof document.requestId === 'string' ? document.requestId : null,
     // #36. Read whole rather than through `readParams`, and *not* resolved
     // against the effects library — see `lib/effects/treatment.ts`. A candidate
     // from before the slice carries none, which is what `null` says.

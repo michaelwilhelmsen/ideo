@@ -19,6 +19,7 @@ use specta::Type;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::thumbnail;
 use crate::utils::atomic::write_atomically;
 
 /// The manifest file inside a project folder.
@@ -47,6 +48,38 @@ pub struct ProjectSummary {
     /// Where the manifest was found. Not stored in the manifest: a copied
     /// folder must not insist it still lives where it was copied from.
     pub directory: String,
+    /// When this project last actually produced something — the newest
+    /// generation's creation time, falling back to the project's own.
+    ///
+    /// Deliberately **not** `updated_at` (ADR 0004). The overview is ordered by
+    /// this, and renaming a project writes the manifest: sorting on the file's
+    /// timestamp would put a rename at the front of a grid whose whole subject
+    /// is work.
+    pub latest_activity_at: f64,
+    /// The card's picture, as a bare name inside `assets` — never a path, for
+    /// the reason a generation's asset is not one (PRD §3.2).
+    ///
+    /// `None` while a project has nothing to show, or while a clip is waiting
+    /// for the webview to draw its poster.
+    pub thumbnail: Option<String>,
+    /// The generation's own file, which the card's thumbnail was made from.
+    ///
+    /// Carried because a card with no poster and a video here is precisely the
+    /// case the webview has to capture a frame from (ADR 0004).
+    pub thumbnail_asset: Option<String>,
+    /// Whether that file is a clip — a card shows a play affordance rather than
+    /// an autoplaying element (ADR 0004).
+    pub thumbnail_is_video: bool,
+    /// What the project has cost, in USD, as far as anything can tell.
+    ///
+    /// A sum of the per-generation estimates stamped at collection (ADR 0003).
+    /// Approximate by construction until reconciliation against fal lands, and
+    /// labelled that way wherever it is shown.
+    pub cost_usd: f64,
+    /// Generations carrying no cost at all — token-priced models, and anything
+    /// recorded before costs were stamped. Named rather than folded into the
+    /// sum, so "unknown" and "free" never look the same (ADR 0003).
+    pub uncosted_count: u32,
 }
 
 /// A loaded project: the manifest, and where it came from.
@@ -281,7 +314,7 @@ pub fn usage(root: &Path, id: &str) -> Result<ProjectUsage, String> {
         usage.total_bytes += size as f64;
         usage.asset_count += 1;
 
-        if !referenced.contains(&name) {
+        if !is_spoken_for(&name, &referenced) {
             usage.unused_bytes += size as f64;
             usage.unused_count += 1;
         }
@@ -306,7 +339,7 @@ pub fn cleanup_unused(root: &Path, id: &str) -> Result<CleanupOutcome, String> {
     };
 
     for (name, size) in asset_files(&dir) {
-        if referenced.contains(&name) {
+        if is_spoken_for(&name, &referenced) {
             continue;
         }
 
@@ -325,7 +358,24 @@ pub fn cleanup_unused(root: &Path, id: &str) -> Result<CleanupOutcome, String> {
 
 /// The index row a manifest implies. Reads the document rather than
 /// deserialising it — see the module comment.
+///
+/// Writes a thumbnail as a side effect when the card's picture does not have
+/// one yet (ADR 0004). That is what makes them derived data rather than a
+/// second source of truth: this runs on every save *and* on every reconcile, so
+/// deleting the whole `assets` folder's worth of thumbnails costs one listing.
 pub fn summarize(manifest: &Value, dir: &Path) -> Result<ProjectSummary, String> {
+    let created_at = field_f64(manifest, "createdAt");
+    let generations = manifest
+        .get("generations")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+
+    let thumbnail_asset = card_asset(generations);
+    let thumbnail = thumbnail_asset
+        .as_deref()
+        .and_then(|asset| thumbnail::ensure(&dir.join(ASSETS_DIR), asset));
+
     Ok(ProjectSummary {
         id: field_str(manifest, "id")
             .ok_or("Manifest has no id")?
@@ -334,15 +384,59 @@ pub fn summarize(manifest: &Value, dir: &Path) -> Result<ProjectSummary, String>
             .unwrap_or("Untitled")
             .to_string(),
         aspect: field_str(manifest, "aspect").unwrap_or("16:9").to_string(),
-        created_at: field_f64(manifest, "createdAt"),
+        created_at,
         updated_at: field_f64(manifest, "updatedAt"),
-        generation_count: manifest
-            .get("generations")
-            .and_then(Value::as_array)
-            .map(|generations| generations.len() as u32)
-            .unwrap_or(0),
+        generation_count: generations.len() as u32,
         directory: dir.to_string_lossy().to_string(),
+        latest_activity_at: generations
+            .iter()
+            .map(|generation| field_f64(generation, "createdAt"))
+            .fold(f64::NEG_INFINITY, f64::max)
+            .max(created_at),
+        thumbnail_is_video: thumbnail_asset.as_deref().is_some_and(thumbnail::is_video),
+        thumbnail,
+        thumbnail_asset,
+        cost_usd: generations
+            .iter()
+            .filter_map(|generation| generation.get("costUsd").and_then(Value::as_f64))
+            .sum(),
+        uncosted_count: generations
+            .iter()
+            .filter(|generation| generation.get("costUsd").and_then(Value::as_f64).is_none())
+            .count() as u32,
     })
+}
+
+/// The generation whose picture the card shows.
+///
+/// Approved first, then unrated, then rejected — and newest within each tier
+/// (#55). A card must not show back an image the user explicitly turned down
+/// unless that is all the project has; showing nothing instead would be worse,
+/// because a rejected candidate is a filter and not a tombstone (PRD §10.3).
+fn card_asset(generations: &[Value]) -> Option<String> {
+    /// Lower sorts first.
+    fn tier(generation: &Value) -> u8 {
+        match field_str(generation, "verdict") {
+            Some("approved") => 0,
+            Some("rejected") => 2,
+            // An unreadable verdict reads as unrated, the same way the manifest
+            // reader treats one.
+            _ => 1,
+        }
+    }
+
+    generations
+        .iter()
+        .filter(|generation| field_str(generation, "asset").is_some())
+        .min_by(|a, b| {
+            tier(a).cmp(&tier(b)).then_with(|| {
+                field_f64(b, "createdAt")
+                    .partial_cmp(&field_f64(a, "createdAt"))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        })
+        .and_then(|generation| field_str(generation, "asset"))
+        .map(str::to_string)
 }
 
 fn read_manifest(dir: &Path) -> Result<Value, String> {
@@ -368,6 +462,30 @@ fn referenced_assets(manifest: &Value) -> std::collections::HashSet<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Whether something still points at this file.
+///
+/// A thumbnail is spoken for by the generation it was made from, even though
+/// nothing in the manifest names it (ADR 0004): thumbnails are derived, so the
+/// manifest deliberately does not record them, and a cleanup that only asked
+/// the manifest would offer to reclaim every card picture in the library —
+/// then draw them all again on the next listing.
+fn is_spoken_for(name: &str, referenced: &std::collections::HashSet<String>) -> bool {
+    if referenced.contains(name) {
+        return true;
+    }
+
+    let Some(stem) = thumbnail::thumbnailed_stem(name) else {
+        return false;
+    };
+
+    referenced.iter().any(|asset| {
+        Path::new(asset)
+            .file_stem()
+            .and_then(|asset_stem| asset_stem.to_str())
+            .is_some_and(|asset_stem| asset_stem == stem)
+    })
 }
 
 /// The files in the assets folder, with their sizes. Folders are ignored —
@@ -599,6 +717,188 @@ mod tests {
         assert_eq!(
             cleanup_unused(root.path(), "atlas").unwrap().removed_count,
             0
+        );
+    }
+
+    /// A real, decodable still — thumbnailing decodes what it is pointed at.
+    fn write_still(root: &Path, id: &str, name: &str, width: u32, height: u32) {
+        let image = image::RgbImage::from_fn(width, height, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+        });
+        let mut out = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut out, image::ImageFormat::Png)
+            .expect("a synthetic PNG encodes");
+
+        let path = root.join(id).join(ASSETS_DIR).join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, out.into_inner()).unwrap();
+    }
+
+    fn generation(id: &str, asset: &str, verdict: &str, created_at: i64) -> Value {
+        json!({
+            "id": id,
+            "asset": asset,
+            "verdict": verdict,
+            "createdAt": created_at,
+        })
+    }
+
+    #[test]
+    fn the_card_shows_the_newest_approved_generation() {
+        // #55 — a card must not show back an image the user turned down.
+        let root = TempDir::new().unwrap();
+        save(
+            root.path(),
+            &manifest(
+                "atlas",
+                json!([
+                    generation("gen-1", "gen-1.png", "approved", 10),
+                    generation("gen-2", "gen-2.png", "approved", 20),
+                    generation("gen-3", "gen-3.png", "unrated", 30),
+                    generation("gen-4", "gen-4.png", "rejected", 40),
+                ]),
+            ),
+        )
+        .unwrap();
+        for name in ["gen-1.png", "gen-2.png", "gen-3.png", "gen-4.png"] {
+            write_still(root.path(), "atlas", name, 800, 450);
+        }
+
+        let summary = save(
+            root.path(),
+            &load(root.path(), "atlas").unwrap().manifest.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(summary.thumbnail_asset.as_deref(), Some("gen-2.png"));
+        assert_eq!(summary.thumbnail.as_deref(), Some("gen-2.thumb.jpg"));
+    }
+
+    #[test]
+    fn a_rejected_candidate_is_shown_only_when_it_is_all_there_is() {
+        let root = TempDir::new().unwrap();
+        let with_unrated = manifest(
+            "atlas",
+            json!([
+                generation("gen-1", "gen-1.png", "rejected", 40),
+                generation("gen-2", "gen-2.png", "unrated", 10),
+            ]),
+        );
+        save(root.path(), &with_unrated).unwrap();
+        write_still(root.path(), "atlas", "gen-1.png", 400, 400);
+        write_still(root.path(), "atlas", "gen-2.png", 400, 400);
+
+        assert_eq!(
+            save(root.path(), &with_unrated).unwrap().thumbnail_asset,
+            Some("gen-2.png".to_string())
+        );
+
+        let only_rejected = manifest(
+            "atlas",
+            json!([generation("gen-1", "gen-1.png", "rejected", 40)]),
+        );
+        assert_eq!(
+            save(root.path(), &only_rejected).unwrap().thumbnail_asset,
+            Some("gen-1.png".to_string())
+        );
+    }
+
+    #[test]
+    fn recency_follows_the_newest_generation_not_the_file() {
+        // #55's acceptance criterion: renaming a project must not move it to
+        // the front of the overview.
+        let root = TempDir::new().unwrap();
+        let mut original = manifest(
+            "atlas",
+            json!([generation(
+                "gen-1",
+                "gen-1.png",
+                "unrated",
+                1_700_000_000_500_i64
+            )]),
+        );
+        original["updatedAt"] = json!(1_700_000_009_000_i64);
+
+        let before = save(root.path(), &original).unwrap();
+
+        let mut renamed = original.clone();
+        renamed["name"] = json!("Atlas, renamed");
+        renamed["updatedAt"] = json!(1_700_000_999_999_i64);
+        let after = save(root.path(), &renamed).unwrap();
+
+        assert_eq!(before.latest_activity_at, 1_700_000_000_500.0);
+        assert_eq!(after.latest_activity_at, before.latest_activity_at);
+        assert_ne!(after.updated_at, before.updated_at);
+    }
+
+    #[test]
+    fn a_project_with_no_generations_falls_back_to_when_it_was_made() {
+        let root = TempDir::new().unwrap();
+        let summary = save(root.path(), &manifest("atlas", json!([]))).unwrap();
+
+        assert_eq!(summary.latest_activity_at, summary.created_at);
+        assert_eq!(summary.thumbnail, None);
+    }
+
+    #[test]
+    fn a_project_costs_what_its_generations_were_stamped_with() {
+        let root = TempDir::new().unwrap();
+        let summary = save(
+            root.path(),
+            &manifest(
+                "atlas",
+                json!([
+                    { "id": "gen-1", "costUsd": 0.04 },
+                    { "id": "gen-2", "costUsd": 0.011 },
+                    // Token-priced, or recorded before costs were stamped.
+                    { "id": "gen-3" },
+                ]),
+            ),
+        )
+        .unwrap();
+
+        assert!((summary.cost_usd - 0.051).abs() < 1e-9);
+        // Named rather than folded in, so "unknown" and "free" do not look the
+        // same (ADR 0003).
+        assert_eq!(summary.uncosted_count, 1);
+    }
+
+    #[test]
+    fn cleanup_does_not_reclaim_the_pictures_the_overview_draws() {
+        // ADR 0004 — thumbnails are derived, so nothing in the manifest names
+        // them. A cleanup that only asked the manifest would delete every card
+        // picture in the library and then draw them all again.
+        let root = TempDir::new().unwrap();
+        let document = manifest(
+            "atlas",
+            json!([generation("gen-1", "gen-1.png", "approved", 10)]),
+        );
+        save(root.path(), &document).unwrap();
+        write_still(root.path(), "atlas", "gen-1.png", 600, 400);
+        let summary = save(root.path(), &document).unwrap();
+        let thumbnail = summary.thumbnail.expect("the card has a picture");
+        write_asset(root.path(), "atlas", "orphan.jpeg", 40);
+
+        let usage = usage(root.path(), "atlas").unwrap();
+        let outcome = cleanup_unused(root.path(), "atlas").unwrap();
+
+        assert_eq!(usage.unused_count, 1, "only the orphan is unreferenced");
+        assert_eq!(outcome.removed_count, 1);
+        assert!(root.path().join("atlas/assets").join(&thumbnail).exists());
+    }
+
+    #[test]
+    fn a_thumbnail_whose_original_is_gone_is_reclaimable() {
+        // The other half of the rule: a thumbnail is spoken for by *its*
+        // generation, not by thumbnails being sacred.
+        let root = TempDir::new().unwrap();
+        save(root.path(), &manifest("atlas", json!([]))).unwrap();
+        write_asset(root.path(), "atlas", "gen-9.thumb.jpg", 40);
+
+        assert_eq!(
+            cleanup_unused(root.path(), "atlas").unwrap().removed_count,
+            1
         );
     }
 

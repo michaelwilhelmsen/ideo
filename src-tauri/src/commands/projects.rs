@@ -18,6 +18,7 @@ use tauri::AppHandle;
 use crate::projects::import::{self, ImportError, ImportedImage};
 use crate::projects::index;
 use crate::projects::store::{self, CleanupOutcome, ProjectRecord, ProjectSummary, ProjectUsage};
+use crate::projects::thumbnail;
 use crate::utils::paths::app_data;
 
 /// Under `app_data_dir`, so it lands where the platform expects app data and
@@ -33,7 +34,7 @@ fn open_index(app: &AppHandle) -> Result<rusqlite::Connection, String> {
     index::open(&app_data(app)?.join(INDEX_FILE))
 }
 
-/// The project list (PRD §10's left sidebar).
+/// The project list — the overview's grid of cards (#55).
 ///
 /// Reconciles first, so a deleted database, a project restored from a backup
 /// and a folder copied in by hand all show up as simply "the projects".
@@ -132,6 +133,31 @@ pub async fn import_source_image(
     );
 
     Ok(imported)
+}
+
+/// Files the poster the webview drew for a clip (ADR 0004).
+///
+/// The one thumbnail Rust cannot make for itself. Capturing a frame needs a
+/// decoder, and the webview already has one — the alternative is an
+/// ffmpeg-class dependency for a single frame.
+///
+/// The bytes cross as bytes, the way a baked frame does (`write_baked_frame`),
+/// and they are decoded and re-encoded before being filed: a card picture that
+/// is not an image would survive every rebuild, since the file being there is
+/// what tells the next listing there is nothing to do.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_video_poster(
+    app: AppHandle,
+    project_id: String,
+    asset: String,
+    poster: Vec<u8>,
+) -> Result<String, String> {
+    let assets = store::assets_dir(&projects_root(&app)?, &project_id)?;
+    let name = thumbnail::write_poster(&assets, &asset, &poster)?;
+
+    log::info!("Captured a poster for {asset} in {project_id}");
+    Ok(name)
 }
 
 /// What the project costs on disk, and how much of it nothing points at

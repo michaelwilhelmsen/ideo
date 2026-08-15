@@ -114,6 +114,11 @@ vi.mock('@/lib/tauri-bindings', () => ({
     }),
     activeJobs: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     finishedJobs: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // The library-wide variants the overview watches (ADR 0002).
+    activeJobsEverywhere: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    finishedJobsEverywhere: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: [] }),
     claimJob: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     cancelJob: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     // Projects (#23). An empty library by default: a test that wants one
@@ -132,8 +137,17 @@ vi.mock('@/lib/tauri-bindings', () => ({
         updatedAt: 0,
         generationCount: 0,
         directory: '/tmp/projects/test-project',
+        latestActivityAt: 0,
+        thumbnail: null,
+        thumbnailAsset: null,
+        thumbnailIsVideo: false,
+        costUsd: 0,
+        uncostedCount: 0,
       },
     }),
+    saveVideoPoster: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: 'gen-1.thumb.jpg' }),
     deleteProject: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     projectUsage: vi.fn().mockResolvedValue({
       status: 'ok',

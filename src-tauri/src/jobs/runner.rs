@@ -343,6 +343,11 @@ pub fn jobs_for(app: &AppHandle, project_id: &str, status: JobStatus) -> Result<
     store::for_project(&open_store(app)?, project_id, status)
 }
 
+/// Every project's jobs in one state (ADR 0002) — what the overview watches.
+pub fn jobs_everywhere(app: &AppHandle, status: JobStatus) -> Result<Vec<Job>, String> {
+    store::with_status(&open_store(app)?, status)
+}
+
 /// Takes a collected job off the books. Called once its candidate is in the
 /// manifest — never before, or a crash in between would lose a paid result.
 pub fn claim(app: &AppHandle, request_id: &str) -> Result<(), String> {
