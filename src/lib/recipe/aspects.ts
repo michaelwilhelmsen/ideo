@@ -11,20 +11,20 @@
  * at the animate stage. `models.test.ts` holds every entry here to that, which
  * is why the claim can be trusted rather than merely read.
  *
- * 3:2 fails it outright: no video model names it, and it is reachable only
- * through the rows that inherit their geometry from the still (Kling, Seedance),
- * which accept any shape precisely because they are never told one. Reading
- * that as support is the assumption this flag exists to refuse — it is an
- * absence of a constraint, not a confirmation.
+ * 3:2 is the only entry that fails it: no video model names it, and it is
+ * reachable only through the rows that inherit their geometry from the still
+ * (Kling, Seedance), which accept any shape precisely because they are never
+ * told one. Reading that as support is the assumption this flag exists to
+ * refuse — it is an absence of a constraint, not a confirmation.
  *
- * 2:1 is marked `false` and is the one entry whose mark is *stale rather than
- * wrong*. FLUX 3 declares 2:1 and was added after this list was written; that
- * row requires an end frame, so a 2:1 animate would always be a loop, which
- * since #30 is what an animate run does by default anyway. Nothing re-examined
- * the flag when the row landed, and it stays `false` here rather than being
- * flipped in passing: `animatable` gates the whole animate stage
- * (`selectors.ts`), so widening it is a product decision with a paid step
- * behind it, not a comment fix. Filed rather than smuggled in.
+ * 2:1 used to sit beside it and no longer does. FLUX 3 declares 2:1 and landed
+ * after this list was written; nothing re-examined the flag when it did, so the
+ * mark was stale rather than wrong, and the note under it went on saying no
+ * video model confirmed the ratio while the registry beside it said otherwise.
+ * It is the one animatable ratio whose only declaring row requires an end frame,
+ * which means a 2:1 animate is always a loop — since #30 that is what an animate
+ * run does by default anyway, and the switch shows itself on and unclickable
+ * rather than pretending to be a choice.
  *
  * What the flag does *not* promise is reproducibility. Veo 3.1 is the only
  * animate row with a seed, and it serves 16:9 and 9:16 — so at every other
@@ -83,10 +83,8 @@ export const ASPECTS: readonly Aspect[] = [
     width: 2,
     height: 1,
     ratio: 2,
-    animatable: false,
-    // Not `noVideoEnum` — FLUX 3 does name this one. See the header: the mark
-    // is stale rather than wrong, and the copy must not claim more than that.
-    noteKey: 'editor.aspect.note.notConfirmed',
+    animatable: true,
+    noteKey: 'editor.aspect.note.wide',
   },
   {
     id: '3:2',

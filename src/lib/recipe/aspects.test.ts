@@ -6,6 +6,8 @@ import {
   isAspectId,
   matchesAspect,
 } from './aspects'
+import { MODEL_REGISTRY } from './models'
+import { modelAvailability } from './registry'
 
 describe('the aspect catalogue', () => {
   it('offers exactly the curated list of PRD §4.4', () => {
@@ -30,14 +32,33 @@ describe('the aspect catalogue', () => {
 
   it('only claims animation where a video model confirms the ratio', () => {
     // Which model backs which ratio is checked against the registry itself in
-    // `models.test.ts`, so this only pins the marks. See the header of
-    // `aspects.ts` for why 2:1 is false despite FLUX 3 naming it.
+    // `models.test.ts`, so this only pins the marks.
     expect(aspectById('16:9').animatable).toBe(true)
     expect(aspectById('21:9').animatable).toBe(true)
     expect(aspectById('1:1').animatable).toBe(true)
     expect(aspectById('3:4').animatable).toBe(true)
     expect(aspectById('9:16').animatable).toBe(true)
-    expect(aspectById('2:1').animatable).toBe(false)
+    // FLUX 3 names 2:1, which is the whole evidence standard — it was marked
+    // false only because nothing re-read the flag when that row landed.
+    expect(aspectById('2:1').animatable).toBe(true)
+    // And 3:2 is the one ratio nothing names, which is why the flag is worth
+    // having: it is not an empty gate that marks everything true.
+    expect(aspectById('3:2').animatable).toBe(false)
+  })
+
+  it('refuses a ratio whose only backing is a model that was never told a shape', () => {
+    // The trap the flag exists for. Kling and Seedance take any ratio because
+    // they inherit it from the still, so "a model accepts it" is an absence of
+    // a constraint rather than a confirmation — and 3:2 has nothing else.
+    const inheriting = MODEL_REGISTRY.filter(
+      model =>
+        model.stage === 'animate' && model.aspects.kind === 'inheritsFromSource'
+    )
+
+    expect(inheriting).not.toHaveLength(0)
+    for (const model of inheriting) {
+      expect(modelAvailability(model, '3:2').state, model.id).toBe('available')
+    }
     expect(aspectById('3:2').animatable).toBe(false)
   })
 
