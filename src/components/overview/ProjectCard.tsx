@@ -7,8 +7,14 @@
  * megabytes to draw pictures a few hundred pixels wide. A clip is a still frame
  * with a play affordance rather than a video element — twenty autoplaying
  * videos is twenty decoders.
+ *
+ * A clip *does* play, on hover, and that is the same argument rather than an
+ * exception to it. What ADR 0004 refused was twenty at once; the pointer is
+ * only ever on one card, so the decoder budget is one — and the clip is the
+ * thing the project is, which a single frame of it can only hint at.
  */
 
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ImageOff, MoreHorizontal, Play, Trash2, HardDrive } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +33,16 @@ import { cn } from '@/lib/utils'
 /** Below this a real charge rounds to `$0.00`, which reads as free. */
 const SMALLEST_SHOWN = 0.005
 
+/**
+ * How long the pointer has to stay on a card before its clip loads.
+ *
+ * Hover intent, not politeness. Without it, sweeping the mouse across the grid
+ * to reach the *New project* button opens and abandons a decoder per card it
+ * passes over — the original clip, not the thumbnail. A sixth of a second is
+ * under what reads as lag and above what a moving pointer spends anywhere.
+ */
+const HOVER_INTENT_MS = 160
+
 export function ProjectCard({
   summary,
   running,
@@ -44,11 +60,27 @@ export function ProjectCard({
   const { t, i18n } = useTranslation()
   const thumbnail = assetSource(summary.directory, summary.thumbnail)
 
+  // The clip itself, which is the original rather than a thumbnail — there is
+  // no shrunk copy of a video to point at, and this is why only the hovered
+  // card ever holds one.
+  const clip = summary.thumbnailIsVideo
+    ? assetSource(summary.directory, summary.thumbnailAsset)
+    : null
+  const playing = useHoverIntent(clip !== null)
+
   return (
-    <div className="group relative flex flex-col gap-2">
+    <div
+      className="group relative flex flex-col gap-2"
+      onMouseEnter={playing.enter}
+      onMouseLeave={playing.leave}
+    >
       <button
         type="button"
         onClick={onOpen}
+        // Focus plays it too, so the clip is not something only a mouse can
+        // see. Same event pair the hover uses, so there is one way in and out.
+        onFocus={playing.enter}
+        onBlur={playing.leave}
         aria-label={summary.name}
         className="relative aspect-video w-full cursor-pointer overflow-hidden rounded-lg border border-border bg-muted transition-colors hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
@@ -65,8 +97,28 @@ export function ProjectCard({
           />
         )}
 
-        {/* A clip reads as a clip without being one — see the file comment. */}
-        {summary.thumbnailIsVideo && (
+        {/* Over the poster rather than instead of it, so a clip that is slow to
+            decode — or will not decode at all — shows its still frame the whole
+            time rather than a hole where the card was. */}
+        {playing.on && clip !== null && (
+          <video
+            src={clip}
+            autoPlay
+            muted
+            loop
+            playsInline
+            // Decorative: the button beside it already names the project, and a
+            // clip with no controls is not something to land on.
+            aria-hidden
+            tabIndex={-1}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
+
+        {/* A clip reads as a clip without being one — see the file comment.
+            While it is actually playing the affordance has nothing left to
+            promise, so it gets out of the way of the thing it advertised. */}
+        {summary.thumbnailIsVideo && !playing.on && (
           <span className="absolute inset-0 flex items-center justify-center">
             <span className="rounded-full bg-background/70 p-2 backdrop-blur-sm">
               <Play className="h-4 w-4 fill-current" aria-hidden />
@@ -131,6 +183,47 @@ export function ProjectCard({
       </div>
     </div>
   )
+}
+
+/**
+ * Whether this card has been pointed at long enough to be meant.
+ *
+ * A hook rather than two `useState` calls in the card, because the timer has to
+ * be cleared on the way out *and* on unmount: the grid re-renders whenever the
+ * index does, and a pending timer that fires into an unmounted card would leave
+ * a decoder running for a project no longer on screen.
+ *
+ * `enabled` is false for a card with no clip, which makes the whole thing inert
+ * rather than making every caller ask first.
+ */
+function useHoverIntent(enabled: boolean) {
+  const [on, setOn] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clear = () => {
+    if (timer.current !== null) clearTimeout(timer.current)
+    timer.current = null
+  }
+
+  useEffect(() => clear, [])
+
+  return {
+    // Read through `enabled` rather than reset by an effect when it changes: a
+    // card whose newest candidate stops being a clip must not go on playing
+    // one, and answering that at the point of use costs no extra render.
+    on: on && enabled,
+    enter: () => {
+      if (!enabled || timer.current !== null) return
+      timer.current = setTimeout(() => {
+        timer.current = null
+        setOn(true)
+      }, HOVER_INTENT_MS)
+    },
+    leave: () => {
+      clear()
+      setOn(false)
+    },
+  }
 }
 
 /** The day, in the user's own language (PRD §10.4). */

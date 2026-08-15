@@ -147,6 +147,69 @@ describe('the overview', () => {
     expect(await screen.findByText(/~\$0\.24/)).toBeVisible()
   })
 
+  it('plays a clip on hover, and only the one being pointed at', async () => {
+    // ADR 0004 refused twenty autoplaying videos, not one: the pointer is only
+    // ever on a single card, so the decoder budget is one — and a clip is what
+    // the project *is*, which one frame of it can only hint at.
+    vi.mocked(commands.listProjects).mockResolvedValue({
+      status: 'ok',
+      data: [
+        card({
+          thumbnail: 'gen-clip.thumb.jpg',
+          thumbnailAsset: 'gen-clip.mp4',
+          thumbnailIsVideo: true,
+        }),
+        card({ id: LEDGER.id, name: LEDGER.name }),
+      ],
+    })
+
+    render(<App />)
+    const clip = await screen.findByRole('button', { name: ATLAS.name })
+
+    // Nothing decodes until something is pointed at.
+    expect(document.querySelector('video')).toBeNull()
+
+    await userEvent.hover(clip)
+
+    const video = await waitFor(() => {
+      const found = document.querySelector('video')
+      expect(found).not.toBeNull()
+      return found
+    })
+    expect(video).toHaveAttribute(
+      'src',
+      `asset:///tmp/ideo-fixture/${ATLAS.id}/assets/gen-clip.mp4`
+    )
+    // The poster stays underneath, so a clip slow to decode is not a hole.
+    // `alt=""` makes it presentational, so it is queried as an element rather
+    // than by role — it is the picture behind the picture, not a picture.
+    expect(document.querySelector('img')).toHaveAttribute(
+      'src',
+      `asset:///tmp/ideo-fixture/${ATLAS.id}/assets/gen-clip.thumb.jpg`
+    )
+
+    await userEvent.unhover(clip)
+
+    // And the decoder goes away with the pointer, rather than accumulating one
+    // per card the mouse has visited.
+    await waitFor(() => expect(document.querySelector('video')).toBeNull())
+  })
+
+  it('does not decode a still card, whatever the pointer does', async () => {
+    vi.mocked(commands.listProjects).mockResolvedValue({
+      status: 'ok',
+      data: [card({ thumbnail: 'gen-1.thumb.jpg', thumbnailIsVideo: false })],
+    })
+
+    render(<App />)
+    await userEvent.hover(
+      await screen.findByRole('button', { name: ATLAS.name })
+    )
+
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(document.querySelector('video')).toBeNull()
+  })
+
   it('marks a project whose work is running somewhere else', async () => {
     // ADR 0002 — the point of a front door is watching results arrive, and
     // "running" is a fact about the library rather than about the open project.

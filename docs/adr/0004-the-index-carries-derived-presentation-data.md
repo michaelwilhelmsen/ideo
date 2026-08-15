@@ -49,3 +49,11 @@ notion of recency defined by the newest generation rather than by the project's
   than by anything the user did. If it proves unreliable, the documented
   fallback is originals with `preload="metadata"` for video — which fixes the
   decoder problem and leaves the image-size problem standing.
+- A clip **plays on hover**, which is this decision applied rather than an
+  exception to it. What was refused was twenty decoders at once; the pointer is
+  only ever on one card, so hovering holds exactly one — the original, since
+  there is no shrunk copy of a video to point at — and lets it go on the way
+  out. The poster stays underneath it, so a clip that is slow to decode or will
+  not decode at all still shows the still frame this decision exists to
+  produce. A short hover-intent delay is part of the same budget: without it,
+  crossing the grid to reach a control opens a decoder per card on the way.
