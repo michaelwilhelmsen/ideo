@@ -142,6 +142,12 @@ float orderedBias(int kernel, vec2 px) {
     int i = int(mod(px.y, 8.0)) * 8 + int(mod(px.x, 8.0));
     return (CLUSTERED8[i] + 0.5) / 64.0 - 0.5;
   }
+  // Anything else is the mask, and that is deliberate rather than a default:
+  // the only kernels left are the two diffusion ones, which no fragment shader
+  // can run, and blue noise is what #36 names as their video-safe substitute.
+  // A shader cannot say so out loud, so valuesForMedium moves the control to
+  // blue noise before it gets here — the substitution has to be visible, and
+  // this is the half that cannot be.
   ivec2 at = ivec2(mod(px, vec2(uNoiseSize)));
   return texelFetch(uNoise, at, 0).r - 0.5 + 0.5 / 256.0;
 }

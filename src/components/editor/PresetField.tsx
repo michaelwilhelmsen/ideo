@@ -73,7 +73,7 @@ import {
   type MotionPreset,
   type Preset,
   type PresetCapture,
-  NO_VARIABLE_VALUES,
+  presetVariablesFor,
   type PresetVariable,
   type PresetVariableValues,
   type Project,
@@ -144,9 +144,10 @@ function StylePresetField({ project }: { project: Project }) {
 
   return (
     <ComposingPresetField
-      // Remounted per project, which is what clears the variable fields when
-      // one is swapped for another (#46): a value typed for this project's
-      // `{{subject}}` says nothing about the next project's.
+      // Remounted per project, so a save or delete dialog left open does not
+      // carry over to the next one. The variable fields are cleared by the
+      // reducer rather than by this remount (#46), since they have to survive
+      // the far more frequent unmount of changing sidebar tab.
       key={project.id}
       project={project}
       stage="style"
@@ -226,16 +227,20 @@ function ComposingPresetField({
   /**
    * What the variable fields say (#46).
    *
-   * Session state, and deliberately not on the project: only the *expanded*
-   * prose is ever persisted, so keeping the inputs would be a second copy of
-   * something the prompt already contains — and `subject` in particular varies
-   * per look, so a stale one carried across projects would be a confident wrong
-   * answer offered 21 times.
+   * In the editor store rather than in a `useState` here, because this panel is
+   * unmounted every time the sidebar changes tab: values kept locally came back
+   * empty while the prompt box still held the old expansion, which reads as
+   * `stale` and silently refuses every later variable edit. Still session state
+   * and still never persisted — see `EditorState.presetVariables`.
    *
-   * Reset whenever the preset changes, because a value typed for one scene's
-   * `{{subject}}` is not an answer about the next one's.
+   * Kept across a change of preset, by name. `{{subject}}` is the same question
+   * in 21 of the 22 scenes, and trying the next one for the same subject is what
+   * a library of scenes is for — so the new preset takes whatever it asks for
+   * and the rest waits for a preset that asks for it.
    */
-  const [values, setValues] = useState<PresetVariableValues>(NO_VARIABLE_VALUES)
+  const values = useEditorStore(store =>
+    presetVariablesFor(store.state, project.id, stage)
+  )
 
   const composed =
     selected === null
@@ -271,11 +276,18 @@ function ComposingPresetField({
    * case the existing "Re-seed" offer appears instead and the user's text
    * stands. #28's settled rule, applied to the one control that would otherwise
    * spend an edit on their behalf: seeding is offered, never forced.
+   *
+   * Recorded either way. What the field says is not the same question as what
+   * the prompt says, and the offer has to be able to take the current answer
+   * with it when it is finally accepted.
    */
   const setValue = (key: string, value: string): void => {
     const next: PresetVariableValues = { ...values, [key]: value }
-    setValues(next)
-    if (seed.state === 'seeded') choose(selected, next)
+    if (seed.state === 'seeded') {
+      choose(selected, next)
+      return
+    }
+    dispatch({ type: 'setPresetVariables', stage, values: next })
   }
 
   const option = (preset: Preset) => {
@@ -353,14 +365,12 @@ function ComposingPresetField({
       <Select
         value={draft.presetId ?? NO_PRESET}
         onValueChange={id => {
-          // A value typed for one scene's `{{subject}}` says nothing about the
-          // next one's, so the fields start empty again with every pick.
-          setValues(NO_VARIABLE_VALUES)
+          // With the fields as they stand: the new scene asks its own questions,
+          // and the ones it shares with the old one have already been answered.
           choose(
             id === NO_PRESET
               ? null
-              : (library.find(preset => preset.id === id) ?? null),
-            NO_VARIABLE_VALUES
+              : (library.find(preset => preset.id === id) ?? null)
           )
         }}
       >

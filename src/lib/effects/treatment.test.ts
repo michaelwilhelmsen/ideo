@@ -28,6 +28,7 @@ import {
   resolveTreatment,
   seedTreatmentFrom,
   treatmentFor,
+  valuesForMedium,
   withKnob,
   writeTreatment,
 } from './treatment'
@@ -260,5 +261,62 @@ describe('#53’s declarations arriving in the tab', () => {
         DEFAULT_PALETTE
       )
     ).toBeNull()
+  })
+})
+
+describe('what a clip can actually render', () => {
+  const DEFAULTS = { kernel: 'bayer8', levels: 2 } as const
+
+  it('leaves a still alone, whatever kernel it asks for', () => {
+    const asked = { ...DEFAULTS, kernel: 'atkinson' }
+    const held = valuesForMedium(asked, false)
+
+    expect(held.values).toBe(asked)
+    expect(held.substituted).toBe(false)
+  })
+
+  it('stands blue noise in for error diffusion on a clip', () => {
+    // Not because the shader would render anything else — it renders blue
+    // noise for either of them regardless. The point is that the control is
+    // shown the same answer, so the picture and the word agree.
+    for (const kernel of ['atkinson', 'floydSteinberg']) {
+      const held = valuesForMedium({ ...DEFAULTS, kernel }, true)
+
+      expect(held.values.kernel, kernel).toBe('blueNoise')
+      expect(held.substituted, kernel).toBe(true)
+    }
+  })
+
+  it('leaves an ordered kernel on a clip exactly as it is', () => {
+    for (const kernel of ['bayer4', 'bayer8', 'clustered8', 'blueNoise']) {
+      const held = valuesForMedium({ ...DEFAULTS, kernel }, true)
+
+      expect(held.values.kernel, kernel).toBe(kernel)
+      expect(held.substituted, kernel).toBe(false)
+    }
+  })
+
+  it('says nothing about a look with no kernel at all', () => {
+    const asked = { cell: 6, angle: 45 }
+    expect(valuesForMedium(asked, true).values).toBe(asked)
+    expect(valuesForMedium(asked, true).substituted).toBe(false)
+  })
+
+  it('does not write the substitution back into the treatment', () => {
+    // The medium is a fact about the file, not a decision about the look — the
+    // same candidate treated as a still still means Atkinson.
+    const treatment = withKnob(
+      treatmentFor(DUOTONE, DEFAULT_PALETTE),
+      DUOTONE,
+      'kernel',
+      'atkinson'
+    )
+    const shown = valuesForMedium(
+      resolveTreatment(treatment, DUOTONE, DEFAULT_PALETTE),
+      true
+    )
+
+    expect(shown.values.kernel).toBe('blueNoise')
+    expect(treatment.values.kernel).toBe('atkinson')
   })
 })

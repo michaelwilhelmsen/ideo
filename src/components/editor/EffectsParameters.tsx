@@ -26,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { isVideoAsset } from '@/lib/export'
 import {
   BUILT_IN_LOOKS,
   isDiffusionKernel,
@@ -47,8 +46,7 @@ export function EffectsParameters() {
   if (target === null) return null
 
   const generation = target.generation
-  const { look, values } = target
-  const isClip = isVideoAsset(generation?.asset ?? null)
+  const { look, values, isClip, substituted } = target
 
   return (
     <section className="flex flex-col gap-4 p-4">
@@ -85,13 +83,17 @@ export function EffectsParameters() {
                   value={values[knob.key] as KnobValue}
                   refused={
                     // Error diffusion crawls between frames; blue noise holds
-                    // still. Disabled with the reason rather than hidden or
-                    // silently substituted — an export that did not match the
-                    // control on screen would be the worse failure.
+                    // still. Disabled with the reason rather than hidden — and
+                    // where the treatment already holds one, `values` has
+                    // already moved it to blue noise, so the control shows what
+                    // will actually be rendered instead of a word the picture
+                    // does not answer to.
                     knob.kind === 'choice' && knob.key === 'kernel' && isClip
                       ? {
                           values: knob.options.filter(isDiffusionKernel),
-                          reasonKey: 'effects.reason.diffusionOnClip',
+                          reasonKey: substituted
+                            ? 'effects.reason.diffusionSubstituted'
+                            : 'effects.reason.diffusionOnClip',
                         }
                       : undefined
                   }

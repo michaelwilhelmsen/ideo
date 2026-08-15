@@ -39,6 +39,7 @@ import {
   coerceKnobValue,
   defaultKnobValue,
   defaultKnobValues,
+  isDiffusionKernel,
   lookById,
   type EffectsLook,
   type KnobValue,
@@ -243,3 +244,49 @@ export function lookFor(
   if (treatment === null) return null
   return lookById(treatment.lookId, library)
 }
+
+// ── What a clip can actually render ─────────────────────────────────────────
+
+/**
+ * The values as the *medium* allows them, and whether anything had to move.
+ *
+ * Error diffusion decides each pixel from pixels already decided, so it has no
+ * fragment shader and no place on a clip — the pattern would be re-derived from
+ * scratch every frame and crawl, which the research flags as the single most
+ * objectionable failure mode. Blue noise is the substitute: a fixed mask, so
+ * temporally stable by construction.
+ *
+ * The substitution is **visible**, which is the whole point. #36 asks for the
+ * two kernels to be disabled with a reason and explicitly not "silently
+ * substituted (an export that does not match the control on screen)" — and the
+ * shader *does* substitute, because any kernel it does not have a matrix for
+ * falls through to the noise mask. Disabling the options is only half the
+ * guard: a value can still arrive from #53's seeding, from a fork whose default
+ * is Atkinson, or from a hand-edited manifest. So the control is shown the
+ * value that will actually be rendered, with `substituted` saying why it is not
+ * the one the treatment holds.
+ *
+ * Nothing is written back. The treatment keeps saying Atkinson, because the
+ * same candidate treated as a still still means it — the medium is a fact about
+ * the file, not a decision about the look.
+ */
+export function valuesForMedium(
+  values: Readonly<Record<string, KnobValue>>,
+  isClip: boolean
+): {
+  readonly values: Readonly<Record<string, KnobValue>>
+  readonly substituted: boolean
+} {
+  const kernel = values.kernel
+  if (!isClip || typeof kernel !== 'string' || !isDiffusionKernel(kernel)) {
+    return { values, substituted: false }
+  }
+
+  return {
+    values: { ...values, kernel: VIDEO_SAFE_KERNEL },
+    substituted: true,
+  }
+}
+
+/** What error diffusion becomes on a clip. */
+export const VIDEO_SAFE_KERNEL = 'blueNoise'

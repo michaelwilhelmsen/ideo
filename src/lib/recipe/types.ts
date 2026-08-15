@@ -11,6 +11,7 @@
  */
 
 import type { Palette } from './palette'
+import type { PresetVariableValues } from './presets'
 
 /** The three stages of PRD §1, in order. */
 export type StageKind = 'source' | 'style' | 'animate'
@@ -315,6 +316,34 @@ export interface EditorState {
   readonly treatmentTarget: string | null
   /** PRD §10.3 — rejected candidates stay reachable behind one toggle. */
   readonly showRejected: boolean
+  /**
+   * What the preset picker's variable fields say — by project, then by stage
+   * (#46).
+   *
+   * Session state and never persisted: only the *expanded* prose reaches a
+   * recipe, so keeping these in the manifest would be a second copy of
+   * something the prompt already contains. But session-*wide* rather than
+   * per-mount, which is the part that had to move. The right sidebar swaps the
+   * whole stage form out when you change tab or open the effects tab, so values
+   * held in the control's own `useState` went with it — while the prompt box
+   * kept the old expansion, which reads as a hand edit and made
+   * `presetSeedState` refuse every later variable change in silence, until a
+   * paid run went out on the previous value.
+   *
+   * Kept per project rather than cleared on the way out, because looking at
+   * another project is not answering its questions again — you come back to the
+   * subject you were working on. Only deleting one drops its entry, since there
+   * is nothing left to come back to.
+   *
+   * By **variable name** within a stage, not by preset: `{{subject}}` is the
+   * same question in 21 of the 22 scenes, and trying the next scene for the same
+   * subject is what the library is for. A key the newly picked preset does not
+   * have is neither shown nor expanded — it simply waits, in case you come back
+   * to a preset that asks for it.
+   */
+  readonly presetVariables: Readonly<
+    Record<string, Readonly<Record<StageKind, PresetVariableValues>>>
+  >
   /**
    * The runs this session is watching (#26).
    *

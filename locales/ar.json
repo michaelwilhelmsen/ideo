@@ -319,5 +319,6 @@
   "export.baking": "معالجة الإطار {{done}} من {{total}}…",
   "export.cancelBake": "إلغاء",
   "effects.title": "التأثيرات",
-  "effects.treating": "معالجة {{name}}"
+  "effects.treating": "معالجة {{name}}",
+  "effects.reason.diffusionSubstituted": "يطلب هذا المظهر نشر الخطأ، وهو يتحرك بين الإطارات. الضوضاء الزرقاء تحلّ محلّه وتبقى ثابتة."
 }

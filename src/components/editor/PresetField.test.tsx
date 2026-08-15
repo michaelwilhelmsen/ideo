@@ -14,6 +14,7 @@ import userEvent from '@testing-library/user-event'
 import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils'
 import {
   ATLAS,
+  LEDGER,
   colourNameOf,
   composePreset,
   DEFAULT_PALETTE,
@@ -854,6 +855,148 @@ describe('picking a scene', () => {
       expect(sourceDraft().prompt).toContain('a brushed steel kettle')
     )
     expect(sourceDraft().prompt).not.toContain('{{subject}}')
+  })
+
+  it('carries a shared hole into the next scene, and only what it asks for', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    // Two scenes with overlapping but different holes: the monolith asks for a
+    // subject and a colour, the gradient asks for two colours and no subject.
+    await pickNamed(MONOLITH.name)
+    await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
+
+    fireEvent.change(screen.getByLabelText('subject'), {
+      target: { value: 'a brushed steel kettle' },
+    })
+    await waitFor(() =>
+      expect(sourceDraft().prompt).toContain('a brushed steel kettle')
+    )
+
+    await pickNamed('Soft gradient field')
+    await waitFor(() => expect(sourceDraft().presetId).toBe('gn-gradient'))
+
+    // A hole this scene does not have is neither asked about nor expanded — it
+    // is waiting, not lost.
+    expect(screen.queryByLabelText('subject')).toBeNull()
+    expect(screen.getByLabelText('secondary')).toBeVisible()
+    expect(sourceDraft().prompt).not.toContain('a brushed steel kettle')
+
+    // Back to a scene that does ask, without retyping it: browsing the library
+    // for one subject is what the library is for.
+    await pickNamed(MONOLITH.name)
+    await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
+
+    expect(screen.getByLabelText('subject')).toHaveValue(
+      'a brushed steel kettle'
+    )
+    expect(sourceDraft().prompt).toContain('a brushed steel kettle')
+    expect(sourceDraft().prompt).not.toContain('{{subject}}')
+  })
+
+  it('leaves each project holding its own answers', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    await pickNamed(MONOLITH.name)
+    fireEvent.change(await screen.findByLabelText('subject'), {
+      target: { value: 'a brushed steel kettle' },
+    })
+    await waitFor(() =>
+      expect(sourceDraft().prompt).toContain('a brushed steel kettle')
+    )
+
+    // Another project's `{{subject}}` is a different question, and the answer
+    // to this one is not thrown away for having looked at it.
+    useEditorStore.getState().dispatch({
+      type: 'openProject',
+      project: LEDGER,
+      directory: '/tmp/ledger',
+    })
+    // The panel is rebuilt for the other project — waited for, because the
+    // picker below has to be that project's rather than the one being replaced.
+    await waitFor(() => expect(screen.queryByLabelText('subject')).toBeNull())
+
+    await pickNamed(MONOLITH.name)
+    expect(await screen.findByLabelText('subject')).toHaveValue('')
+
+    // Back again, to the scene and the subject that were left here. (The
+    // fixture project reopens with a pristine draft, which is why the scene has
+    // to be picked again — what is being asserted is that the *answer* waited.)
+    open()
+    await waitFor(() => expect(screen.queryByLabelText('subject')).toBeNull())
+
+    await pickNamed(MONOLITH.name)
+    expect(await screen.findByLabelText('subject')).toHaveValue(
+      'a brushed steel kettle'
+    )
+    await waitFor(() =>
+      expect(sourceDraft().prompt).toContain('a brushed steel kettle')
+    )
+  })
+
+  it('keeps the fields when the sidebar takes the panel away and back', async () => {
+    open()
+    const panel = render(<LiveSourceField />)
+
+    await pickNamed(MONOLITH.name)
+    await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
+
+    fireEvent.change(screen.getByLabelText('subject'), {
+      target: { value: 'a brushed steel kettle' },
+    })
+    await waitFor(() =>
+      expect(sourceDraft().prompt).toContain('a brushed steel kettle')
+    )
+
+    // Changing tab, or opening the effects one, unmounts the whole stage form.
+    // Values held in the control's own state came back empty while the prompt
+    // kept the old expansion — which reads as a hand edit, and every later
+    // variable change was then refused in silence until the next paid run.
+    panel.unmount()
+    render(<LiveSourceField />)
+
+    expect(await screen.findByLabelText('subject')).toHaveValue(
+      'a brushed steel kettle'
+    )
+
+    fireEvent.change(screen.getByLabelText('subject'), {
+      target: { value: 'a copper teapot' },
+    })
+
+    await waitFor(() =>
+      expect(sourceDraft().prompt).toContain('a copper teapot')
+    )
+    expect(sourceDraft().prompt).not.toContain('a brushed steel kettle')
+  })
+
+  it('carries the field into the re-seed the user finally accepts', async () => {
+    open()
+    render(<LiveSourceField />)
+
+    await pickNamed(MONOLITH.name)
+    await waitFor(() => expect(sourceDraft().presetId).toBe(MONOLITH.id))
+
+    // Their own words, so a variable change must not rewrite the box (#28) —
+    // but it is still recorded, and the offer takes it when it is accepted.
+    useEditorStore.getState().dispatch({
+      type: 'setPrompt',
+      stage: 'source',
+      prompt: 'my own words',
+    })
+
+    fireEvent.change(await screen.findByLabelText('subject'), {
+      target: { value: 'a brushed steel kettle' },
+    })
+    expect(sourceDraft().prompt).toBe('my own words')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /seed again from the preset/i })
+    )
+
+    await waitFor(() =>
+      expect(sourceDraft().prompt).toContain('a brushed steel kettle')
+    )
   })
 
   it('offers a re-seed rather than spending an edit the user made', async () => {

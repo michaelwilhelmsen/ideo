@@ -45,10 +45,12 @@ import {
   type Deliverable,
   type Formats,
 } from '@/lib/export'
+import { isVideoAsset } from '@/lib/export'
 import {
   inksForValues,
   lookFor,
   resolveTreatment,
+  valuesForMedium,
   type EffectsLook,
   type Ink,
   type KnobValue,
@@ -448,6 +450,13 @@ function treatmentToBake(
   const look = lookFor(generation.treatment, library)
   if (look === null) return null
 
-  const values = resolveTreatment(generation.treatment, look, project.palette)
+  // Held to the medium as well as to the look, so what is baked is what the
+  // tab showed — a clip cannot run error diffusion, and an export that quietly
+  // differed from the preview is the failure the whole one-shader design is
+  // arranged to prevent.
+  const { values } = valuesForMedium(
+    resolveTreatment(generation.treatment, look, project.palette),
+    isVideoAsset(generation.asset)
+  )
   return { look, values, inks: inksForValues(project.palette, values) }
 }

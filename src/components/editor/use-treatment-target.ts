@@ -16,10 +16,12 @@ import {
   inksForValues,
   lookFor,
   resolveTreatment,
+  valuesForMedium,
   type EffectsLook,
   type Ink,
   type KnobValue,
 } from '@/lib/effects'
+import { isVideoAsset } from '@/lib/export'
 import {
   activeProject,
   generationById,
@@ -40,8 +42,19 @@ export interface TreatmentTarget {
   readonly treatment: Treatment | null
   /** The look the treatment names, or `null` for an untreated candidate. */
   readonly look: EffectsLook | null
-  /** Every knob's value, held to the look. `null` where there is no look. */
+  /**
+   * Every knob's value, held to the look **and to the medium**.
+   *
+   * A clip cannot run error diffusion, so a treatment naming Atkinson resolves
+   * to blue noise here — visibly, which is what {@link substituted} is for.
+   * What the shader would do anyway is show blue noise; what this adds is a
+   * control that says so.
+   */
   readonly values: Readonly<Record<string, KnobValue>> | null
+  /** Whether the medium moved a knob off what the treatment says. */
+  readonly substituted: boolean
+  /** Whether this candidate is a clip, which is what decides that. */
+  readonly isClip: boolean
   /** What this look reduces to, for the shader and for the CPU path alike. */
   readonly inks: readonly Ink[]
   /** Both halves of the library, ours then theirs. */
@@ -66,12 +79,18 @@ export function useTreatmentTarget(): TreatmentTarget | null {
 
   const treatment = generation?.treatment ?? null
   const look = lookFor(treatment, library)
-  const values =
+  const isClip = isVideoAsset(generation?.asset ?? null)
+
+  const held =
     treatment !== null && look !== null
       ? resolveTreatment(treatment, look, project.palette)
       : null
+  const allowed = held === null ? null : valuesForMedium(held, isClip)
+  const values = allowed?.values ?? null
 
   return {
+    substituted: allowed?.substituted ?? false,
+    isClip,
     project,
     generation,
     pinned: generation !== null && state.treatmentTarget === generation.id,

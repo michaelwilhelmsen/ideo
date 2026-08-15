@@ -11,6 +11,7 @@ import {
   createEditorReducer,
   emptyEditorState,
   freezeRecipe,
+  presetVariablesFor,
   type CompletedRun,
   type EditorAction,
 } from './reducer'
@@ -781,6 +782,37 @@ describe('opening projects off disk (#23)', () => {
     const state = apply(fixtureEditorState(), { type: 'closeProject' })
     expect(activeProject(state)).toBeNull()
     expect(state.directory).toBeNull()
+  })
+
+  it('holds each project to its own variable fields, and drops a deleted one', () => {
+    const typed = apply(fixtureEditorState(), {
+      type: 'setPresetVariables',
+      stage: 'source',
+      values: { subject: 'a brushed steel kettle' },
+    })
+
+    // Looking at another project is not answering this one's questions again:
+    // the fields wait, filed under the project they belong to.
+    const elsewhere = apply(typed, {
+      type: 'openProject',
+      project: LEDGER,
+      directory: '/projects/ledger',
+    })
+    expect(presetVariablesFor(elsewhere, LEDGER.id, 'source')).toEqual({})
+    expect(presetVariablesFor(elsewhere, ATLAS.id, 'source')).toEqual({
+      subject: 'a brushed steel kettle',
+    })
+
+    // Deleting is the one exit with nothing to come back to.
+    const deleted = apply(
+      apply(elsewhere, {
+        type: 'openProject',
+        project: ATLAS,
+        directory: '/projects/atlas',
+      }),
+      { type: 'closeProject' }
+    )
+    expect(presetVariablesFor(deleted, ATLAS.id, 'source')).toEqual({})
   })
 
   it('ignores an edit that arrives with nothing open', () => {

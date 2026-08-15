@@ -458,5 +458,6 @@
   "export.baking": "Treating frame {{done}} of {{total}}…",
   "export.cancelBake": "Cancel",
   "effects.title": "Effects",
-  "effects.treating": "Treating {{name}}"
+  "effects.treating": "Treating {{name}}",
+  "effects.reason.diffusionSubstituted": "This look asks for error diffusion, which crawls between frames. Blue noise is standing in, and holds still."
 }

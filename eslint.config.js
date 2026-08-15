@@ -104,6 +104,12 @@ export default tseslint.config(
   {
     ignores: [
       'dist/**',
+      // Throwaway harnesses, not shipped code — `spikes/post-effects` says the
+      // same of itself in its own module comment. They import from `src` and
+      // run once to answer a question; holding them to the app's lint config
+      // would mean adding them to `tsconfig` so the type-aware rules can run,
+      // which is the opposite of throwaway.
+      'spikes/**',
       'node_modules/**',
       'src-tauri/target/**',
       'src-tauri/gen/**',

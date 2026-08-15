@@ -95,8 +95,69 @@ export function emptyEditorState(): EditorState {
     effectsOpen: false,
     treatmentTarget: null,
     showRejected: false,
+    presetVariables: {},
     runs: [],
   }
+}
+
+/** No variable typed into any of a project's stages — where each one starts. */
+const NO_STAGE_VARIABLES: Readonly<Record<StageKind, PresetVariableValues>> = {
+  source: NO_VARIABLE_VALUES,
+  style: NO_VARIABLE_VALUES,
+  animate: NO_VARIABLE_VALUES,
+}
+
+/**
+ * What the open project's variable fields say for one stage.
+ *
+ * A project nobody has typed into has no entry at all, which is the same answer
+ * as an empty one — so this is the read every caller wants, and the reason the
+ * state holds no row for a project until there is something to put in it.
+ */
+export function presetVariablesFor(
+  state: EditorState,
+  projectId: string,
+  stage: StageKind
+): PresetVariableValues {
+  return state.presetVariables[projectId]?.[stage] ?? NO_VARIABLE_VALUES
+}
+
+/**
+ * One stage's variable fields, as they now read.
+ *
+ * Written against the open project, because that is the only one whose picker
+ * anybody is looking at. With nothing open there is no project to file them
+ * under, and the action is dropped rather than filed somewhere.
+ */
+function withVariables(
+  state: EditorState,
+  stage: StageKind,
+  values: PresetVariableValues
+): EditorState {
+  const projectId = state.project?.id
+  if (projectId === undefined) return state
+
+  return {
+    ...state,
+    presetVariables: {
+      ...state.presetVariables,
+      [projectId]: {
+        ...(state.presetVariables[projectId] ?? NO_STAGE_VARIABLES),
+        [stage]: values,
+      },
+    },
+  }
+}
+
+/** A deleted project's fields, dropped — there is nothing to come back to. */
+function withoutVariables(
+  state: EditorState,
+  projectId: string | undefined
+): EditorState['presetVariables'] {
+  if (projectId === undefined) return state.presetVariables
+
+  const { [projectId]: _dropped, ...kept } = state.presetVariables
+  return kept
 }
 
 /**
@@ -156,11 +217,31 @@ export type EditorAction =
       readonly presetId: string | null
       readonly preset: Preset | MotionPreset | null
       /**
-       * What the picker's variable fields say (#46). Absent where there is
-       * nothing to resolve — a deselection, a re-point after a save, or the
-       * motion library, whose presets are one whole prompt with no holes in it.
+       * What the picker's variable fields say (#46), which is also what gets
+       * filed under the project — so a pick carries the fields as they stand
+       * rather than clearing them: the next scene asks its own questions, and
+       * the ones it shares with the last one have been answered already.
+       *
+       * Absent where the action says nothing about the fields — a re-point
+       * after a save, or the motion library, whose presets are one whole prompt
+       * with no holes in it. Absent is not empty: clearing them there would
+       * strand the prompt they were expanded into.
        */
       readonly values?: PresetVariableValues
+    }
+  /**
+   * A variable field changed without the prompt following it (#46).
+   *
+   * The other half of `choosePreset`'s `values`: when the box still says what
+   * the preset says, a variable edit *is* a re-seed and goes through that
+   * action. When the box has been edited by hand it is not — the re-seed is
+   * offered rather than forced (#28) — and this records what the field says so
+   * the offer, when taken, takes the current answer with it.
+   */
+  | {
+      readonly type: 'setPresetVariables'
+      readonly stage: StageKind
+      readonly values: PresetVariableValues
     }
   | {
       readonly type: 'chooseModel'
@@ -331,6 +412,9 @@ export function createEditorReducer(
           // A pin names a candidate of whichever project was open, so opening
           // another drops it rather than pointing it at nothing.
           treatmentTarget: null,
+          // The variable fields stay, filed under the project they belong to:
+          // looking at another project is not answering this one's questions
+          // again, and coming back to it should find the subject you left.
           // The runs stay, and so does what has been decided about them: a job
           // goes on running whichever project is in front of you, and a choice
           // made before switching away is still that project's choice.
@@ -344,6 +428,9 @@ export function createEditorReducer(
           project: null,
           directory: null,
           treatmentTarget: null,
+          // Unlike opening another project, this one is *gone* — so its fields
+          // go with it rather than waiting for a return that cannot happen.
+          presetVariables: withoutVariables(state, state.project?.id),
         }
 
       case 'selectStage':
@@ -368,8 +455,8 @@ export function createEditorReducer(
         }))
 
       // A fresh selection is a fresh seed, so nothing has been changed yet.
-      case 'choosePreset':
-        return editDraft(state, action.stage, (draft, project) =>
+      case 'choosePreset': {
+        const seeded = editDraft(state, action.stage, (draft, project) =>
           seedFromPreset(
             registry,
             project.palette,
@@ -379,6 +466,17 @@ export function createEditorReducer(
             action.values ?? NO_VARIABLE_VALUES
           )
         )
+
+        // The fields that produced this prose, kept beside it. Absent `values`
+        // is not an empty set: a re-point after a save says nothing about the
+        // fields, and clearing them would strand the prompt they expanded into.
+        return action.values === undefined
+          ? seeded
+          : withVariables(seeded, action.stage, action.values)
+      }
+
+      case 'setPresetVariables':
+        return withVariables(state, action.stage, action.values)
 
       // Prompt data, not chrome (#46) — and editable after creation precisely
       // because it cannot reach backwards: every recipe already persisted its

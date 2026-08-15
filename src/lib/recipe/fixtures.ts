@@ -280,6 +280,9 @@ export function fixtureEditorState(): EditorState {
     effectsOpen: false,
     treatmentTarget: null,
     showRejected: false,
+    // Nobody has typed into a variable field, which is a project with no row
+    // rather than a row of empties.
+    presetVariables: {},
     // Nothing in flight — a project as it looks when it has just been opened.
     runs: [],
   }
