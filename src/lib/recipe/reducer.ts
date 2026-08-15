@@ -350,6 +350,17 @@ export type EditorAction =
       readonly at: number
     }
   /**
+   * What fal says the open project's calls actually cost (#56, ADR 0003).
+   *
+   * Keyed by `requestId` rather than by generation, because that is what the
+   * billing events are keyed by and the pass that fetched them read the whole
+   * library's window in one go — it has no idea which of these belong here.
+   */
+  | {
+      readonly type: 'reconcileCosts'
+      readonly charges: ReadonlyMap<string, number>
+    }
+  /**
    * An image the user brought in, already copied into the project's assets
    * folder by Rust (#27).
    *
@@ -655,6 +666,11 @@ export function createEditorReducer(
       case 'recordGenerations':
         return withArrivals(state, action.entries, action.at)
 
+      case 'reconcileCosts':
+        return editProject(state, project =>
+          withReconciledCosts(project, action.charges)
+        )
+
       case 'recordUpload':
         return {
           ...editProject(state, project =>
@@ -942,6 +958,7 @@ function runStage(
       costUsd: stampedCost(registry, project.aspect, frozen),
       // A fixture stage makes no call, so there is nothing to reconcile.
       requestId: null,
+      actualCostUsd: null,
       // Untreated until somebody opens the effects tab on it (#36).
       treatment: null,
     }
@@ -1187,6 +1204,10 @@ export function withCollectedGenerations(
       runId: entry.runId,
       costUsd: entry.costUsd,
       requestId: entry.requestId,
+      // Nothing arrives reconciled. fal's billing events lag the queue by
+      // minutes, so the charge for a call that finished a moment ago is not
+      // there to be read yet — it lands on a later pass (ADR 0003).
+      actualCostUsd: null,
       treatment: null,
     }
   })
@@ -1216,6 +1237,64 @@ export function withCollectedGenerations(
     generations: [...project.generations, ...created],
     selection,
   }
+}
+
+/**
+ * Replace stamped estimates with what fal actually charged (#56, ADR 0003).
+ *
+ * Keyed by `requestId`, because that is the only join fal's billing events
+ * offer and the only reason the id is persisted at collection at all.
+ *
+ * Exported as well as dispatched, for the reason `withCollectedGenerations` is:
+ * one reconciliation pass covers the whole library, and most of the projects it
+ * corrects are not the open one. Both paths have to fold identically or the
+ * project you happen to be looking at would total differently from the card
+ * behind it.
+ *
+ * Returns the project unchanged when nothing here is named, which is how the
+ * caller knows not to write — a pass over a library that is already reconciled
+ * must not rewrite every manifest on disk and move every card's date.
+ *
+ * A generation already carrying an actual is left alone. fal's answer for a
+ * request does not change, and re-writing it would be a write with nothing in
+ * it; a *different* answer for the same id is fal disagreeing with itself, and
+ * the first reading is no worse than the second.
+ */
+export function withReconciledCosts(
+  project: Project,
+  charges: ReadonlyMap<string, number>
+): Project {
+  let changed = false
+
+  const generations = project.generations.map(generation => {
+    if (generation.requestId === null) return generation
+    if (generation.actualCostUsd !== null) return generation
+
+    const actual = charges.get(generation.requestId)
+    // `undefined` rather than a falsy check: a genuine zero charge is a fact
+    // worth recording, and it is exactly the one a `||` would drop.
+    if (actual === undefined || !Number.isFinite(actual)) return generation
+
+    changed = true
+    return { ...generation, actualCostUsd: actual }
+  })
+
+  return changed ? { ...project, generations } : project
+}
+
+/**
+ * Whether a pass could still tell this project anything.
+ *
+ * A generation is worth asking about only while it has an id to join on and no
+ * answer yet. Everything else — imports, fixtures, already-reconciled work — is
+ * settled, and a project of nothing but those never has its manifest opened by
+ * a pass again.
+ */
+export function awaitingReconciliation(project: Project): boolean {
+  return project.generations.some(
+    generation =>
+      generation.requestId !== null && generation.actualCostUsd === null
+  )
 }
 
 /**

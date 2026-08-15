@@ -72,14 +72,23 @@ pub struct ProjectSummary {
     pub thumbnail_is_video: bool,
     /// What the project has cost, in USD, as far as anything can tell.
     ///
-    /// A sum of the per-generation estimates stamped at collection (ADR 0003).
-    /// Approximate by construction until reconciliation against fal lands, and
-    /// labelled that way wherever it is shown.
+    /// Per generation, fal's confirmed charge where there is one and the
+    /// estimate stamped at collection where there is not (ADR 0003). Never a
+    /// mix of both for the same candidate: an `actualCostUsd` *replaces* its
+    /// estimate rather than being added to it.
     pub cost_usd: f64,
-    /// Generations carrying no cost at all — token-priced models, and anything
-    /// recorded before costs were stamped. Named rather than folded into the
-    /// sum, so "unknown" and "free" never look the same (ADR 0003).
+    /// Generations carrying no cost at all — token-priced models never
+    /// reconciled, and anything recorded before costs were stamped. Named
+    /// rather than folded into the sum, so "unknown" and "free" never look the
+    /// same (ADR 0003).
     pub uncosted_count: u32,
+    /// Generations whose cost is fal's own figure rather than our estimate.
+    ///
+    /// The whole reason the sum can ever drop its tilde: a total is exact only
+    /// when this equals `generation_count` (ADR 0003). Counted here rather than
+    /// worked out on the card, because the overview must not open a manifest to
+    /// draw a grid.
+    pub reconciled_count: u32,
 }
 
 /// A loaded project: the manifest, and where it came from.
@@ -396,15 +405,39 @@ pub fn summarize(manifest: &Value, dir: &Path) -> Result<ProjectSummary, String>
         thumbnail_is_video: thumbnail_asset.as_deref().is_some_and(thumbnail::is_video),
         thumbnail,
         thumbnail_asset,
-        cost_usd: generations
-            .iter()
-            .filter_map(|generation| generation.get("costUsd").and_then(Value::as_f64))
-            .sum(),
+        cost_usd: generations.iter().filter_map(charged).sum(),
         uncosted_count: generations
             .iter()
-            .filter(|generation| generation.get("costUsd").and_then(Value::as_f64).is_none())
+            .filter(|generation| charged(generation).is_none())
+            .count() as u32,
+        reconciled_count: generations
+            .iter()
+            .filter(|generation| actual_cost(generation).is_some())
             .count() as u32,
     })
+}
+
+/// What one generation cost, or `None` when nothing honest can be said.
+///
+/// fal's figure wins wherever there is one, and the estimate is the fallback
+/// rather than a second term (ADR 0003) — a reconciled candidate has been
+/// charged once. `None` is a real answer: a token-priced model outside the
+/// billing window has no number at all, and counting it as zero would report a
+/// project of them as free.
+fn charged(generation: &Value) -> Option<f64> {
+    actual_cost(generation).or_else(|| finite(generation.get("costUsd")))
+}
+
+fn actual_cost(generation: &Value) -> Option<f64> {
+    finite(generation.get("actualCostUsd"))
+}
+
+/// A number the sum can carry. A hand-edited `NaN` would make a whole project's
+/// total unreadable, which is a worse failure than one missing figure.
+fn finite(value: Option<&Value>) -> Option<f64> {
+    value
+        .and_then(Value::as_f64)
+        .filter(|cost| cost.is_finite())
 }
 
 /// The generation whose picture the card shows.
@@ -861,6 +894,76 @@ mod tests {
         assert!((summary.cost_usd - 0.051).abs() < 1e-9);
         // Named rather than folded in, so "unknown" and "free" do not look the
         // same (ADR 0003).
+        assert_eq!(summary.uncosted_count, 1);
+        assert_eq!(summary.reconciled_count, 0);
+    }
+
+    #[test]
+    fn a_reconciled_generation_reports_fals_charge_rather_than_our_estimate() {
+        // ADR 0003 — the actual *replaces* the estimate. Adding them would
+        // charge the user twice for one call.
+        let root = TempDir::new().unwrap();
+        let summary = save(
+            root.path(),
+            &manifest(
+                "atlas",
+                json!([
+                    { "id": "gen-1", "costUsd": 0.04, "actualCostUsd": 0.037 },
+                    // Token-priced: no estimate was possible, and fal answered
+                    // for it anyway — which is exactly what reconciliation buys.
+                    { "id": "gen-2", "actualCostUsd": 0.012 },
+                ]),
+            ),
+        )
+        .unwrap();
+
+        assert!((summary.cost_usd - 0.049).abs() < 1e-9);
+        assert_eq!(summary.uncosted_count, 0);
+        // Every generation, so the card may drop its tilde.
+        assert_eq!(summary.reconciled_count, 2);
+    }
+
+    #[test]
+    fn a_part_reconciled_project_is_still_only_part_reconciled() {
+        let root = TempDir::new().unwrap();
+        let summary = save(
+            root.path(),
+            &manifest(
+                "atlas",
+                json!([
+                    { "id": "gen-1", "costUsd": 0.04, "actualCostUsd": 0.037 },
+                    // Older than fal's 90-day window, or simply not read yet.
+                    { "id": "gen-2", "costUsd": 0.02 },
+                    { "id": "gen-3" },
+                ]),
+            ),
+        )
+        .unwrap();
+
+        assert!((summary.cost_usd - 0.057).abs() < 1e-9);
+        assert_eq!(summary.uncosted_count, 1);
+        assert_eq!(summary.reconciled_count, 1);
+        // Which is what the card reads as approximate: not every generation is
+        // fal's own figure.
+        assert_ne!(summary.reconciled_count, summary.generation_count);
+    }
+
+    #[test]
+    fn a_hand_edited_cost_that_is_not_a_number_does_not_take_the_total_with_it() {
+        let root = TempDir::new().unwrap();
+        let summary = save(
+            root.path(),
+            &manifest(
+                "atlas",
+                json!([
+                    { "id": "gen-1", "costUsd": 0.04 },
+                    { "id": "gen-2", "costUsd": "free" },
+                ]),
+            ),
+        )
+        .unwrap();
+
+        assert!((summary.cost_usd - 0.04).abs() < 1e-9);
         assert_eq!(summary.uncosted_count, 1);
     }
 

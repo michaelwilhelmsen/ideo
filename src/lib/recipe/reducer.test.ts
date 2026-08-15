@@ -8,10 +8,12 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  awaitingReconciliation,
   createEditorReducer,
   emptyEditorState,
   freezeRecipe,
   presetVariablesFor,
+  withReconciledCosts,
   type CompletedRun,
   type EditorAction,
 } from './reducer'
@@ -1861,5 +1863,85 @@ describe('the effects tab (#36)', () => {
     })
 
     expect(treatmentOf(after, 'gen-new')).toBeNull()
+  })
+})
+
+describe("fal's charges replace the estimates (#56, ADR 0003)", () => {
+  /** Atlas, with one paid candidate that has something to join on. */
+  const paid = {
+    ...ATLAS,
+    generations: ATLAS.generations.slice(0, 1).map(generation => ({
+      ...generation,
+      id: 'gen-paid',
+      costUsd: 0.04,
+      requestId: 'req-abc',
+      actualCostUsd: null,
+    })),
+  }
+
+  it('records what fal says a request cost', () => {
+    const reconciled = withReconciledCosts(paid, new Map([['req-abc', 0.037]]))
+
+    expect(reconciled.generations[0]?.actualCostUsd).toBe(0.037)
+    // The estimate stays put. The gap between the two is the point.
+    expect(reconciled.generations[0]?.costUsd).toBe(0.04)
+  })
+
+  it('records a charge of zero, which is not the same as no charge', () => {
+    const reconciled = withReconciledCosts(paid, new Map([['req-abc', 0]]))
+    expect(reconciled.generations[0]?.actualCostUsd).toBe(0)
+  })
+
+  it('leaves a project alone when nothing in it is named', () => {
+    // Identity, not equality: the caller writes the manifest when this changes,
+    // and a pass over a settled library must not touch every file on disk.
+    expect(withReconciledCosts(paid, new Map([['req-elsewhere', 9]]))).toBe(
+      paid
+    )
+    expect(withReconciledCosts(paid, new Map())).toBe(paid)
+  })
+
+  it('does not re-answer a generation fal has already answered for', () => {
+    const already = {
+      ...paid,
+      generations: paid.generations.map(generation => ({
+        ...generation,
+        actualCostUsd: 0.037,
+      })),
+    }
+
+    // fal disagreeing with itself is not a reason to rewrite history — and it
+    // would be a write with nothing in it on every pass forever.
+    expect(withReconciledCosts(already, new Map([['req-abc', 0.9]]))).toBe(
+      already
+    )
+  })
+
+  it('has nothing to say about a candidate with no request behind it', () => {
+    // An import or a fixture. There is no id to join on, so it can never be
+    // reconciled, and a pass must not open its project again looking.
+    expect(awaitingReconciliation(ATLAS)).toBe(false)
+    expect(awaitingReconciliation(paid)).toBe(true)
+    expect(
+      awaitingReconciliation(
+        withReconciledCosts(paid, new Map([['req-abc', 0.037]]))
+      )
+    ).toBe(false)
+  })
+
+  it('reaches the open project through the reducer', () => {
+    const reduce = createEditorReducer(MODEL_REGISTRY)
+    const open = reduce(fixtureEditorState(), {
+      type: 'openProject',
+      project: paid,
+      directory: '/tmp/projects/atlas',
+    })
+
+    const after = reduce(open, {
+      type: 'reconcileCosts',
+      charges: new Map([['req-abc', 0.037]]),
+    })
+
+    expect(after.project?.generations[0]?.actualCostUsd).toBe(0.037)
   })
 })

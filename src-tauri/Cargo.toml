@@ -44,7 +44,10 @@ specta = { version = "=2.0.0-rc.22", features = ["derive", "serde_json"] }
 tauri-specta = { version = "=2.0.0-rc.21", features = ["typescript"] }
 specta-typescript = "=0.0.9"
 # HTTP client — all authenticated calls happen in Rust so keys never reach the webview
-reqwest = { version = "0.13.3", default-features = false, features = ["json", "rustls", "charset", "http2", "system-proxy"] }
+# `query` is for fal's billing events (#56), the one call we make with a query
+# string rather than a JSON body — and the one whose cursor is an opaque token
+# that has to be escaped by something that knows how.
+reqwest = { version = "0.13.3", default-features = false, features = ["json", "query", "rustls", "charset", "http2", "system-proxy"] }
 # `sync` for the semaphore that caps concurrent jobs (PRD §3.3) — a 4-up batch
 # is already four charged calls, and nothing else stops them stacking.
 tokio = { version = "1.53.1", default-features = false, features = ["time", "sync"] }
@@ -65,6 +68,10 @@ image = { version = "0.25.6", default-features = false, features = ["png", "jpeg
 # filesystem — atomicity and rescanning are properties of the filesystem, and a
 # mock would only prove the mock.
 tempfile = "3"
+# A runtime to drive the async seams under test — the billing pagination loop is
+# the only one, and it is tested with the network replaced by a closure. Dev-only
+# on purpose: the app's own `tokio` features stay at `time` and `sync`.
+tokio = { version = "1.53.1", features = ["macros", "rt"] }
 
 [target.'cfg(target_os = "macos")'.dependencies.keyring]
 version = "3"

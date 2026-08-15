@@ -23,6 +23,9 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   // Nowhere chosen yet (#31). The export panel asks once and remembers the
   // answer here, so the second export goes where the first one did.
   export_directory: null,
+  // Never reconciled (#56). The first pass therefore covers the whole 90 days
+  // fal will answer for, rather than the 24 hours its API defaults to.
+  reconciled_through: null,
 }
 
 // TanStack Query hooks following the architectural patterns
@@ -76,6 +79,40 @@ export async function rememberExportDirectory(
   const saved = await commands.savePreferences(updated)
   if (saved.status === 'error') {
     logger.warn('Could not remember the export folder', { error: saved.error })
+    return false
+  }
+
+  queryClient.setQueryData(preferencesQueryKeys.preferences(), updated)
+  return true
+}
+
+/**
+ * Moves the cost reconciliation watermark forward (#56, ADR 0003).
+ *
+ * Here rather than in `services/billing.ts` for the reason
+ * {@link rememberExportDirectory} is here: `preferences.json` has one owner,
+ * and a second module doing its own read-merge-write would be a second place
+ * for the load-failure fallback to drift.
+ *
+ * Never moves it backwards. Two passes can only overlap if one is very slow,
+ * and the slow one finishing last must not un-read what the other read.
+ */
+export async function rememberReconciledThrough(
+  queryClient: ReturnType<typeof useQueryClient>,
+  through: number
+): Promise<boolean> {
+  const loaded = await commands.loadPreferences()
+  const current = loaded.status === 'ok' ? loaded.data : DEFAULT_PREFERENCES
+  if ((current.reconciled_through ?? 0) >= through) return true
+
+  const updated = { ...current, reconciled_through: through }
+  const saved = await commands.savePreferences(updated)
+  if (saved.status === 'error') {
+    // The pass itself succeeded and the manifests hold fal's figures. All this
+    // costs is reading the same span again next time.
+    logger.warn('Could not record how far costs are reconciled', {
+      error: saved.error,
+    })
     return false
   }
 

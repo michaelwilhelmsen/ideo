@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/dialog'
 import { NewProjectDialog } from '@/components/editor/NewProjectDialog'
 import type { ProjectSummary } from '@/lib/recipe'
+import { useCostReconciliation } from '@/services/billing'
 import { useOverviewCollection, useRunningEverywhere } from '@/services/jobs'
 import {
   projectKeys,
@@ -74,6 +75,9 @@ export function Overview() {
   // nowhere else.
   const running = useRunningEverywhere()
   useOverviewCollection()
+  // The other manifest-writing pass this view is allowed to run (#56): what
+  // fal actually charged, replacing the estimates on the cards below.
+  useCostReconciliation()
 
   const refreshList = useCallback(() => {
     queryClient

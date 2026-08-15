@@ -272,6 +272,7 @@
   "overview.running_one": "{{count}} en cours",
   "overview.running_other": "{{count}} en cours",
   "overview.cost.approximate": "~{{amount}}",
+  "overview.cost.exact": "{{amount}}",
   "overview.cost.partial_one": "~{{amount}} + {{count}} sans prix",
   "overview.cost.partial_other": "~{{amount}} + {{count}} sans prix",
   "overview.cost.unknown": "Coût inconnu",

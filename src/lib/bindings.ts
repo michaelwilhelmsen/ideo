@@ -174,6 +174,27 @@ async cancelJob(requestId: string) : Promise<Result<null, string>> {
 }
 },
 /**
+ * Every charge fal recorded between two moments, in milliseconds since the
+ * epoch — the window clamped to fal's 90 days on the way past.
+ * 
+ * One call for the whole library rather than one per project: the endpoint is
+ * keyed by request id and knows nothing about our folders, so a per-project
+ * sweep would be the same pages fetched N times.
+ * 
+ * Fails rather than answering emptily when there is no key, which is the same
+ * thing an offline machine or a refused request does. That distinction is the
+ * caller's whole safety net: a pass that did not read the window must not move
+ * the watermark over it.
+ */
+async falBillingEvents(startMs: number, endMs: number) : Promise<Result<BillingCharge[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("fal_billing_events", { startMs, endMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * The project list — the overview's grid of cards (#55).
  * 
  * Reconciles first, so a deleted database, a project restored from a backup
@@ -768,7 +789,26 @@ onboarding_version?: number;
  * user picked last time — usually a repo's `public/` — and re-picking it
  * on every export is the friction this field exists to remove.
  */
-export_directory?: string | null }
+export_directory?: string | null; 
+/**
+ * How far cost reconciliation has successfully read fal's billing events,
+ * in milliseconds since the epoch (ADR 0003).
+ * 
+ * Here rather than in the SQLite index because the index is a cache whose
+ * whole premise is that deleting it costs nothing, and this is the one
+ * fact about the library that is not re-derivable from disk. It stretches
+ * what a "preference" is; a third persistence mechanism for one number
+ * would have been a worse trade.
+ * 
+ * `None` means nothing has ever been reconciled, which is also what a
+ * preferences file written before this field existed reads as — and the
+ * first pass then covers the whole 90 days fal will answer for, rather
+ * than the 24 hours its API defaults to.
+ * 
+ * Only ever moved forward by a pass that *completed*. A failed one leaves
+ * it exactly where it was, so the span it could not read is read again.
+ */
+reconciled_through?: number | null }
 /**
  * A bake in progress, as the webview sees it.
  */
@@ -787,6 +827,24 @@ width: number; height: number;
  * still, which has no time axis.
  */
 fps: number | null }
+/**
+ * What fal charged for one request.
+ * 
+ * Two fields out of the eleven the endpoint returns. The rest — the endpoint
+ * id, the discount breakdown, the auth method — describe a request we already
+ * have a recipe for; this exists to answer "what did that actually cost", and
+ * carrying more would be a second, worse copy of the manifest.
+ */
+export type BillingCharge = { 
+/**
+ * fal's own id for the call — the only thing a generation can be joined
+ * on, which is why it is persisted at collection (ADR 0003).
+ */
+requestId: string; 
+/**
+ * `cost_total`, in USD. fal bills in dollars wherever the account is.
+ */
+costUsd: number }
 /**
  * The result of a cleanup, so the UI can say what it actually did rather than
  * "done".
@@ -1299,17 +1357,28 @@ thumbnailIsVideo: boolean;
 /**
  * What the project has cost, in USD, as far as anything can tell.
  * 
- * A sum of the per-generation estimates stamped at collection (ADR 0003).
- * Approximate by construction until reconciliation against fal lands, and
- * labelled that way wherever it is shown.
+ * Per generation, fal's confirmed charge where there is one and the
+ * estimate stamped at collection where there is not (ADR 0003). Never a
+ * mix of both for the same candidate: an `actualCostUsd` *replaces* its
+ * estimate rather than being added to it.
  */
 costUsd: number; 
 /**
- * Generations carrying no cost at all — token-priced models, and anything
- * recorded before costs were stamped. Named rather than folded into the
- * sum, so "unknown" and "free" never look the same (ADR 0003).
+ * Generations carrying no cost at all — token-priced models never
+ * reconciled, and anything recorded before costs were stamped. Named
+ * rather than folded into the sum, so "unknown" and "free" never look the
+ * same (ADR 0003).
  */
-uncostedCount: number }
+uncostedCount: number; 
+/**
+ * Generations whose cost is fal's own figure rather than our estimate.
+ * 
+ * The whole reason the sum can ever drop its tilde: a total is exact only
+ * when this equals `generation_count` (ADR 0003). Counted here rather than
+ * worked out on the card, because the overview must not open a manifest to
+ * draw a grid.
+ */
+reconciledCount: number }
 /**
  * What a project costs on disk, and how much of that nothing refers to
  * (PRD §10.3 — the visible pressure valve).

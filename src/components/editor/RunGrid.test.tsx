@@ -90,6 +90,7 @@ function arrived(
     treatment: null,
     costUsd: 0,
     requestId: null,
+    actualCostUsd: null,
     seed: 1_000 + ordinal,
     verdict: 'unrated',
     createdAt: 1,

@@ -2,8 +2,8 @@ use tauri_specta::{collect_commands, Builder};
 
 pub fn generate_bindings() -> Builder<tauri::Wry> {
     use crate::commands::{
-        api_key, effects, export, jobs, notifications, preferences, presets, projects, quick_pane,
-        recovery,
+        api_key, billing, effects, export, jobs, notifications, preferences, presets, projects,
+        quick_pane, recovery,
     };
 
     Builder::<tauri::Wry>::new()
@@ -20,6 +20,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             jobs::finished_jobs_everywhere,
             jobs::claim_job,
             jobs::cancel_job,
+            billing::fal_billing_events,
             projects::list_projects,
             projects::load_project,
             projects::save_project,

@@ -141,13 +141,21 @@ function formatDate(language: string, at: number): string {
 }
 
 /**
- * What the project has cost so far — approximate, and saying so.
+ * What the project has cost so far, and how much of that is a claim rather than
+ * a guess.
  *
- * The tilde is not decoration. Every figure here is the price table's estimate
- * stamped at collection (ADR 0003), never a charge fal confirmed, and it stays
- * that way until reconciliation lands. A project whose generations carry no
- * price at all says nothing rather than `$0.00`: "unknown" and "free" must not
- * look the same.
+ * Three readings, and the tilde is not decoration in any of them (ADR 0003):
+ *
+ * - **Exact.** Every generation carries fal's own `cost_total`. This is the
+ *   only case with no tilde, and it is deliberately strict — one candidate
+ *   still on its estimate is enough to make the total a forecast again.
+ * - **Approximate.** Anything still on the price table's estimate: a call fal
+ *   has not billed yet, or one older than the 90-day window and therefore
+ *   permanently unreconcilable.
+ * - **Unknown.** A generation with no figure at all — a token-priced model
+ *   outside the window, or work recorded before costs were stamped. Counted and
+ *   named rather than summed as zero, because "unknown" and "free" must not
+ *   look the same, and a project of nothing else says so rather than `$0.00`.
  */
 function formatCost(
   t: (key: string, options?: Record<string, unknown>) => string,
@@ -169,7 +177,15 @@ function formatCost(
       ? t('editor.price.lessThan', { amount: money.format(0.01) })
       : money.format(summary.costUsd)
 
-  return summary.uncostedCount > 0
-    ? t('overview.cost.partial', { amount, count: summary.uncostedCount })
+  if (summary.uncostedCount > 0) {
+    return t('overview.cost.partial', { amount, count: summary.uncostedCount })
+  }
+
+  // Every generation, not merely every costed one — a fixture or an import has
+  // a known cost and no request behind it, so it can never be confirmed, and a
+  // project holding one keeps its tilde forever. That is the honest reading:
+  // the figure is right, but nothing at fal will ever vouch for all of it.
+  return summary.reconciledCount === summary.generationCount
+    ? t('overview.cost.exact', { amount })
     : t('overview.cost.approximate', { amount })
 }

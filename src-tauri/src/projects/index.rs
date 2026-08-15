@@ -21,7 +21,7 @@ use super::store::{self, ProjectSummary};
 /// Bumped when the columns change. The whole table is a cache, so an
 /// unrecognised schema is dropped rather than migrated — the manifests it was
 /// summarising have not moved.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 pub fn open(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
@@ -63,7 +63,8 @@ fn prepare(connection: &Connection) -> Result<(), String> {
                 thumbnail_asset    TEXT,
                 thumbnail_is_video INTEGER NOT NULL,
                 cost_usd           REAL NOT NULL,
-                uncosted_count     INTEGER NOT NULL
+                uncosted_count     INTEGER NOT NULL,
+                reconciled_count   INTEGER NOT NULL
             )",
             [],
         )
@@ -82,9 +83,9 @@ pub fn upsert(connection: &Connection, summary: &ProjectSummary) -> Result<(), S
             "INSERT INTO projects (
                 id, name, aspect, created_at, updated_at, generation_count, directory,
                 latest_activity_at, thumbnail, thumbnail_asset, thumbnail_is_video,
-                cost_usd, uncosted_count
+                cost_usd, uncosted_count, reconciled_count
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 aspect = excluded.aspect,
@@ -97,7 +98,8 @@ pub fn upsert(connection: &Connection, summary: &ProjectSummary) -> Result<(), S
                 thumbnail_asset = excluded.thumbnail_asset,
                 thumbnail_is_video = excluded.thumbnail_is_video,
                 cost_usd = excluded.cost_usd,
-                uncosted_count = excluded.uncosted_count",
+                uncosted_count = excluded.uncosted_count,
+                reconciled_count = excluded.reconciled_count",
             params![
                 summary.id,
                 summary.name,
@@ -112,6 +114,7 @@ pub fn upsert(connection: &Connection, summary: &ProjectSummary) -> Result<(), S
                 summary.thumbnail_is_video,
                 summary.cost_usd,
                 summary.uncosted_count,
+                summary.reconciled_count,
             ],
         )
         .map(|_| ())
@@ -134,7 +137,7 @@ pub fn list(connection: &Connection) -> Result<Vec<ProjectSummary>, String> {
         .prepare(
             "SELECT id, name, aspect, created_at, updated_at, generation_count, directory,
                     latest_activity_at, thumbnail, thumbnail_asset, thumbnail_is_video,
-                    cost_usd, uncosted_count
+                    cost_usd, uncosted_count, reconciled_count
              FROM projects ORDER BY latest_activity_at DESC, id ASC",
         )
         .map_err(|e| format!("Could not read the project index: {e}"))?;
@@ -155,6 +158,7 @@ pub fn list(connection: &Connection) -> Result<Vec<ProjectSummary>, String> {
                 thumbnail_is_video: row.get(10)?,
                 cost_usd: row.get(11)?,
                 uncosted_count: row.get(12)?,
+                reconciled_count: row.get(13)?,
             })
         })
         .map_err(|e| format!("Could not read the project index: {e}"))?;

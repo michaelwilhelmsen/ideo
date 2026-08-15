@@ -4,6 +4,7 @@
 //! Import specific commands via their submodule (e.g., `commands::preferences::greet`).
 
 pub mod api_key;
+pub mod billing;
 pub mod effects;
 pub mod export;
 pub mod jobs;

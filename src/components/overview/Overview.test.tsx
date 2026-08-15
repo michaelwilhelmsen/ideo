@@ -104,6 +104,49 @@ describe('the overview', () => {
     expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument()
   })
 
+  it("drops the tilde once every generation is fal's own figure", async () => {
+    // ADR 0003 — this is the *only* case with no tilde, and the reason the
+    // whole reconciliation exists: the number is a claim about money spent
+    // rather than a forecast of money about to be.
+    vi.mocked(commands.listProjects).mockResolvedValue({
+      status: 'ok',
+      data: [
+        card({
+          generationCount: 4,
+          costUsd: 0.237,
+          uncostedCount: 0,
+          reconciledCount: 4,
+        }),
+      ],
+    })
+
+    render(<App />)
+
+    expect(await screen.findByText('$0.24')).toBeVisible()
+    expect(screen.queryByText(/~\$/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the tilde while one generation is still on its estimate', async () => {
+    // Strict on purpose. Three confirmed charges and one forecast still make a
+    // forecast, and a total that rounded that away would be the dishonest half
+    // of the pair.
+    vi.mocked(commands.listProjects).mockResolvedValue({
+      status: 'ok',
+      data: [
+        card({
+          generationCount: 4,
+          costUsd: 0.24,
+          uncostedCount: 0,
+          reconciledCount: 3,
+        }),
+      ],
+    })
+
+    render(<App />)
+
+    expect(await screen.findByText(/~\$0\.24/)).toBeVisible()
+  })
+
   it('marks a project whose work is running somewhere else', async () => {
     // ADR 0002 — the point of a front door is watching results arrive, and
     // "running" is a fact about the library rather than about the open project.

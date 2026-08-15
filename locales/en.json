@@ -164,6 +164,7 @@
   "overview.running_one": "{{count}} running",
   "overview.running_other": "{{count}} running",
   "overview.cost.approximate": "~{{amount}}",
+  "overview.cost.exact": "{{amount}}",
   "overview.cost.partial_one": "~{{amount}} + {{count}} unpriced",
   "overview.cost.partial_other": "~{{amount}} + {{count}} unpriced",
   "overview.cost.unknown": "Cost unknown",

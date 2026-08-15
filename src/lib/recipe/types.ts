@@ -213,11 +213,28 @@ export interface Generation {
    * separately rather than summed as zero — "unknown" and "free" must not look
    * the same.
    *
-   * An estimate for now. ADR 0003's second half replaces it with fal's actual
-   * charge, per generation, which is why this is a number on the record rather
-   * than something recomputed at read time.
+   * Always an estimate. What fal actually charged goes in
+   * {@link Generation.actualCostUsd} beside it rather than overwriting this,
+   * so the two stay tellable apart — that difference is the thing ADR 0003
+   * exists to measure, and a field that quietly became authoritative could
+   * never be checked against the invoice again.
    */
   readonly costUsd: number | null
+  /**
+   * What fal actually charged for this call, in USD — its `cost_total` from
+   * the billing events, joined on {@link Generation.requestId} (ADR 0003).
+   *
+   * `null` until reconciliation reaches it, and *permanently* null for three
+   * distinct populations that all read the same way and must not be confused
+   * with a zero charge: a generation with no `requestId` (an import, a
+   * fixture), one whose call is older than fal's 90-day billing window, and one
+   * on an account whose key the billing endpoint refuses.
+   *
+   * Where this is a number it *replaces* the estimate rather than adding to it
+   * — one call was charged once — and it is the only thing that lets a
+   * project's total be shown without a tilde.
+   */
+  readonly actualCostUsd: number | null
   /**
    * fal's own id for the call that produced this, or `null` when there was no
    * call — an imported image, or a fixture-driven candidate.

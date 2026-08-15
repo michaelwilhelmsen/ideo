@@ -62,6 +62,8 @@ export interface ManifestGeneration {
   readonly costUsd: number | null
   /** #55, for ADR 0003's reconciliation. Absent in older manifests. */
   readonly requestId: string | null
+  /** #56 — fal's own charge. Absent until a pass reconciles this candidate. */
+  readonly actualCostUsd: number | null
   /** #36. Absent in manifests older than the slice, which read as `null`. */
   readonly treatment: unknown
 }
@@ -124,6 +126,7 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
       runId: generation.runId,
       costUsd: generation.costUsd,
       requestId: generation.requestId,
+      actualCostUsd: generation.actualCostUsd,
       treatment:
         generation.treatment === null
           ? null
@@ -216,6 +219,14 @@ function readGeneration(document: unknown): Generation | null {
     // generation that can never be reconciled, and says so.
     requestId:
       typeof document.requestId === 'string' ? document.requestId : null,
+    // #56. Absent on everything written before reconciliation existed, and on
+    // everything a pass has not reached — which are the same answer as far as
+    // the total is concerned, and neither of them is a charge of zero.
+    actualCostUsd:
+      typeof document.actualCostUsd === 'number' &&
+      Number.isFinite(document.actualCostUsd)
+        ? document.actualCostUsd
+        : null,
     // #36. Read whole rather than through `readParams`, and *not* resolved
     // against the effects library — see `lib/effects/treatment.ts`. A candidate
     // from before the slice carries none, which is what `null` says.

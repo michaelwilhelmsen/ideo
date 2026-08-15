@@ -121,6 +121,10 @@ vi.mock('@/lib/tauri-bindings', () => ({
       .mockResolvedValue({ status: 'ok', data: [] }),
     claimJob: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     cancelJob: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // Cost reconciliation (#56). Nothing charged by default: a test about
+    // reconciliation names its own charges, and every other test on the
+    // overview must not have fal quietly rewriting its manifests.
+    falBillingEvents: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     // Projects (#23). An empty library by default: a test that wants one
     // says so, rather than every test inheriting a fixture it did not ask for.
     listProjects: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -143,6 +147,7 @@ vi.mock('@/lib/tauri-bindings', () => ({
         thumbnailIsVideo: false,
         costUsd: 0,
         uncostedCount: 0,
+        reconciledCount: 0,
       },
     }),
     saveVideoPoster: vi

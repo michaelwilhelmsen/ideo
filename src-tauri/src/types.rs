@@ -56,6 +56,24 @@ pub struct AppPreferences {
     /// on every export is the friction this field exists to remove.
     #[serde(default)]
     pub export_directory: Option<String>,
+    /// How far cost reconciliation has successfully read fal's billing events,
+    /// in milliseconds since the epoch (ADR 0003).
+    ///
+    /// Here rather than in the SQLite index because the index is a cache whose
+    /// whole premise is that deleting it costs nothing, and this is the one
+    /// fact about the library that is not re-derivable from disk. It stretches
+    /// what a "preference" is; a third persistence mechanism for one number
+    /// would have been a worse trade.
+    ///
+    /// `None` means nothing has ever been reconciled, which is also what a
+    /// preferences file written before this field existed reads as — and the
+    /// first pass then covers the whole 90 days fal will answer for, rather
+    /// than the 24 hours its API defaults to.
+    ///
+    /// Only ever moved forward by a pass that *completed*. A failed one leaves
+    /// it exactly where it was, so the span it could not read is read again.
+    #[serde(default)]
+    pub reconciled_through: Option<f64>,
 }
 
 impl Default for AppPreferences {
@@ -66,6 +84,7 @@ impl Default for AppPreferences {
             language: None,            // None means use system locale
             onboarding_version: 0,     // 0 means never onboarded
             export_directory: None,    // None means nothing exported yet
+            reconciled_through: None,  // None means never reconciled
         }
     }
 }
@@ -188,6 +207,29 @@ mod tests {
             back.export_directory.as_deref(),
             Some("/Users/someone/site/public")
         );
+    }
+
+    /// ADR 0003 — the watermark is the one thing standing between a failed
+    /// reconciliation and a span nobody ever reads again, so it has to survive
+    /// the file it lives in.
+    #[test]
+    fn the_reconciliation_watermark_survives_a_round_trip() {
+        let prefs = AppPreferences {
+            reconciled_through: Some(1_700_000_000_000.0),
+            ..AppPreferences::default()
+        };
+        let json = serde_json::to_string(&prefs).expect("serialises");
+        let back: AppPreferences = serde_json::from_str(&json).expect("deserialises");
+
+        assert_eq!(back.reconciled_through, Some(1_700_000_000_000.0));
+
+        // And a file written before it existed reads as "never reconciled",
+        // which is what makes the first pass cover the full window rather than
+        // the 24 hours fal's API defaults to.
+        let older: AppPreferences =
+            serde_json::from_str(r#"{"theme":"dark","quick_pane_shortcut":null,"language":null}"#)
+                .expect("older preferences should still parse");
+        assert_eq!(older.reconciled_through, None);
     }
 
     #[test]

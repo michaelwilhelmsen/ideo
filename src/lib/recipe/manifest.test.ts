@@ -297,6 +297,7 @@ describe('an upload survives the manifest (#27)', () => {
     treatment: null,
     costUsd: 0,
     requestId: null,
+    actualCostUsd: null,
     seed: null,
     verdict: 'unrated',
     createdAt: 1_700_000_000,
@@ -391,5 +392,88 @@ describe('the palette (#46)', () => {
     expect(() => readManifest(writeManifest(flat, 1))).toThrow(
       /primary|accent/i
     )
+  })
+})
+
+describe('what fal charged survives the manifest (#56)', () => {
+  /** One paid candidate, reconciled against fal's billing events. */
+  const reconciled: Generation = {
+    ...(ATLAS.generations[0] as Generation),
+    id: 'gen-reconciled',
+    costUsd: 0.04,
+    requestId: 'req-abc',
+    actualCostUsd: 0.037,
+  }
+
+  it('comes back as the charge that went in, alongside the estimate', () => {
+    // Both, deliberately. The gap between them is the thing ADR 0003 exists to
+    // measure, and a manifest that kept only the winner could never show it.
+    const project = readManifest(
+      writeManifest(
+        {
+          ...ATLAS,
+          generations: [reconciled],
+          selection: { ...ATLAS.selection },
+        },
+        1
+      )
+    )
+
+    expect(project.generations[0]?.costUsd).toBe(0.04)
+    expect(project.generations[0]?.actualCostUsd).toBe(0.037)
+    expect(project.generations[0]?.requestId).toBe('req-abc')
+  })
+
+  it('reads a manifest written before reconciliation existed', () => {
+    // The whole compatibility claim: an older manifest loads, and loads as
+    // *unreconciled* rather than as free.
+    const manifest = writeManifest(
+      {
+        ...ATLAS,
+        generations: [reconciled],
+        selection: { ...ATLAS.selection },
+      },
+      1
+    ) as unknown as { generations: Record<string, unknown>[] }
+    delete manifest.generations[0]?.actualCostUsd
+    delete manifest.generations[0]?.requestId
+    delete manifest.generations[0]?.costUsd
+
+    const project = readManifest(manifest)
+    expect(project.generations[0]?.actualCostUsd).toBeNull()
+    expect(project.generations[0]?.requestId).toBeNull()
+    expect(project.generations[0]?.costUsd).toBeNull()
+  })
+
+  it('refuses a charge that is not a number, without losing the candidate', () => {
+    const manifest = writeManifest(
+      {
+        ...ATLAS,
+        generations: [reconciled],
+        selection: { ...ATLAS.selection },
+      },
+      1
+    ) as unknown as { generations: Record<string, unknown>[] }
+    const first = manifest.generations[0]
+    if (first !== undefined) first.actualCostUsd = 'free'
+
+    const project = readManifest(manifest)
+    // The recipe is the expensive artefact (PRD §1), so a bad figure costs the
+    // figure and nothing else — and reads as unreconciled, not as zero.
+    expect(project.generations).toHaveLength(1)
+    expect(project.generations[0]?.actualCostUsd).toBeNull()
+  })
+
+  it('keeps a genuine zero charge, which is not the same as no charge', () => {
+    const manifest = writeManifest(
+      {
+        ...ATLAS,
+        generations: [{ ...reconciled, actualCostUsd: 0 }],
+        selection: { ...ATLAS.selection },
+      },
+      1
+    )
+
+    expect(readManifest(manifest).generations[0]?.actualCostUsd).toBe(0)
   })
 })

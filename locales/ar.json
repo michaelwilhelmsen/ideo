@@ -272,6 +272,7 @@
   "overview.running_one": "{{count}} قيد التنفيذ",
   "overview.running_other": "{{count}} قيد التنفيذ",
   "overview.cost.approximate": "~{{amount}}",
+  "overview.cost.exact": "{{amount}}",
   "overview.cost.partial_one": "~{{amount}} + {{count}} بلا سعر",
   "overview.cost.partial_other": "~{{amount}} + {{count}} بلا سعر",
   "overview.cost.unknown": "التكلفة غير معروفة",
