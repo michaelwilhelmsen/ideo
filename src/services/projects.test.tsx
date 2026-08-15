@@ -85,6 +85,54 @@ describe('the open project and the disk', () => {
     )
   })
 
+  it('re-reads the library after an edit, so the front door is not a card from before it', async () => {
+    // The overview is unmounted while the editor is up, and the project list is
+    // cached for five minutes (`lib/query-client.ts`). Without the save
+    // invalidating it, approving a candidate and going back shows the row the
+    // index held before the work existed — old picture, old date, old cost.
+    await openAtlas()
+    const readsBefore = vi.mocked(commands.listProjects).mock.calls.length
+
+    // What the index would say once the manifest on disk has the approval in
+    // it: a newer candidate is now the card's picture, and it has a cost.
+    vi.mocked(commands.listProjects).mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          ...summaryOf(ATLAS),
+          thumbnail: 'gen-style-2.thumb.jpg',
+          costUsd: 0.24,
+          uncostedCount: 0,
+          reconciledCount: 0,
+        },
+      ],
+    })
+
+    act(() => {
+      useEditorStore.getState().dispatch({
+        type: 'setVerdict',
+        generationId: ATLAS.generations[1]?.id ?? '',
+        verdict: 'approved',
+      })
+    })
+
+    await waitFor(() => expect(commands.saveProject).toHaveBeenCalled(), {
+      timeout: 3000,
+    })
+
+    act(() => {
+      useUIStore.setState({ view: 'overview' })
+    })
+
+    await waitFor(() =>
+      expect(
+        vi.mocked(commands.listProjects).mock.calls.length
+      ).toBeGreaterThan(readsBefore)
+    )
+    // And the card actually says the new thing.
+    expect(await screen.findByText(/~\$0\.24/)).toBeVisible()
+  })
+
   it('does not rewrite a project it has only just read', async () => {
     // Opening is not an edit. Saving on open would bump every project's
     // timestamp to the last time it was looked at, and the sidebar is sorted

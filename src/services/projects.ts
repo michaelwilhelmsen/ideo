@@ -245,6 +245,18 @@ export function useProjectLibrary(): void {
           await queryClient.invalidateQueries({
             queryKey: projectKeys.usage(current.id),
           })
+          // And the card the front door draws, which is a summary of exactly
+          // this file: its picture, its date, its cost, how many candidates it
+          // holds. Editing is where all four change and the overview is
+          // unmounted while it happens — without this the list stays fresh in
+          // the cache for five minutes (`query-client.ts`), so approving a
+          // candidate and going back shows the row the index had before the
+          // work existed.
+          //
+          // Cheap where it looks expensive: the list has no observer while the
+          // editor is up, so this marks it stale rather than re-walking the
+          // library, and the one refetch happens when the front door opens.
+          await queryClient.invalidateQueries({ queryKey: projectKeys.list() })
         })
         .catch((error: unknown) => {
           // Persisted has already moved on, so a failure here would go

@@ -9,11 +9,23 @@ import {
   type ThemeProviderState,
 } from '@/lib/theme-context'
 
+/**
+ * A client that caches the way the real one does.
+ *
+ * `staleTime` is copied from `lib/query-client.ts` rather than left at zero,
+ * and the difference is not cosmetic: at zero, every query refetches the moment
+ * anything mounts an observer, so a view that forgets to invalidate what it
+ * changed still looks correct under test and is wrong in the app. That is
+ * exactly how the overview came to show a card built before the work on it
+ * existed. Retries are still off — a failure should be one call and a
+ * assertion, not four seconds of backoff.
+ */
 const createTestQueryClient = () =>
   new QueryClient({
     defaultOptions: {
       queries: {
         retry: false,
+        staleTime: 1000 * 60 * 5,
       },
       mutations: {
         retry: false,
