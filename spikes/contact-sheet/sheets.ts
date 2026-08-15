@@ -83,6 +83,13 @@ async function main(): Promise<void> {
   const frames = await Promise.all(
     CLIP_FRAMES.map(file => load(`./sources/${file}`))
   )
+  for (const still of ['highkey.png', 'flatgraphic.jpg']) {
+    const image = await load(`./sources/${still}`)
+    const slug = still.split('.')[0] as string
+    await post(`halftone-cells-${slug}`, await halftoneLadder(image, slug))
+    say(`halftone ladder: ${slug}`)
+  }
+
   await post('video-kernels', await videoKernels(frames))
   say('video: kernels')
   await post('video-stability', await videoStability(frames))
@@ -201,6 +208,40 @@ async function videoStability(frames: HTMLImageElement[]): Promise<Blob> {
     columns: frames.length,
     cellWidth: size.width,
     cellHeight: size.height,
+    cells,
+  })
+}
+
+/**
+ * One source, one look, six cell sizes — the question the other sheets raise.
+ *
+ * A halftone screen antialiases against its own gradient, and `fwidth` of a
+ * coordinate measured in cells is about `1 / cell`. At cell 6 that puts the
+ * transition band at a third of the cell, so every dot is a smear and the tone
+ * comes out heavier than its ink fraction. Whether that is a defect or the
+ * grain of a fine screen is a look question, and a ladder is the honest way to
+ * ask it.
+ */
+async function halftoneLadder(
+  image: HTMLImageElement,
+  slug: string
+): Promise<Blob> {
+  const look = lookOf('fx-halftone')
+  const base = valuesFor(look)
+  const sizes = [3, 4, 6, 8, 12, 18]
+
+  const cells: Cell[] = sizes.map(cell => ({
+    label: `cell ${cell}${cell === base.cell ? ' — default' : ''}`,
+    draw: cropOf(image, look, { ...base, cell }, DETAIL),
+  }))
+
+  return grid({
+    title: `#36 — halftone, cell size ladder · ${slug}`,
+    subtitle:
+      'everything else at its default (45°, round). The antialias band is about one pixel wide whatever the cell, so it is a larger fraction of a small cell — which is why a fine screen reads heavier than its ink fraction',
+    columns: 3,
+    cellWidth: DETAIL.width,
+    cellHeight: DETAIL.height,
     cells,
   })
 }

@@ -203,3 +203,37 @@ function shuffledCopy(mask: Uint8Array): Uint8Array {
   }
   return out
 }
+
+describe('the halftone screen’s tone mapping', () => {
+  /**
+   * The three dot shapes have to agree about what a tone means.
+   *
+   * They need three different constants to say one thing — covered area equals
+   * ink fraction — and getting one wrong does not look like a bug. The round
+   * dot was `sqrt(ink) * 0.7071`, the cell's half-diagonal, which over-inks by
+   * exactly π/2 and turns a near-white frame into a dense grey checkerboard.
+   * The contact sheets caught it; this is what stops it coming back.
+   */
+  const HALFTONE = fragmentSourceFor('halftone')
+
+  it('sizes a round dot by area, not by the cell’s diagonal', () => {
+    // 1/sqrt(pi). The failure is silent and reads as a look decision.
+    expect(HALFTONE).toContain('0.56418958')
+    expect(HALFTONE).not.toContain('0.70710678')
+  })
+
+  it('keeps each shape’s constant the one that makes coverage equal the ink', () => {
+    // Stated as the arithmetic rather than as three magic numbers, so a future
+    // edit has something to check itself against.
+    const round = 0.56418958
+    const square = 0.5
+    const line = 0.5
+
+    // area of a circle of radius r*sqrt(ink) = pi * r^2 * ink
+    expect(Math.PI * round * round).toBeCloseTo(1, 5)
+    // area of a square of half-width r*sqrt(ink) = 4 * r^2 * ink
+    expect(4 * square * square).toBeCloseTo(1, 5)
+    // coverage of a band of half-width r*ink = 2 * r * ink
+    expect(2 * line).toBeCloseTo(1, 5)
+  })
+})

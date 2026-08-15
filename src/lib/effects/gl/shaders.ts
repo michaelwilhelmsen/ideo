@@ -194,10 +194,23 @@ void main() {
  * clustered-dot 8×8 matrix, because a screen at an arbitrary angle is a
  * per-pixel coordinate rotation and that is free here and expensive there.
  *
- * Dot area is what carries tone, so the radius goes as the square root of the
- * ink fraction: a dot of twice the radius is four times the ink. The maximum is
- * the cell's half-diagonal rather than its half-width, or the darkest tone
- * would top out at the 78.5% coverage of a circle inscribed in a square.
+ * Dot *area* is what carries tone, so each shape's radius is whatever makes the
+ * covered fraction equal the ink fraction — and the three shapes need three
+ * different constants to say the same thing:
+ *
+ * - **round** — area is `πr²`, so `r = sqrt(ink/π)`, and 1/√π is 0.5642.
+ * - **square** — area is `4r²` at half-width `r`, so `r = sqrt(ink)/2`.
+ * - **line** — coverage is `2r` for a band of half-width `r`, so `r = ink/2`.
+ *   Linear in the tone rather than in its square root, because a line grows in
+ *   one dimension and a dot grows in two.
+ *
+ * Getting the round constant wrong is not subtle and does not look like a bug:
+ * the half-diagonal (0.7071) over-inks by exactly π/2, which turns a near-white
+ * frame into a dense grey checkerboard and reads as "the halftone is too dark"
+ * rather than as arithmetic. A circle of radius 0.5642 overflows the cell
+ * slightly at full ink and is clipped by `fract`, which is what lets the
+ * darkest tone reach solid instead of topping out at the 78.5% coverage of an
+ * inscribed circle.
  */
 const HALFTONE = `
 uniform vec3 u_inkDark;
@@ -219,8 +232,9 @@ void main() {
   float radius;
 
   if (u_shape == 0) {
+    // 1/sqrt(pi) — the radius at which a circle's area *is* the ink fraction.
     distance = length(offset);
-    radius = sqrt(ink) * 0.70710678;
+    radius = sqrt(ink) * 0.56418958;
   } else if (u_shape == 1) {
     distance = max(abs(offset.x), abs(offset.y));
     radius = sqrt(ink) * 0.5;
