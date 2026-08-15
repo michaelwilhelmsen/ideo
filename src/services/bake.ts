@@ -120,6 +120,11 @@ export function useBake(): Baking {
           {
             treat: async job => {
               if (onCpu) {
+                // The same size the session was opened with, and it arrives as
+                // a choice rather than as pixels: Rust holds the source, so it
+                // turns the choice into `job.width`×`job.height` with the very
+                // function that produced those. Passing the pixels instead
+                // would be this side asserting a number it inherited.
                 const treated = await commands.renderTreatedStill(
                   bake.request.projectId,
                   bake.request.generationId,
@@ -127,7 +132,8 @@ export function useBake(): Baking {
                     inks: bake.inks.map(ink => ink.hex),
                     kernel: bake.values.kernel as 'floydSteinberg' | 'atkinson',
                     paletteShaped: bake.values.levelPlacement !== 'even',
-                  }
+                  },
+                  bake.request.size
                 )
                 if (treated.status === 'error') {
                   throw new BakeFailure({

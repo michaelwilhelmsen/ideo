@@ -181,30 +181,36 @@ describe('which sizes an export can be asked for', () => {
     // The whole argument for upscaling is a pattern drawn at the output grid.
     // With no pattern a 2× file carries exactly the detail the 1× file had, so
     // the option is there and refused rather than there and pointless.
-    expect(
-      availableSizes({ medium: 'clip', treated: true, diffused: false })
-    ).toEqual(['web', 'native', 'double'])
-    expect(
-      availableSizes({ medium: 'clip', treated: false, diffused: false })
-    ).toEqual(['web', 'native'])
-    expect(
-      availableSizes({ medium: 'still', treated: false, diffused: false })
-    ).toEqual(['web', 'native'])
+    expect(availableSizes({ medium: 'clip', treated: true })).toEqual([
+      'web',
+      'native',
+      'double',
+    ])
+    expect(availableSizes({ medium: 'clip', treated: false })).toEqual([
+      'web',
+      'native',
+    ])
+    expect(availableSizes({ medium: 'still', treated: false })).toEqual([
+      'web',
+      'native',
+    ])
   })
 
   it('offers nothing for a candidate with no file', () => {
-    expect(
-      availableSizes({ medium: 'nothing', treated: false, diffused: false })
-    ).toEqual([])
+    expect(availableSizes({ medium: 'nothing', treated: false })).toEqual([])
   })
 
-  it('gives error diffusion the one size it actually ships at', () => {
-    // Those two kernels are decided pixel by pixel in Rust, at the candidate's
-    // own size. A control offering a choice there would be describing a file it
-    // is not about to write.
-    expect(
-      availableSizes({ medium: 'still', treated: true, diffused: true })
-    ).toEqual(['native'])
+  it('offers error diffusion the same sizes as any other treatment', () => {
+    // Those two kernels used to be excluded, because they ran at the
+    // candidate's own size and ignored the choice entirely. They now diffuse at
+    // the look's grid and magnify onto the shipped one, which is what the
+    // pattern scale means everywhere else — so which renderer draws a treatment
+    // is not a question this function can see, and must not be.
+    expect(availableSizes({ medium: 'still', treated: true })).toEqual([
+      'web',
+      'native',
+      'double',
+    ])
   })
 
   it('narrows a size the candidate can no longer produce', () => {
@@ -214,14 +220,11 @@ describe('which sizes an export can be asked for', () => {
     expect(
       requestedSize(
         'double',
-        availableSizes({ medium: 'clip', treated: false, diffused: false })
+        availableSizes({ medium: 'clip', treated: false })
       )
     ).toBe('web')
     expect(
-      requestedSize(
-        'double',
-        availableSizes({ medium: 'clip', treated: true, diffused: false })
-      )
+      requestedSize('double', availableSizes({ medium: 'clip', treated: true }))
     ).toBe('double')
     // And a candidate with nothing to export still answers with something an
     // encoder could take.

@@ -23,7 +23,14 @@
  * **Fit by default, 1:1 on demand.** Composition is judged at fit; a dither cell
  * is only judged honestly at pixel scale. The shader re-renders at whatever
  * zoom is showing, so 1:1 is *exact* rather than an upscaled approximation —
- * nothing here has to be labelled "approximate".
+ * nothing here has to be labelled "approximate". The two diffusion kernels
+ * cannot re-render per zoom without a round trip and do not need to: Rust
+ * renders them once at the web width, which is where the look is defined and
+ * the only size 1:1 is asking about — a bigger export is that same pattern with
+ * more pixels resolving its edges (#58), not a different one. At fit the
+ * browser scales that picture down, the same scaling the shader avoids by
+ * redrawing, so fit is where composition is judged and 1:1 is where the pattern
+ * is.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -220,6 +227,14 @@ function TreatedPreview({
 }) {
   const { t } = useTranslation()
   const frame = useRef<HTMLDivElement>(null)
+  /**
+   * How wide the treated frame came back, in its own pixels.
+   *
+   * Read off the picture rather than computed, because Rust decides it: the
+   * preview asks for the web size, so the PNG's own width *is* the width the
+   * look is defined at. Needed only to show it 1:1 — see below.
+   */
+  const [treatedWidth, setTreatedWidth] = useState<number | null>(null)
 
   const kernel = values?.kernel
   const onCpu =
@@ -281,7 +296,23 @@ function TreatedPreview({
             <img
               src={still.data}
               alt=""
+              onLoad={event =>
+                setTreatedWidth(event.currentTarget.naturalWidth)
+              }
               className={actualSize ? 'max-w-none' : 'max-w-full'}
+              // 1:1 means one image pixel per *device* pixel, which is the
+              // same two conditions `sizeOf` spells out for the shader: draw
+              // at the look's own size, and show it in device pixels. Rust
+              // satisfies the first. The second is this: an intrinsic width is
+              // in CSS pixels, so on a 2x display every dot the user is judging
+              // would be stretched across two device pixels — twice the size of
+              // the dot in the file. Only at 1:1; at fit the box decides the
+              // width.
+              style={
+                actualSize && treatedWidth !== null
+                  ? { width: treatedWidth / devicePixelRatio() }
+                  : undefined
+              }
             />
           )
         ) : (
@@ -297,6 +328,11 @@ function TreatedPreview({
       )}
     </div>
   )
+}
+
+/** The webview's pixel ratio, never zero — the same guard `sizeOf` applies. */
+function devicePixelRatio(): number {
+  return window.devicePixelRatio > 0 ? window.devicePixelRatio : 1
 }
 
 /**

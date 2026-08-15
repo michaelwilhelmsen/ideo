@@ -503,7 +503,24 @@ async userPaletteDelete(id: string) : Promise<Result<null, string>> {
 }
 },
 /**
- * One still, treated, as PNG bytes.
+ * One still, treated, as PNG bytes, **at the size that export ships at**.
+ * 
+ * The two grids are worked out here rather than in `effects::render`, whose
+ * business is pixels, and rather than in the request, which neither caller can
+ * fill in honestly: the bake could pass what `begin_bake` computed, but the
+ * effects tab has no idea how big a candidate is — a `Generation` records no
+ * dimensions — so it would have to decode the source in the webview to learn a
+ * number this side is already holding the bytes for. Both callers name a
+ * [`ExportSize`] instead, which is the same thing the shader path names, and
+ * this side turns it into pixels with the same `shipped_size` the bake uses on
+ * the same file. So a treated still arrives at exactly the resolution
+ * `begin_bake` promised, and `Input::TreatedStill` can go on refusing to scale
+ * it.
+ * 
+ * The preview asks for `Web` and always will: the look is defined at the web
+ * width, every size above it is that look with more pixels resolving its
+ * edges, and a preview that had to follow the export choice around the app is
+ * the arrangement #58 rejected.
  * 
  * Runs on a blocking thread: #52 measured error diffusion at ~81 ms for a
  * full-resolution frame, which is fine for a debounced preview and is not fine
@@ -511,11 +528,12 @@ async userPaletteDelete(id: string) : Promise<Result<null, string>> {
  * 
  * A PNG rather than raw pixels, because a 2560×1440 frame is ~11 MB raw and
  * dithered output compresses hard — the encode pays for itself several times
- * over on the way through IPC.
+ * over on the way through IPC. That holds harder at 2×, where the magnified
+ * pattern is flat blocks of two colours.
  */
-async renderTreatedStill(projectId: string, generationId: string, effect: CpuEffect) : Promise<Result<number[], EffectError>> {
+async renderTreatedStill(projectId: string, generationId: string, effect: CpuEffect, size: ExportSize) : Promise<Result<number[], EffectError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("render_treated_still", { projectId, generationId, effect }) };
+    return { status: "ok", data: await TAURI_INVOKE("render_treated_still", { projectId, generationId, effect, size }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

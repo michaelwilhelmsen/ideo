@@ -91,9 +91,29 @@ showed, and rounding the width to a whole multiple of the cap would deliver `web
 `native`'s name. It only arises for a treated still from an oversized style candidate —
 every clip is under the cap, since the animate models emit 720p.
 
-A 2× bake is four times the pixels to render, PNG-encode and store. Error diffusion is
-excluded: those two kernels are decided pixel by pixel in Rust at the candidate's own
-size, so the control offers `native` alone rather than a choice that changes nothing.
+A 2× bake is four times the pixels to render, PNG-encode and store.
+
+### How each path meets the size
+
+A treated export does **not** meet the width in the filter graph: `Input::TreatedFrames`
+and `Input::TreatedStill` take `geometry_filter(false)`, which squares the pixels and
+evens the height and scales nothing, because a pattern rendered at one size and scaled to
+another is a different pattern rather than a smaller one. Every path that produces a
+treated frame therefore arrives at the chosen size on its own.
+
+| Path                     | Arrives at the size by                                                    |
+| ------------------------ | ------------------------------------------------------------------------- |
+| Shader look, clip        | ffmpeg decodes the source frames to `width_expression()` in `bake::begin` |
+| Shader look, still       | the webview renders at the `BakeSession`'s width, height and scale        |
+| Floyd–Steinberg/Atkinson | `render_treated_still` diffuses at the look's grid and magnifies onto it  |
+
+The third row was `native`-only until it was not, and the bug underneath it was quiet: the
+kernels ran at whatever resolution the model had returned and nothing downstream rescaled
+them, so a 2560-wide candidate exported a 2560-wide poster under Atkinson and a 1920-wide
+one under Bayer, from the same picture, with nothing on screen saying which. They now take
+an `ExportSize` like every other look — `commands::effects` turns it into the two grids
+with this module's own `shipped_size` — so `availableSizes` has no reason to know which
+renderer draws a treatment, and does not.
 
 ## Rewind (ping-pong), PRD §4.5's second loop
 

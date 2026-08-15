@@ -171,31 +171,27 @@ export const EXPORT_SIZES: readonly ExportSize[] = ['web', 'native', 'double']
 /**
  * Which sizes this export can actually produce.
  *
- * Two gates, and both are about the same thing — a size above the web width is
- * only worth its bytes when there is a pattern being drawn at the output grid:
+ * One gate, and it is the whole argument for the control: a size above the web
+ * width is only worth its bytes when there is a pattern being drawn at the
+ * output grid. **No treatment, no 2×** — an upscaled clean plate carries exactly
+ * the detail the smaller file had. Rust refuses the combination as well
+ * (`ExportSize::untreated`); this is the half that stops it being offered.
  *
- * - **No treatment, no 2×.** An upscaled clean plate carries exactly the detail
- *   the smaller file had. Rust refuses the combination as well
- *   (`ExportSize::untreated`); this is the half that stops it being offered.
- * - **Error diffusion has no scale to choose.** Those two kernels decide each
- *   pixel from pixels already decided, which happens in Rust at the source's
- *   own size — so a diffusion still ships native whatever is asked, and a
- *   control pretending otherwise would be the panel describing a file it is not
- *   about to write.
+ * Which renderer draws the treatment is deliberately not a question here. Error
+ * diffusion was excluded while those two kernels ran at the candidate's own size
+ * and ignored the choice; they now diffuse at the look's grid and magnify onto
+ * the shipped one, which is what `pattern_scale` means for every other look. A
+ * `diffused` gate would be the panel offering less than the encoder can write.
  */
 export function availableSizes({
   medium,
   treated,
-  diffused,
 }: {
   readonly medium: Medium
   /** Whether this click bakes a treatment in, rather than exporting the plate. */
   readonly treated: boolean
-  /** Whether that treatment renders in Rust — the two diffusion kernels. */
-  readonly diffused: boolean
 }): readonly ExportSize[] {
   if (medium === 'nothing') return []
-  if (diffused) return ['native']
   return treated ? EXPORT_SIZES : ['web', 'native']
 }
 

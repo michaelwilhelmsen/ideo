@@ -58,7 +58,6 @@ import {
 import { isVideoAsset } from '@/lib/export'
 import {
   inksForValues,
-  isDiffusionKernel,
   lookFor,
   resolveTreatment,
   valuesForMedium,
@@ -193,14 +192,7 @@ export function ExportPanel({
   // those seconds looking like it was never pressed.
   const baking = bake.running
 
-  // Whether this bake would run in Rust rather than in the shader. Error
-  // diffusion is the one look with no scale to choose, and the size control
-  // says so rather than offering a choice that changes nothing.
-  const kernel = treatment?.values.kernel
-  const diffused =
-    bakes && typeof kernel === 'string' && isDiffusionKernel(kernel)
-
-  const sizes = availableSizes({ medium, treated: bakes, diffused })
+  const sizes = availableSizes({ medium, treated: bakes })
   const size = requestedSize(
     sized !== null && sized.generationId === selected?.id ? sized.size : 'web',
     sizes
@@ -339,11 +331,9 @@ export function ExportPanel({
             </SelectContent>
           </Select>
           <FieldDescription>
-            {diffused
-              ? t('export.size.diffusionHint')
-              : !bakes
-                ? t('export.size.cleanPlateHint')
-                : t(`export.size.hint.${size}`)}
+            {bakes
+              ? t(`export.size.hint.${size}`)
+              : t('export.size.cleanPlateHint')}
           </FieldDescription>
         </Field>
       )}

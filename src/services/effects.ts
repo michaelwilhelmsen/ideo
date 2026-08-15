@@ -154,10 +154,16 @@ export function useTreatedStill(request: TreatedStillRequest | null) {
     queryFn: async () => {
       if (request === null) throw new Error('nothing to render')
 
+      // Always the web size, which is where the look is defined (#58). Every
+      // larger export is that same look with more pixels resolving its edges,
+      // so a preview that followed the export choice would be redrawing the
+      // same picture at a size the screen has no room for — the arrangement
+      // the size control was designed to avoid.
       const result = await commands.renderTreatedStill(
         request.projectId,
         request.generationId,
-        request.effect
+        request.effect,
+        'web'
       )
       if (result.status === 'error') throw new Error(result.error.reason)
 
