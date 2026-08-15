@@ -127,10 +127,10 @@ validated end-to-end** (16:9, 21:9, 2:1, 3:2, square, 3:4, 9:16), with each entr
 for whether animation is possible at that ratio.
 
 The list covers portrait as well as landscape, because a hero is not always a desktop
-banner — a Reel, a TikTok and a full-bleed mobile section are all taller than they are
-wide. Both portrait entries are animatable on the same evidence as the rest
-(`docs/research/model-schemas.md`): 9:16 is declared by Veo 3.1, FLUX 3, Luma Ray 2,
-LTX 2.3 and Wan FLF2V, and 3:4 by FLUX 3 and Luma Ray 2.
+banner — a vertical social post and a full-bleed mobile section are both taller than
+they are wide. Which entries are animatable, and on what evidence, is recorded once in
+`src/lib/recipe/aspects.ts` and enforced against the registry by `models.test.ts`;
+repeating the model list here is how the two drift apart.
 
 This is load-bearing. Video models are far pickier about dimensions than image models,
 and a ratio the video model rejects would fail at the **last and most expensive step**.

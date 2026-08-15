@@ -125,7 +125,7 @@ fn still_session(
         frames: vec![source.to_string_lossy().to_string()],
         width,
         height,
-        scale: size.pattern_scale(width),
+        scale: size.pattern_scale(width, height),
         fps: None,
     })
 }
@@ -192,7 +192,7 @@ fn clip_session(
             .collect(),
         width: first.width as u32,
         height: first.height as u32,
-        scale: size.pattern_scale(first.width as u32),
+        scale: size.pattern_scale(first.width as u32, first.height as u32),
         // A clip whose rate ffmpeg did not name is re-encoded at 24, which is
         // wrong by less than refusing the export would be.
         fps: Some(parse_fps(&chatter).unwrap_or(24.0)),
@@ -318,7 +318,7 @@ fn decoded_frames(directory: &Path, prefix: &str) -> Result<Vec<PathBuf>, Export
 /// even for the reason `-2` exists in that filter: 4:2:0 chroma cannot express
 /// an odd number of rows.
 pub fn shipped_size(width: u32, height: u32, size: ExportSize) -> (u32, u32) {
-    let target = size.target_width(width).max(2);
+    let target = size.target_width(width, height).max(2);
     let scaled = if width == 0 {
         height
     } else {

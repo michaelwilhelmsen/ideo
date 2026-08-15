@@ -127,13 +127,18 @@ export function rewindIsRedundant(
 }
 
 /**
- * The widest a hero is ever delivered — `MAX_WEB_WIDTH` in `export/plan.rs`.
+ * The longest edge a hero is ever delivered on — `MAX_WEB_EDGE` in
+ * `export/plan.rs`.
  *
  * Mirrored rather than fetched because the preview needs it every frame, and a
  * command round trip per frame to learn a constant would be absurd. A Rust test
  * reads this file and fails if the two numbers drift apart.
+ *
+ * The long edge rather than the width, for the reason that constant gives: a
+ * width cap is a pixel budget that depends on the shape, and 9:16 would slip
+ * under it entirely.
  */
-export const MAX_EXPORT_WIDTH = 1920
+export const MAX_EXPORT_EDGE = 1920
 
 /**
  * The size a deliverable ships at — `shipped_size` in `export/bake.rs`, in the
@@ -149,7 +154,16 @@ export function exportSizeOf(
   width: number,
   height: number
 ): readonly [number, number] {
-  const capped = Math.min(Math.max(Math.round(width), 2), MAX_EXPORT_WIDTH)
+  // `web_width` in `export/plan.rs`, in the same order: fit the long edge under
+  // the cap, then take the height from the ratio. Scaling the width on its own
+  // would let a portrait deliverable through untouched.
+  const longest = Math.max(Math.round(width), Math.round(height))
+  const fitted =
+    longest > MAX_EXPORT_EDGE
+      ? Math.round((width * MAX_EXPORT_EDGE) / longest)
+      : Math.round(width)
+
+  const capped = Math.max(fitted, 2)
   const scaled =
     width <= 0 ? Math.round(height) : Math.round((height * capped) / width)
 

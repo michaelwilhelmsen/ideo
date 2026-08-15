@@ -38,6 +38,7 @@ import {
 } from '@/lib/effects/gl/renderer'
 import type { EffectsLook, Ink, KnobValue } from '@/lib/effects'
 import { exportSizeOf } from '@/lib/export'
+import { maxPreviewHeight } from './preview-bounds'
 
 export interface EffectsPreview {
   readonly canvas: RefObject<HTMLCanvasElement | null>
@@ -156,7 +157,8 @@ export function useEffectsPreview({
             from,
             frame.current,
             actualSize,
-            window.devicePixelRatio
+            window.devicePixelRatio,
+            maxPreviewHeight()
           )
           const [width, height] = render
 
@@ -238,7 +240,8 @@ export function sizeOf(
   source: EffectSource,
   frame: HTMLDivElement | null,
   actualSize: boolean,
-  devicePixelRatio: number
+  devicePixelRatio: number,
+  maxHeight = Number.POSITIVE_INFINITY
 ): {
   readonly render: readonly [number, number]
   readonly display: readonly [number, number]
@@ -266,7 +269,18 @@ export function sizeOf(
 
   // Never wider than the file itself: past that there is no more pattern to
   // show, only the same one enlarged.
-  const width = Math.min(available, shipped[0] / ratio)
+  //
+  // And never taller than `maxHeight`, which is the frame's own bound written
+  // the only way it can be. Fitting to width alone is right until the picture
+  // is taller than it is wide — a 9:16 hero given the pane's full width takes
+  // more height than the window has, and the tab's controls end up below the
+  // fold of a preview nobody can see all of. The frame cannot answer this
+  // itself: it has no height but the one this canvas gives it.
+  const width = Math.min(
+    available,
+    shipped[0] / ratio,
+    (maxHeight * shipped[0]) / Math.max(shipped[1], 1)
+  )
   const height = (shipped[1] * width) / shipped[0]
 
   return {

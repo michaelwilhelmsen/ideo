@@ -29,18 +29,16 @@ describe('the aspect catalogue', () => {
   })
 
   it('only claims animation where a video model confirms the ratio', () => {
-    // PRD §9.1 — Luma Ray 2 has an explicit 21:9/16:9 enum, and 1:1 is
-    // confirmed on Wan FLF2V. 2:1 and 3:2 are reachable only through Kling's
-    // inherited range, which is not the same as a confirmed enum.
+    // Which model backs which ratio is checked against the registry itself in
+    // `models.test.ts`, so this only pins the marks. See the header of
+    // `aspects.ts` for why 2:1 is false despite FLUX 3 naming it.
     expect(aspectById('16:9').animatable).toBe(true)
     expect(aspectById('21:9').animatable).toBe(true)
     expect(aspectById('1:1').animatable).toBe(true)
+    expect(aspectById('3:4').animatable).toBe(true)
+    expect(aspectById('9:16').animatable).toBe(true)
     expect(aspectById('2:1').animatable).toBe(false)
     expect(aspectById('3:2').animatable).toBe(false)
-    // The portrait pair, on the same evidence: 9:16 is in five video enums,
-    // 3:4 in FLUX 3's and Luma Ray 2's.
-    expect(aspectById('9:16').animatable).toBe(true)
-    expect(aspectById('3:4').animatable).toBe(true)
   })
 
   it('gives every entry a reason string key rather than English', () => {

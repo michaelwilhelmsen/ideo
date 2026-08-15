@@ -46,9 +46,17 @@ app that would not launch without ffmpeg is an app you also cannot generate anyt
 | WebM        | libvpx-vp9 | CRF 33 **and `-b:v 0`** | without `-b:v 0` the CRF is read as a cap |
 | Poster      | mjpeg      | `-q:v 3`                | first frame, `-frames:v 1`                |
 
-All three are capped at `MAX_WEB_WIDTH` (1920) by `scale=w='min(1920,iw)':h=-2,setsar=1`.
-The cap only ever scales down. `h=-2` rather than `-1`: 4:2:0 chroma cannot express an odd
-number of rows, and an odd height is a hard encoder failure.
+All three are capped at `MAX_WEB_EDGE` (1920) by
+`scale=w='iw*min(1,1920/max(iw,ih))':h=-2,setsar=1`. The cap only ever scales down.
+`h=-2` rather than `-1`: 4:2:0 chroma cannot express an odd number of rows, and an odd
+height is a hard encoder failure.
+
+The cap is on the **long edge**, not the width, and that distinction is load-bearing since
+the curated ratios grew a portrait half (PRD §4.4). A width cap is a pixel budget that
+quietly depends on the shape: 9:16 comes off the source models at 1440×2560 and never
+trips a 1920-_wide_ cap at all, so it would ship a third more pixels than every other
+ratio and `double` would ship 11 M. `jobs::downscale` was always right about this;
+this side was not.
 
 There is no encoder UI. A landing-page hero has one right answer for each of these, and
 exposing them would ask the user to re-derive it on every export.
@@ -58,11 +66,14 @@ exposing them would ask the user to re-derive it on every export.
 The one delivery decision that is _not_ fixed, because a treatment changes what more
 pixels are worth. `ExportSize` is three choices, and the `w=` expression follows from it:
 
-| Size     | `w=`             | Offered when                           |
-| -------- | ---------------- | -------------------------------------- |
-| `web`    | `min(1920,iw)`   | always — the default, and today's file |
-| `native` | `iw`             | always — the pixels the model returned |
-| `double` | `min(1920,iw)*2` | only while a treatment is being baked  |
+| Size     | `w=`                          | Offered when                           |
+| -------- | ----------------------------- | -------------------------------------- |
+| `web`    | `iw*min(1,1920/max(iw,ih))`   | always — the default, and today's file |
+| `native` | `iw`                          | always — the pixels the model returned |
+| `double` | `iw*min(1,1920/max(iw,ih))*2` | only while a treatment is being baked  |
+
+`iw*min(1,1920/max(iw,ih))` is `plan::web_width` written for a filter graph: scale by
+whatever brings the long edge under the cap, or by nothing when it is already there.
 
 Each is wrapped in `trunc(…/2)*2`. 4:2:0 chroma cannot express an odd number of columns
 any more than an odd number of rows, and libx264 refuses the encode outright — the cap hid

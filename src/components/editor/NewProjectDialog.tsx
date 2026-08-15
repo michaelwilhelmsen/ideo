@@ -60,7 +60,10 @@ export function NewProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/* Scrolls for the same reason the palette dialog does: the ratio grid
+          grew a fourth row with the portrait entries, and a short window would
+          otherwise push Create off the bottom with no way to reach it. */}
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('editor.newProject.title')}</DialogTitle>
           <DialogDescription>

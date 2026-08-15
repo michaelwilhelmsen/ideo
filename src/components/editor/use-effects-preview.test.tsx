@@ -233,4 +233,27 @@ describe('how big to draw, and how big to show it', () => {
 
     expect(render[0]).toBe(1920)
   })
+
+  it('fits a portrait picture to the height it is given, not only the width', () => {
+    // Fitting to width alone is right until the picture is taller than it is
+    // wide. A 9:16 hero handed 700px of pane takes 1244px of height for it, so
+    // the tab's own controls sit below the fold of a preview nobody can see all
+    // of — and the frame cannot bound this itself, having no height but the one
+    // this canvas gives it.
+    const { display } = sizeOf(image(1080, 1920), box(700), false, 1, 600)
+
+    expect(display[1]).toBeCloseTo(600)
+    expect(display[0]).toBeCloseTo(337.5)
+    // Still the file's own shape — a bound that cropped would be worse than no
+    // bound at all.
+    expect(display[0] / display[1]).toBeCloseTo(1080 / 1920)
+  })
+
+  it('leaves a landscape picture to the width bound it already had', () => {
+    // The same call on a wide picture must not start scaling to a height that
+    // was never the binding constraint.
+    const { display } = sizeOf(image(1920, 1080), box(600), false, 1, 600)
+
+    expect(display).toEqual([600, 337.5])
+  })
 })

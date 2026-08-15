@@ -18,13 +18,38 @@ use specta::Type;
 
 use super::ExportError;
 
-/// The widest a hero ever needs to be delivered.
+/// The longest edge a hero ever needs to be delivered on.
 ///
-/// Raw model output is routinely wider (PRD §8 — "far too heavy for a landing
+/// Raw model output is routinely bigger (PRD §8 — "far too heavy for a landing
 /// page"), and a 4K clip behind a headline is bytes nobody sees. The cap only
-/// ever scales *down*: `min(MAX_WEB_WIDTH, iw)` leaves a narrower clip alone
-/// rather than upscaling it into a bigger file with no more detail in it.
-pub const MAX_WEB_WIDTH: u32 = 1920;
+/// ever scales *down*: a deliverable already inside it is left alone rather than
+/// upscaled into a bigger file with no more detail in it.
+///
+/// The **long edge**, not the width, and the distinction only started mattering
+/// when the curated ratios grew a portrait half (PRD §4.4). A width cap is a
+/// budget that quietly depends on the shape: 9:16 comes off the source models at
+/// 1440×2560, which never trips a 1920-wide cap and would ship 2.7 M pixels
+/// where 16:9 ships 2.07 M — and `Double` would ship 11 M. What the cap is
+/// actually rationing is bytes on a landing page, and bytes follow the long
+/// edge, not the horizontal one. `downscale.rs` was already right about this;
+/// this side was not.
+pub const MAX_WEB_EDGE: u32 = 1920;
+
+/// The width a `Web` export lands on, with the cap applied to the long edge.
+///
+/// Width out rather than a pair, because the height follows from the ratio
+/// everywhere this is used and the two callers derive it differently — one in
+/// Rust arithmetic, one in an ffmpeg `-2`.
+fn web_width(width: u32, height: u32) -> u32 {
+    let longest = width.max(height);
+    if longest <= MAX_WEB_EDGE {
+        return width;
+    }
+
+    // 64-bit for the multiply alone: a 14142-wide source (FLUX Pro's declared
+    // ceiling) times 1920 is past `u32` while the result is not.
+    ((u64::from(width) * u64::from(MAX_WEB_EDGE)) / u64::from(longest)) as u32
+}
 
 /// How big a deliverable ships (#58).
 ///
@@ -45,7 +70,7 @@ pub const MAX_WEB_WIDTH: u32 = 1920;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ExportSize {
-    /// [`MAX_WEB_WIDTH`], and what every export was before this existed.
+    /// [`MAX_WEB_EDGE`], and what every export was before this existed.
     Web,
     /// The candidate's own size, uncapped — the pixels the model actually
     /// returned, rather than the ones left after the web cap.
@@ -56,12 +81,18 @@ pub enum ExportSize {
 }
 
 impl ExportSize {
-    /// The width to deliver at, from the source's own.
-    pub fn target_width(self, source: u32) -> u32 {
+    /// The width to deliver at, from the source's own dimensions.
+    ///
+    /// Both dimensions, because the cap is on the long edge: a portrait source
+    /// is capped by its height and the width that comes back is smaller than
+    /// the one that went in, which is the whole point (see [`MAX_WEB_EDGE`]).
+    pub fn target_width(self, source_width: u32, source_height: u32) -> u32 {
+        let web = web_width(source_width, source_height);
+
         match self {
-            ExportSize::Web => source.min(MAX_WEB_WIDTH),
-            ExportSize::Native => source,
-            ExportSize::Double => source.min(MAX_WEB_WIDTH).saturating_mul(2),
+            ExportSize::Web => web,
+            ExportSize::Native => source_width,
+            ExportSize::Double => web.saturating_mul(2),
         }
     }
 
@@ -79,11 +110,19 @@ impl ExportSize {
     /// ends `& !1`, so without the same rounding here, turning a treatment on
     /// would silently resize an odd-width deliverable by a pixel — which is the
     /// one thing the two are arranged never to do.
+    ///
+    /// `iw*min(1,cap/max(iw,ih))` is [`web_width`] written for a filter graph:
+    /// scale by whatever it takes to bring the long edge under the cap, or by
+    /// nothing when it is already there. The commas are safe because ffmpeg's
+    /// parser takes the whole expression as one quoted argument — the previous
+    /// `min(1920,iw)` relied on the same thing.
     pub fn width_expression(self) -> String {
+        let fit = format!("iw*min(1,{MAX_WEB_EDGE}/max(iw,ih))");
+
         let target = match self {
-            ExportSize::Web => format!("min({MAX_WEB_WIDTH},iw)"),
+            ExportSize::Web => fit,
             ExportSize::Native => "iw".to_string(),
-            ExportSize::Double => format!("min({MAX_WEB_WIDTH},iw)*2"),
+            ExportSize::Double => format!("{fit}*2"),
         };
 
         format!("trunc({target}/2)*2")
@@ -113,13 +152,16 @@ impl ExportSize {
     /// cap — every clip is under it (the animate models cap at 720p), so a clip's
     /// `Native` is its `Web`. The halftone screen scales continuously and is
     /// unaffected either way.
-    pub fn pattern_scale(self, shipped_width: u32) -> f64 {
+    /// Measured on the long edge for [`MAX_WEB_EDGE`]'s reason: on a portrait
+    /// deliverable the width is not what the cap bit on, so dividing by a capped
+    /// *width* would report 1.0 for a picture that is a third bigger than `Web`.
+    pub fn pattern_scale(self, shipped_width: u32, shipped_height: u32) -> f64 {
         match self {
             ExportSize::Web => 1.0,
             ExportSize::Double => 2.0,
             ExportSize::Native => {
-                let shipped = shipped_width.max(1);
-                f64::from(shipped) / f64::from(shipped.min(MAX_WEB_WIDTH))
+                let longest = shipped_width.max(shipped_height).max(1);
+                f64::from(longest) / f64::from(longest.min(MAX_WEB_EDGE))
             }
         }
     }
@@ -752,7 +794,7 @@ mod tests {
         for step in &plan.steps {
             let filters = step.args.join(" ");
             assert!(
-                filters.contains(&format!("min({MAX_WEB_WIDTH},iw)")),
+                filters.contains(&format!("min(1,{MAX_WEB_EDGE}/max(iw,ih))")),
                 "{:?} is not capped",
                 step.deliverable
             );
@@ -870,22 +912,78 @@ mod tests {
         // coordinates by this, so getting it wrong is a treatment that changes
         // density when the size changes — which is the one thing #58 settled
         // that it must not do.
-        assert_eq!(ExportSize::Web.pattern_scale(1920), 1.0);
-        assert_eq!(ExportSize::Web.pattern_scale(1280), 1.0);
-        assert_eq!(ExportSize::Double.pattern_scale(3840), 2.0);
-        assert_eq!(ExportSize::Double.pattern_scale(2560), 2.0);
+        assert_eq!(ExportSize::Web.pattern_scale(1920, 1080), 1.0);
+        assert_eq!(ExportSize::Web.pattern_scale(1280, 720), 1.0);
+        assert_eq!(ExportSize::Double.pattern_scale(3840, 2160), 2.0);
+        assert_eq!(ExportSize::Double.pattern_scale(2560, 1440), 2.0);
         // Native is the one size that can land on a fraction, and it is kept
         // rather than rounded: 1.333 is what a nearest-neighbour magnification
         // by 1.333 costs, and both ways of rounding it away ship something
         // other than what the preview showed.
-        assert_eq!(ExportSize::Native.pattern_scale(2560), 2560.0 / 1920.0);
+        assert_eq!(
+            ExportSize::Native.pattern_scale(2560, 1440),
+            2560.0 / 1920.0
+        );
         // A source that was never over the cap is not scaled at all, so Native
         // and Web are the same export rather than two names for it.
-        assert_eq!(ExportSize::Native.pattern_scale(1280), 1.0);
+        assert_eq!(ExportSize::Native.pattern_scale(1280, 720), 1.0);
         // Which is every clip there is: the animate models cap at 720p, so a
         // fractional scale is a treated *still* from an oversized style
         // candidate and nothing else.
-        assert_eq!(ExportSize::Native.pattern_scale(1920), 1.0);
+        assert_eq!(ExportSize::Native.pattern_scale(1920, 1080), 1.0);
+        // Portrait is measured on the same edge the cap bit on. A width-only
+        // reading of this 9:16 still would answer 1.0 — the scale of a picture
+        // it is a third bigger than.
+        assert_eq!(
+            ExportSize::Native.pattern_scale(1440, 2560),
+            2560.0 / 1920.0
+        );
+        assert_eq!(ExportSize::Web.pattern_scale(1080, 1920), 1.0);
+    }
+
+    #[test]
+    fn the_web_cap_is_on_the_long_edge_whichever_edge_that_is() {
+        // The bug: a width cap is a pixel budget that quietly depends on the
+        // shape. 9:16 comes off the source models at 1440x2560, which never
+        // trips a 1920-*wide* cap — so the ratio nobody checked would have
+        // shipped a third more pixels than every other one, and twice that
+        // again on Double.
+        assert_eq!(ExportSize::Web.target_width(1440, 2560), 1080);
+        assert_eq!(ExportSize::Double.target_width(1440, 2560), 2160);
+        assert_eq!(ExportSize::Native.target_width(1440, 2560), 1440);
+
+        // Landscape is untouched by the change, which is the other half of it.
+        assert_eq!(ExportSize::Web.target_width(3840, 2160), 1920);
+        assert_eq!(ExportSize::Web.target_width(1280, 720), 1280);
+        assert_eq!(ExportSize::Double.target_width(1280, 720), 2560);
+
+        // Square, where the two readings agree and always did.
+        assert_eq!(ExportSize::Web.target_width(2048, 2048), 1920);
+    }
+
+    #[test]
+    fn no_shape_ships_more_pixels_than_a_16_9_web_export() {
+        // The property the cap is actually for, stated once rather than per
+        // ratio: whatever shape goes in, a Web deliverable fits in the same
+        // box. Ratios are the curated list of PRD 4.4, at the sizes
+        // `legalSizeFor` hands the source models.
+        for (width, height) in [
+            (3840u32, 2160u32),
+            (2352, 1008),
+            (2048, 1024),
+            (2304, 1536),
+            (2048, 2048),
+            (1728, 2304),
+            (1440, 2560),
+        ] {
+            let shipped = ExportSize::Web.target_width(width, height);
+            let scaled_height = (u64::from(height) * u64::from(shipped)) / u64::from(width).max(1);
+
+            assert!(
+                shipped.max(scaled_height as u32) <= MAX_WEB_EDGE,
+                "{width}x{height} ships a {shipped}x{scaled_height} long edge over the cap"
+            );
+        }
     }
 
     #[test]
@@ -928,7 +1026,7 @@ mod tests {
         for step in &plan.steps {
             let filters = step.args.join(" ");
             assert!(
-                !filters.contains(&format!("min({MAX_WEB_WIDTH},iw)")),
+                !filters.contains(&format!("min(1,{MAX_WEB_EDGE}/max(iw,ih))")),
                 "{:?} was still capped",
                 step.deliverable
             );
@@ -960,7 +1058,7 @@ mod tests {
         for step in &plan.steps {
             let filters = step.args.join(" ");
             assert!(
-                !filters.contains(&format!("min({MAX_WEB_WIDTH},iw)")),
+                !filters.contains(&format!("min(1,{MAX_WEB_EDGE}/max(iw,ih))")),
                 "{:?} was upscaled with nothing to sharpen",
                 step.deliverable
             );
@@ -989,7 +1087,7 @@ mod tests {
         {
             let filters = step.args.join(" ");
             assert!(
-                !filters.contains(&format!("min({MAX_WEB_WIDTH},iw)")),
+                !filters.contains(&format!("min(1,{MAX_WEB_EDGE}/max(iw,ih))")),
                 "{:?} was capped a second time",
                 step.deliverable
             );
@@ -1033,11 +1131,11 @@ mod tests {
         let mirrored = include_str!("../../../src/lib/export/deliverables.ts");
         let line = mirrored
             .lines()
-            .find(|line| line.contains("MAX_EXPORT_WIDTH ="))
+            .find(|line| line.contains("MAX_EXPORT_EDGE ="))
             .expect("the mirrored width in deliverables.ts");
 
         assert!(
-            line.contains(&MAX_WEB_WIDTH.to_string()),
+            line.contains(&MAX_WEB_EDGE.to_string()),
             "the webview caps exports at a different width: {line}"
         );
     }
@@ -1178,7 +1276,9 @@ mod tests {
         let args = args_for(&plan, Deliverable::Poster);
 
         assert!(args.contains(&"/tmp/bake/treated-000000.png".to_string()));
-        assert!(!args.join(" ").contains(&format!("min({MAX_WEB_WIDTH},iw)")));
+        assert!(!args
+            .join(" ")
+            .contains(&format!("min(1,{MAX_WEB_EDGE}/max(iw,ih))")));
     }
 
     #[test]
@@ -1202,7 +1302,7 @@ mod tests {
             .expect("rewind should build a filter graph");
 
         assert!(graph.contains("reverse"));
-        assert!(!graph.contains(&format!("min({MAX_WEB_WIDTH},iw)")));
+        assert!(!graph.contains(&format!("min(1,{MAX_WEB_EDGE}/max(iw,ih))")));
     }
 
     #[test]

@@ -129,7 +129,7 @@ const GROK_RATIOS = {
  * is locked and handing the decision back to the provider is how a stage comes
  * back the wrong shape.
  */
-const LANDSCAPE_OR_VERTICAL = { '16:9': '16:9', '9:16': '9:16' } as const
+const VEO_AND_LTX_RATIOS = { '16:9': '16:9', '9:16': '9:16' } as const
 
 // ── Source ──────────────────────────────────────────────────────────────────
 
@@ -908,7 +908,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     aspects: {
       kind: 'ratioEnum',
       param: 'aspect_ratio',
-      values: LANDSCAPE_OR_VERTICAL,
+      values: VEO_AND_LTX_RATIOS,
     },
     // Spelled `first_frame_url` here, `start_image_url` on Kling O1 and FLUX 3,
     // and `image_url` on the rest — PRD §9.1's case for the registry, twice over.
@@ -943,7 +943,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     aspects: {
       kind: 'ratioEnum',
       param: 'aspect_ratio',
-      values: LANDSCAPE_OR_VERTICAL,
+      values: VEO_AND_LTX_RATIOS,
     },
     imageParam: 'image_url',
     supportsSeed: true,
@@ -973,7 +973,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     aspects: {
       kind: 'ratioEnum',
       param: 'aspect_ratio',
-      values: LANDSCAPE_OR_VERTICAL,
+      values: VEO_AND_LTX_RATIOS,
     },
     imageParam: 'image_url',
     supportsSeed: false,

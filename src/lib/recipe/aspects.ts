@@ -6,22 +6,39 @@
  * than image models, and a ratio the video model refuses would fail at the last
  * and most expensive step.
  *
- * `animatable` is a claim about *confirmed* support, not about what might work.
- * PRD §9.1 read the live schemas: Luma Ray 2 has an explicit enum containing
- * 21:9 and 16:9, and 1:1 is confirmed on Wan FLF2V. 2:1 and 3:2 appear in no
- * video model's enum — they are reachable only through Kling O1's inherited
- * 0.40–2.50 range, which carries no seed parameter and so cannot be re-run.
- * Marking those two as animatable would be assuming the expensive thing.
+ * `animatable` is a claim about *confirmed* support, and the evidence is one
+ * thing only: a ratio named in the `aspects` enum of a row in `MODEL_REGISTRY`
+ * at the animate stage. `models.test.ts` holds every entry here to that, which
+ * is why the claim can be trusted rather than merely read.
+ *
+ * 3:2 fails it outright: no video model names it, and it is reachable only
+ * through the rows that inherit their geometry from the still (Kling, Seedance),
+ * which accept any shape precisely because they are never told one. Reading
+ * that as support is the assumption this flag exists to refuse — it is an
+ * absence of a constraint, not a confirmation.
+ *
+ * 2:1 is marked `false` and is the one entry whose mark is *stale rather than
+ * wrong*. FLUX 3 declares 2:1 and was added after this list was written; that
+ * row requires an end frame, so a 2:1 animate would always be a loop, which
+ * since #30 is what an animate run does by default anyway. Nothing re-examined
+ * the flag when the row landed, and it stays `false` here rather than being
+ * flipped in passing: `animatable` gates the whole animate stage
+ * (`selectors.ts`), so widening it is a product decision with a paid step
+ * behind it, not a comment fix. Filed rather than smuggled in.
+ *
+ * What the flag does *not* promise is reproducibility. Veo 3.1 is the only
+ * animate row with a seed, and it serves 16:9 and 9:16 — so at every other
+ * ratio the animate stage is a re-roll, and PRD §10.1 disables the seed control
+ * with a reason rather than hiding it. That is a property of the field, not of
+ * this list.
  *
  * The two portrait entries are here because a hero is not always a desktop
- * banner — a Reel, a TikTok and a full-bleed mobile section are all taller than
- * they are wide, and a landscape-only list makes those unbuildable rather than
- * merely awkward. Both are animatable on the same evidence as the rest, read
- * from `docs/research/model-schemas.md`: 9:16 is in the enum of Veo 3.1 (both
- * variants), FLUX 3, Luma Ray 2, LTX 2.3 and Wan FLF2V, and 3:4 is in FLUX 3's
- * and Luma Ray 2's. Note the asymmetry with the landscape half — the widest
- * ratios are the ones video models are shy about, and every model in the
- * registry serves 9:16.
+ * banner — a vertical social post and a full-bleed mobile section are both
+ * taller than they are wide, and a landscape-only list makes those unbuildable
+ * rather than merely awkward. Note the asymmetry with the landscape half: the
+ * ratios video models are shy about are the *wide* ones, so 9:16 arrives better
+ * supported than most of what was already offered, and is only the second ratio
+ * whose animate stage can be re-run at all.
  */
 
 import type { AspectId } from './types'
@@ -67,7 +84,9 @@ export const ASPECTS: readonly Aspect[] = [
     height: 1,
     ratio: 2,
     animatable: false,
-    noteKey: 'editor.aspect.note.noVideoEnum',
+    // Not `noVideoEnum` — FLUX 3 does name this one. See the header: the mark
+    // is stale rather than wrong, and the copy must not claim more than that.
+    noteKey: 'editor.aspect.note.notConfirmed',
   },
   {
     id: '3:2',
@@ -99,7 +118,7 @@ export const ASPECTS: readonly Aspect[] = [
     height: 16,
     ratio: 9 / 16,
     animatable: true,
-    noteKey: 'editor.aspect.note.vertical',
+    noteKey: 'editor.aspect.note.tallPortrait',
   },
 ]
 

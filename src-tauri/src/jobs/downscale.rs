@@ -27,7 +27,7 @@
 
 /// The longest edge an input image is sent at.
 ///
-/// The same number as `export::MAX_WEB_WIDTH` and deliberately *not* the same
+/// The same number as `export::MAX_WEB_EDGE` and deliberately *not* the same
 /// constant. They coincide today because both follow from what a hero is
 /// delivered at, but they answer to different things — that one is the width of
 /// the file a landing page serves, this one is how much detail a model is given

@@ -1007,7 +1007,7 @@ size: ExportSize }
  */
 export type ExportSize = 
 /**
- * [`MAX_WEB_WIDTH`], and what every export was before this existed.
+ * [`MAX_WEB_EDGE`], and what every export was before this existed.
  */
 "web" | 
 /**

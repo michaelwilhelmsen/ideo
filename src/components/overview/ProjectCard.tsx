@@ -89,11 +89,18 @@ export function ProjectCard({
             <ImageOff className="h-6 w-6" aria-hidden />
           </span>
         ) : (
+          // `contain`, not `cover`. The card box is 16:9 and stays that way —
+          // the overview is a grid, and a 9:16 card 1.8x the height of its
+          // neighbours makes ragged rows of the whole page. But cropping a
+          // portrait hero to a wide strip through this box throws away most of
+          // the picture and shows a band of sky, which is the one thing a
+          // thumbnail exists not to do. Letterboxing shows the shape instead,
+          // and for a 16:9 project it is the same fit `cover` was.
           <img
             src={thumbnail}
             alt=""
             loading="lazy"
-            className="h-full w-full object-cover"
+            className="h-full w-full object-contain"
           />
         )}
 
@@ -111,7 +118,9 @@ export function ProjectCard({
             // clip with no controls is not something to land on.
             aria-hidden
             tabIndex={-1}
-            className="absolute inset-0 h-full w-full object-cover"
+            // Same fit as the poster underneath it, or the clip would jump to a
+            // different framing the moment it started playing.
+            className="absolute inset-0 h-full w-full object-contain"
           />
         )}
 

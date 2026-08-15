@@ -132,7 +132,7 @@ full-resolution frame is ~11 MB raw; dithered output compresses hard). On a clip
 they are disabled with the reason attached — _error diffusion crawls between
 frames; blue noise holds still_ — rather than hidden or silently substituted.
 
-Being the exception ends there. They meet the export width cap and follow the
+Being the exception ends there. They meet the export cap and follow the
 export size like every other look, and the size is decided in
 `commands::effects` rather than in either caller: it reads the asset's header
 and calls the same `bake::shipped_size` the bake does, on the same file, so the
@@ -187,8 +187,8 @@ is in Rust:
 3. `finish_bake` encodes every deliverable from the treated frames and clears
    the folder.
 
-**Rendered at the export resolution, not before it.** Exports cap at
-`min(1920, iw)` by default; a pattern rendered before that scaling is destroyed
+**Rendered at the export resolution, not before it.** Exports cap the long edge
+at 1920 by default; a pattern rendered before that scaling is destroyed
 by it, so the frames are extracted already capped and `Input::Treated*` tells
 `plan()` not to scale them again. `shipped_size` computes the same dimensions
 the untreated filter graph would produce, because turning a treatment on must

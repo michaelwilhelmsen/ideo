@@ -148,10 +148,47 @@ describe('the size a deliverable ships at', () => {
   // The same cases `export_size` asserts in `export/bake.rs`. Two languages
   // computing one number is only safe while they agree about it, and what the
   // preview draws its pattern at is whatever this says.
-  it('caps at the export width and never upscales past it', () => {
+  it('caps at the export edge and never upscales past it', () => {
     expect(exportSizeOf(3840, 2160)).toEqual([1920, 1080])
     expect(exportSizeOf(2560, 1440)).toEqual([1920, 1080])
     expect(exportSizeOf(1280, 720)).toEqual([1280, 720])
+  })
+
+  it('caps a portrait deliverable on its height, which is its long edge', () => {
+    // A width cap is a pixel budget that depends on the shape: 9:16 comes off
+    // the source models at 1440×2560 and slips under a 1920-wide cap entirely,
+    // shipping a third more pixels than every other ratio. The preview reads
+    // this too, so a portrait project drew its pattern at that density as well.
+    expect(exportSizeOf(1440, 2560)).toEqual([1080, 1920])
+    expect(exportSizeOf(1728, 2304)).toEqual([1440, 1920])
+    // Already inside it, so untouched — the cap only ever scales down.
+    expect(exportSizeOf(720, 1280)).toEqual([720, 1280])
+  })
+
+  it('holds every curated ratio to the same box', () => {
+    // The property, rather than a row per shape: whatever goes in, no
+    // deliverable's long edge is over the cap. Sizes are what `legalSizeFor`
+    // hands the source models at each ratio in `ASPECTS`.
+    const shapes: readonly (readonly [number, number])[] = [
+      [3840, 2160],
+      [2352, 1008],
+      [2048, 1024],
+      [2304, 1536],
+      [2048, 2048],
+      [1728, 2304],
+      [1440, 2560],
+    ]
+
+    for (const [width, height] of shapes) {
+      const [wide, high] = exportSizeOf(width, height)
+      expect(Math.max(wide, high), `${String(width)}×${String(height)}`).toBe(
+        1920
+      )
+      // And the shape survives the cap, which is the other half of it: a
+      // deliverable that no longer fits the slot it was made for is not smaller,
+      // it is wrong.
+      expect(wide / high).toBeCloseTo(width / height, 2)
+    }
   })
 
   it('keeps both axes even', () => {
