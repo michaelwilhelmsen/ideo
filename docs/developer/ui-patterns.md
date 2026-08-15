@@ -306,6 +306,45 @@ jobs are still running.
 A run a previous launch left behind is adopted into a `RunRecord` by `useAdoptedRuns`
 in `services/jobs.ts`, so resuming looks like running: same grid, same grouping.
 
+## Stage Inputs
+
+The stages are independent (PRD §4.1), and that independence now runs in both
+directions: a stage may consume any **earlier** candidate, not only the one
+immediately before it. A source that came out right is animated directly, without
+paying for a pass-through style pass. There is no "skip" control anywhere, because a
+skipped stage is not a mode — it is an input that came from further back.
+
+**The pointer lives on the draft.** `StageRecipe.inputGenerationId` has always
+existed and drafts are `StageRecipe`s, so the input is a normal draft field: persisted
+in `project.json`, restored by `restoreRecipe`, frozen onto each candidate by
+`freezeRecipe`. It is deliberately **not** a selection — `project.selection[stage]`
+means "the candidate this stage produced that I have settled on", and pointing animate
+at a source is not a claim about the style stage at all. Writing one into the other is
+the bug `restoreRecipe`'s `followable` check exists to prevent.
+
+**Three answers, in falling order of deliberateness.** `resolvedInputId` returns what
+the draft names, then the upstream selection (which is what this was unconditionally
+before), then the newest candidate of the nearest upstream stage with any. Answer 2 is
+why nothing changes for anyone who ignores the feature; answer 3 is why skipping costs
+no extra clicks. Answer 3 walks the stages **one at a time, nearest first** — flattening
+them into one list and taking the last entry ranks by arrival, which silently prefers
+the furthest stage and would animate a raw source over a styled still.
+
+**One predicate, one home.** `isEligibleInput` is the only place that decides whether a
+candidate may serve as a stage's input — membership of an earlier stage, which is what
+makes a cycle unrepresentable. It is asked on both sides of the reducer boundary
+(`resolvedInputId` for a stored pointer, `pointableInput` for an incoming one), and two
+copies of it had already started to drift.
+
+**Two components, two panes.** `InputRow` (main pane) is the thumbnail carousel that
+_changes_ the input, head of the row preselected. `InputSummary` (right sidebar) is one
+line naming the same answer above the run button. Both read `resolvedInputId`, so they
+cannot disagree about what a run would take. Do not put `InputRow` in the sidebar — it
+renders thumbnails into a column of form controls.
+
+`blockedReasonKey` therefore refuses on "no picture anywhere behind this stage"
+(`editor.reason.needsInput`) rather than on "the previous stage has not been run".
+
 ## shadcn/ui Usage
 
 ### Adding Components

@@ -40,6 +40,7 @@ import {
   type KnobValue,
 } from '@/lib/effects'
 import {
+  selectedGeneration,
   sourcePresetById,
   stylePresetById,
   type Generation,
@@ -57,6 +58,7 @@ export function EffectsTab() {
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
   const directory = useEditorStore(store => store.state.directory)
+  const activeStage = useEditorStore(store => store.state.activeStage)
   const nameOf = useGenerationName()
   const target = useTreatmentTarget()
 
@@ -89,6 +91,10 @@ export function EffectsTab() {
 
   if (target === null) return null
 
+  // What the strip below is pointing at, which is not necessarily what this tab
+  // is treating — the whole reason "Treat this" still exists.
+  const selected = selectedGeneration(target.project, activeStage)
+
   if (target.generation === null) {
     return (
       <EmptyPreview
@@ -101,27 +107,65 @@ export function EffectsTab() {
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-center gap-3">
-        <h2 className="text-sm font-medium">{nameOf(target.generation)}</h2>
-        {target.pinned ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => dispatch({ type: 'unpinTreatment' })}
+        {/* Which candidate this tab is treating, as a choice rather than a
+            consequence of the tab you came from. Two entries most of the time —
+            the still and the clip — which is exactly the question "do I halftone
+            the frame or the animation?" and the one this tab could not previously
+            be asked. One entry renders as a label, because a switch with nothing
+            to switch to is furniture. */}
+        {target.choices.length > 1 ? (
+          <div
+            className="flex gap-1 rounded-md border border-border p-0.5"
+            role="group"
+            aria-label={t('effects.target')}
           >
-            {t('effects.unpin')}
-          </Button>
+            {target.choices.map(candidate => (
+              <Button
+                key={candidate.id}
+                size="sm"
+                variant={
+                  candidate.id === target.generation?.id ? 'default' : 'ghost'
+                }
+                aria-pressed={candidate.id === target.generation?.id}
+                onClick={() =>
+                  dispatch({
+                    type: 'pinTreatment',
+                    generationId: candidate.id,
+                  })
+                }
+              >
+                {nameOf(candidate)}
+              </Button>
+            ))}
+          </div>
         ) : (
+          <h2 className="text-sm font-medium">{nameOf(target.generation)}</h2>
+        )}
+
+        {/* The switch offers each stage's *selection*, so a candidate picked in
+            the strip below that is not one of those has no card to click. This
+            is that route, and it appears only when there is somewhere else to
+            go — which is also why it is not the switch's job: the strip can
+            reach candidates the switch deliberately does not list. */}
+        {selected !== null && selected.id !== target.generation.id && (
           <Button
             size="sm"
             variant="outline"
             onClick={() =>
-              dispatch({
-                type: 'pinTreatment',
-                generationId: target.generation?.id ?? '',
-              })
+              dispatch({ type: 'pinTreatment', generationId: selected.id })
             }
           >
             {t('effects.treatThis')}
+          </Button>
+        )}
+
+        {target.pinned && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => dispatch({ type: 'unpinTreatment' })}
+          >
+            {t('effects.unpin')}
           </Button>
         )}
         <Button

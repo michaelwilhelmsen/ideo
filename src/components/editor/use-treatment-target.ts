@@ -26,6 +26,7 @@ import {
   activeProject,
   generationById,
   selectedGeneration,
+  STAGE_ORDER,
   type Generation,
   type Project,
   type Treatment,
@@ -39,6 +40,17 @@ export interface TreatmentTarget {
   readonly generation: Generation | null
   /** Whether this candidate is *pinned* rather than merely selected. */
   readonly pinned: boolean
+  /**
+   * The candidates this tab offers to treat — each stage's current selection,
+   * in pipeline order.
+   *
+   * On screen as a switch, because "halftone the still" and "halftone the clip"
+   * are different jobs done in the same place and the answer used to be taken
+   * from whichever stage tab happened to be open. That was invisible and
+   * consequential: `valuesForMedium` substitutes error diffusion on a clip, so
+   * the two targets do not even offer the same knobs.
+   */
+  readonly choices: readonly Generation[]
   readonly treatment: Treatment | null
   /** The look the treatment names, or `null` for an untreated candidate. */
   readonly look: EffectsLook | null
@@ -69,12 +81,28 @@ export function useTreatmentTarget(): TreatmentTarget | null {
   const project = activeProject(state)
   if (project === null) return null
 
-  // The pin wins where it names something this project still has; otherwise
-  // this follows the selection, which is what it does before anybody pins.
+  // Every stage's selection, in pipeline order. A candidate with no file stays
+  // on the switch rather than disappearing from it: `TreatedPreview` already
+  // says `effects.noFile` about exactly that case, and a target that silently
+  // vanished would read as the stage having no selection at all.
+  const choices = STAGE_ORDER.map(stage =>
+    selectedGeneration(project, stage)
+  ).filter((candidate): candidate is Generation => candidate !== null)
+
+  // The pin wins where it names something this project still has; otherwise the
+  // *furthest* stage with something to show, which is the last thing the user
+  // made rather than whichever tab they last had open.
+  //
+  // That default is the fix as much as the switch is. Following `activeStage`
+  // meant opening Effects from the source tab silently treated the source while
+  // a finished clip sat one tab away — and since a treatment is stored per
+  // generation, the knobs you turned went onto a candidate you were not looking
+  // at.
   const generation =
     (state.treatmentTarget === null
       ? null
       : generationById(project, state.treatmentTarget)) ??
+    choices.at(-1) ??
     selectedGeneration(project, state.activeStage)
 
   const treatment = generation?.treatment ?? null
@@ -92,6 +120,7 @@ export function useTreatmentTarget(): TreatmentTarget | null {
     substituted: allowed?.substituted ?? false,
     isClip,
     project,
+    choices,
     generation,
     pinned: generation !== null && state.treatmentTarget === generation.id,
     treatment,

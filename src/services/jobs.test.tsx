@@ -7,7 +7,7 @@
  * there. Both are checked against the document actually handed to Rust.
  */
 
-import { render, screen, waitFor } from '@/test/test-utils'
+import { render, screen, waitFor, within } from '@/test/test-utils'
 import { act } from 'react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -67,9 +67,14 @@ async function openAtlas() {
 /**
  * Opening a project lands on the stage it has got furthest with, and the
  * source jobs below live in that stage's own panel.
+ *
+ * Scoped to the tab bar, because "Source 2" is now also the name of a card in
+ * the input row every later stage carries — a bare `/^Source/` matches the tab
+ * and the ingredient alike.
  */
 async function showSourceParameters() {
-  await userEvent.click(await screen.findByRole('button', { name: /^Source/ }))
+  const tabs = within(await screen.findByRole('navigation', { name: 'Stages' }))
+  await userEvent.click(tabs.getByRole('button', { name: /^Source/ }))
 }
 
 describe('collecting work that survived a quit', () => {

@@ -78,6 +78,134 @@ export function generationById(
   return project.generations.find(g => g.id === id) ?? null
 }
 
+/** Every stage whose output this one may consume, nearest first. */
+export function upstreamStages(stage: StageKind): readonly StageKind[] {
+  const index = STAGE_ORDER.indexOf(stage)
+  return index <= 0 ? [] : STAGE_ORDER.slice(0, index).reverse()
+}
+
+/**
+ * The candidates this stage could run from — *any* earlier stage's, not only
+ * the one immediately before it.
+ *
+ * This is what makes a stage skippable (#33 follow-up). A source that is
+ * already right should be animatable without paying for a pass-through style
+ * pass, and nothing downstream ever cared which stage produced its input:
+ * `imageInputsFor` names a file and Rust reads it, so an animate model handed a
+ * source cannot tell the difference.
+ *
+ * Rejected candidates are out, except the one currently in use — the same rule
+ * the candidate strip follows (PRD §10.3): saying no to a picture should take it
+ * out of the pickers, and hiding what a stage is *already* consuming is worse
+ * than showing a reject.
+ *
+ * Nothing here asks whether a candidate has a file. `asset` is legitimately
+ * `null` on a generation with no model call behind it, and the run itself
+ * refuses a nameless input on both sides of the boundary (`imageInputsFor`, and
+ * Rust after it) — so filtering here would be a third opinion on a question
+ * already answered where the money is spent.
+ *
+ * Ordered with {@link resolvedInputId} first, then nearest upstream stage, then
+ * creation order. The head of the list is the card the input row preselects,
+ * and it only moves when the user moves it.
+ */
+export function eligibleInputs(
+  project: Project,
+  stage: StageKind
+): readonly Generation[] {
+  const current = resolvedInputId(project, stage)
+
+  const usable = upstreamStages(stage).flatMap(upstream =>
+    generationsForStage(project, upstream).filter(
+      generation =>
+        generation.verdict !== 'rejected' || generation.id === current
+    )
+  )
+
+  return [...usable].sort(
+    (left, right) => Number(right.id === current) - Number(left.id === current)
+  )
+}
+
+/**
+ * Which candidate this stage would actually run from, right now.
+ *
+ * Three answers in falling order of how deliberate they are, and the order is
+ * the whole design:
+ *
+ * 1. **What the draft names.** `StageRecipe.inputGenerationId` has always been
+ *    on the draft — `freezeRecipe` simply overwrote it — so picking a card in
+ *    the input row is a normal draft edit, persisted in `project.json` with
+ *    everything else and restored by `restoreRecipe` for free.
+ * 2. **The upstream selection**, which is what this used to be unconditionally.
+ *    Nothing changes for anyone who never touches the input row.
+ * 3. **The nearest eligible candidate**, which is what makes skipping cost
+ *    nothing: on a project with three sources and no style at all, animate is
+ *    runnable on arrival rather than after a trip to a picker.
+ *
+ * Each answer has to name a candidate of an earlier stage that the project
+ * still holds, so a stale pointer — one deleted since, or one left behind by a
+ * hand-edited manifest — falls through to the next answer rather than blocking
+ * the stage.
+ */
+export function resolvedInputId(
+  project: Project,
+  stage: StageKind
+): string | null {
+  if (upstreamOf(stage) === null) return null
+
+  const named = project.drafts[stage].inputGenerationId
+  if (isEligibleInput(project, stage, named)) return named
+
+  const upstream = upstreamOf(stage)
+  const selected = upstream === null ? null : project.selection[upstream]
+  if (isEligibleInput(project, stage, selected)) return selected
+
+  // The fallback that makes skipping cost nothing: with no style candidates at
+  // all, animate runs off the newest source rather than demanding a pass first.
+  //
+  // Stage by stage, nearest first, and the first stage with anything in it wins
+  // outright. Flattening every upstream stage into one list and taking the last
+  // entry would rank by *arrival* instead — and since `upstreamStages` runs
+  // nearest-first, the last entry is the newest candidate of the **furthest**
+  // stage. That reads harmlessly and is not: a project whose style selection was
+  // cleared would quietly animate a raw source, skipping the style pass it had
+  // already paid for, at video prices.
+  for (const earlier of upstreamStages(stage)) {
+    const nearest = generationsForStage(project, earlier)
+      .filter(generation => generation.verdict !== 'rejected')
+      .at(-1)
+
+    if (nearest !== undefined) return nearest.id
+  }
+
+  return null
+}
+
+/**
+ * Whether this candidate is one `stage` could run from at all.
+ *
+ * The single home of that rule, because it is asked on both sides of the
+ * reducer boundary: {@link resolvedInputId} uses it to decide whether a stored
+ * pointer still stands, and `pointableInput` uses it to decide whether an
+ * incoming one may be written. Two copies had already begun to drift.
+ *
+ * Membership of an *earlier* stage is the whole test — that is what makes a
+ * cycle unrepresentable. A verdict is deliberately not part of it: rejecting a
+ * candidate should take it out of the pickers (`eligibleInputs`), but a stage
+ * already consuming one must keep working from it rather than silently
+ * repointing at something else.
+ */
+export function isEligibleInput(
+  project: Project,
+  stage: StageKind,
+  id: string | null
+): id is string {
+  const generation = generationById(project, id)
+  if (generation === null) return false
+  return upstreamStages(stage).includes(generation.stage)
+}
+
 /**
  * Whether this generation was made from something other than what its stage's
  * input is now.
@@ -91,9 +219,11 @@ export function isFromAnotherInput(
   project: Project,
   generation: Generation
 ): boolean {
-  const upstream = upstreamOf(generation.stage)
-  if (upstream === null) return false
-  return generation.recipe.inputGenerationId !== project.selection[upstream]
+  if (upstreamOf(generation.stage) === null) return false
+  return (
+    generation.recipe.inputGenerationId !==
+    resolvedInputId(project, generation.stage)
+  )
 }
 
 /**
@@ -104,8 +234,13 @@ export function isFromAnotherInput(
  * frame to send; #30 sends the start still again, so those rows run like any
  * other and the fact that they always loop is said on the loop switch
  * (`controlAvailability`) rather than on the run button. What is left here is
- * the project's own arithmetic — the locked ratio and the upstream selection —
+ * the project's own arithmetic — the locked ratio and the input pointer —
  * neither of which needs the registry.
+ *
+ * The input half is now "is there *an* image to work from", not "has the
+ * previous stage been run". Animate no longer demands a styled still, because
+ * it no longer consumes one by definition — which is why the refusal names a
+ * picture rather than a stage.
  */
 export function blockedReasonKey(
   project: Project,
@@ -118,10 +253,9 @@ export function blockedReasonKey(
     return 'editor.reason.aspectNotAnimatable'
   }
 
-  const upstream = upstreamOf(stage)
-  if (upstream === null) return null
-  if (project.selection[upstream] === null) {
-    return `editor.reason.needs.${upstream}`
+  if (upstreamOf(stage) === null) return null
+  if (resolvedInputId(project, stage) === null) {
+    return 'editor.reason.needsInput'
   }
   return null
 }

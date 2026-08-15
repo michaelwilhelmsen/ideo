@@ -25,7 +25,12 @@ import {
   reconcileParams,
   type ModelCapabilities,
 } from './registry'
-import { clampBatchSize, upstreamOf } from './selectors'
+import {
+  clampBatchSize,
+  isEligibleInput,
+  resolvedInputId,
+  upstreamOf,
+} from './selectors'
 import { isUploadRecipe, uploadRecipe } from './upload'
 import { STAGE_ORDER } from './types'
 import type {
@@ -266,6 +271,24 @@ export type EditorAction =
       readonly value: number
     }
   | { readonly type: 'unpinSeed'; readonly stage: StageKind }
+  /**
+   * Which candidate this stage runs from — the input row's click.
+   *
+   * A draft edit rather than a selection change, and that distinction is the
+   * point: `project.selection[stage]` means "the candidate this stage has
+   * produced that I have settled on", and pointing animate at a source is not a
+   * claim about the style stage at all. Writing it to the draft also means it
+   * persists, restores and freezes with every other field of the recipe.
+   *
+   * `null` hands the stage back to the default — the upstream selection, then
+   * the nearest eligible candidate (`resolvedInputId`) — rather than leaving it
+   * with nothing to work from.
+   */
+  | {
+      readonly type: 'setStageInput'
+      readonly stage: StageKind
+      readonly generationId: string | null
+    }
   /**
    * How many candidates this project's runs of that stage produce (PRD §4.2).
    * Held to the range we would submit, because the action is one keystroke
@@ -538,6 +561,17 @@ export function createEditorReducer(
         return editDraft(state, action.stage, draft => ({
           ...draft,
           seed: { mode: 'roll' },
+        }))
+
+      case 'setStageInput':
+        return editDraft(state, action.stage, (draft, project) => ({
+          ...draft,
+          inputGenerationId: pointableInput(
+            project,
+            action.stage,
+            draft,
+            action.generationId
+          ),
         }))
 
       case 'setBatchSize':
@@ -1062,11 +1096,16 @@ export function freezeRecipe(
   stage: StageKind
 ): StageRecipe | null {
   const upstream = upstreamOf(stage)
-  const inputGenerationId =
-    upstream === null ? null : project.selection[upstream]
+  const inputGenerationId = resolvedInputId(project, stage)
 
   // Style and animate need something to work from. Source never does — which
   // is exactly why re-running style leaves the source alone (PRD §4.1).
+  //
+  // *Something*, not specifically the previous stage's output: `resolvedInputId`
+  // honours the pointer the input row set, which is how a source gets animated
+  // without a style pass in between. What lands in the frozen copy is the id
+  // that was actually resolved, so a candidate always records the picture it was
+  // made from rather than the rule that found it.
   if (upstream !== null && inputGenerationId === null) return null
 
   const draft = project.drafts[stage]
@@ -1152,6 +1191,34 @@ export function withCollectedGenerations(
 }
 
 /**
+ * What `setStageInput` is allowed to write, which is not simply what it was
+ * given.
+ *
+ * Held to a candidate of an *earlier* stage, for the same reason `pinSeed` is
+ * held to models that have a seed field: the action is reachable from a
+ * hand-edited manifest as well as from a click, and a draft pointing at its own
+ * stage's output — or at a downstream one — is a cycle that nothing later would
+ * catch. A refused pointer leaves the draft as it was rather than clearing it,
+ * so a bad write costs nothing.
+ *
+ * `null` is always allowed: that is the caller handing the stage back to the
+ * default, not naming a candidate.
+ */
+function pointableInput(
+  project: Project,
+  stage: StageKind,
+  draft: StageRecipe,
+  generationId: string | null
+): string | null {
+  if (generationId === null) return null
+  if (!isEligibleInput(project, stage, generationId)) {
+    return draft.inputGenerationId
+  }
+
+  return generationId
+}
+
+/**
  * Load a past generation's recipe back into the draft — the recipe premise
  * (PRD §1) made operable. The upstream selection moves too, otherwise a
  * "restore" would re-run against whatever happens to be selected now.
@@ -1168,18 +1235,25 @@ function restoreRecipe(project: Project, generationId: string): Project {
   // hidden in the UI, because the reducer is what the manifest can reach.
   if (isUploadRecipe(recipe)) return project
 
+  // The restored draft carries its own `inputGenerationId`, and `resolvedInputId`
+  // reads that first — so the re-run points at the right picture whether or not
+  // the selection below moves.
+  //
+  // The selection follows only where the input belongs to the stage immediately
+  // upstream. It is the *stage's* selection, and a recipe that skipped a stage
+  // names a candidate from further back: writing a source id into
+  // `selection.style` would tell the whole app the style stage had settled on a
+  // picture it never produced.
   const upstream = upstreamOf(stage)
-  const inputStillExists =
-    recipe.inputGenerationId !== null &&
-    project.generations.some(g => g.id === recipe.inputGenerationId)
+  const input = project.generations.find(g => g.id === recipe.inputGenerationId)
+  const followable = upstream !== null && input?.stage === upstream
 
   return {
     ...project,
     drafts: { ...project.drafts, [stage]: recipe },
-    selection:
-      upstream !== null && inputStillExists
-        ? { ...project.selection, [upstream]: recipe.inputGenerationId }
-        : project.selection,
+    selection: followable
+      ? { ...project.selection, [upstream]: recipe.inputGenerationId }
+      : project.selection,
   }
 }
 

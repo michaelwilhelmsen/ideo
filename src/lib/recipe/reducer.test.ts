@@ -129,11 +129,33 @@ describe('stage independence (PRD §4.1)', () => {
     expect(created?.recipe.inputGenerationId).toBe('gen-src-2')
   })
 
-  it('refuses to run a stage whose input has not been picked', () => {
-    // The second project has no styled still, so animate has nothing to work from.
+  it('runs a stage off an earlier one when the stage before it was skipped', () => {
+    // Ledger has a source and no styled still. This used to mint nothing —
+    // animate consumed the style stage by definition — which meant a source that
+    // came out right still had to be paid through a style pass to be animated.
     const state = apply(
       fixtureEditorState(),
       { type: 'openProject', project: LEDGER, directory: '/tmp/ledger' },
+      runOf('animate', 3)
+    )
+
+    const created = generationsForStage(openProjectOf(state), 'animate').at(-1)
+
+    expect(created).toBeDefined()
+    // And it records the source it actually consumed, not the empty slot the
+    // pipeline would have pointed at.
+    expect(created?.recipe.inputGenerationId).toBe(LEDGER.selection.source)
+  })
+
+  it('refuses to run a stage with no picture anywhere behind it', () => {
+    const empty = {
+      ...LEDGER,
+      generations: [],
+      selection: { ...LEDGER.selection, source: null },
+    }
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'openProject', project: empty, directory: '/tmp/ledger' },
       runOf('animate', 3)
     )
 

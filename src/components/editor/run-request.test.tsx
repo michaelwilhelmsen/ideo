@@ -491,8 +491,17 @@ describe('restyling the source', () => {
     // The whole reason this is a hard failure: the Nano Banana edit endpoints do
     // not require their image field, so this call would have succeeded — and
     // been charged — as a picture of something else entirely.
+    // Every source gone, not merely deselected: a stage falls back to the
+    // nearest earlier candidate now (`resolvedInputId`), so an empty selection
+    // is no longer the same thing as having nothing to work from — and it is
+    // *nothing to work from* that this refusal is about.
+    const styled = styling(ATLAS, {
+      modelId: 'fal-ai/nano-banana-2/edit',
+      params: {},
+    })
     const sourceless: Project = {
-      ...styling(ATLAS, { modelId: 'fal-ai/nano-banana-2/edit', params: {} }),
+      ...styled,
+      generations: styled.generations.filter(g => g.stage !== 'source'),
       selection: { ...ATLAS.selection, source: null },
     }
 
@@ -674,13 +683,36 @@ describe('restyling the source', () => {
     })
   })
 
-  it('refuses an animate run with no styled still, before anything is spent', async () => {
+  it('animates the source itself when the style stage was skipped', async () => {
+    // The point of the whole input pointer: a source that came out right is
+    // animated directly, and the video model is handed *that* file — not a
+    // styled still it never had, and not a text-to-video charged at video
+    // prices because the image field was quietly left empty.
+    const skipped = animating(
+      { ...ATLAS, selection: { ...ATLAS.selection, style: null } },
+      { inputGenerationId: 'gen-src-2' }
+    )
+
+    const inputs = await animateInputs(skipped)
+
+    // Every image field names the source — one on a plain image-to-video, two
+    // on a looping model, which sends the same still as its end frame (#30).
+    expect(inputs.length).toBeGreaterThan(0)
+    expect(inputs.every(input => input.generationId === 'gen-src-2')).toBe(true)
+  })
+
+  it('refuses an animate run with nothing to animate, before anything is spent', async () => {
     // The same refusal style makes, one stage later: nothing to animate is a
     // failure rather than a mode, because a video model handed no start frame
     // renders the motion prompt instead — at video prices.
+    //
+    // "Nothing" means both earlier stages, since animate consumes either. A
+    // missing styled still on its own is now a skip rather than a refusal —
+    // that is the case above this one.
     const noStyle = {
       ...ATLAS,
-      selection: { ...ATLAS.selection, style: null },
+      generations: ATLAS.generations.filter(g => g.stage === 'animate'),
+      selection: { ...ATLAS.selection, style: null, source: null },
     }
 
     function AnimateProbe() {

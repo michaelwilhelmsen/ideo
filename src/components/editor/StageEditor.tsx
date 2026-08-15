@@ -31,7 +31,7 @@ import {
   CandidateStrip,
   EmptyPreview,
   GenerationBadges,
-  InputSummary,
+  InputRow,
   Preview,
   RecipeReadout,
   SeedComparison,
@@ -146,7 +146,7 @@ export function StageEditor() {
         </div>
       ) : (
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
-          <InputSummary project={project} stage={stage} />
+          <InputRow project={project} stage={stage} />
 
           {/* Only the source stage takes pixels from outside the project (#27). */}
           {stage === 'source' && <SourceUpload project={project} />}

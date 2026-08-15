@@ -35,6 +35,20 @@ Both panes are siblings in the layout rather than parent and child, so they
 share `useTreatmentTarget()` rather than passing the target down through a
 component that owns neither.
 
+**What it treats is chosen, not inherited.** `useTreatmentTarget` offers every
+stage's current selection as `choices`, and the header renders them as a switch —
+"halftone the still" and "halftone the clip" are different jobs done in the same
+place. Unpinned, it defaults to the **furthest** stage with a selection rather than
+`activeStage`'s: following the active stage meant opening Effects from the source tab
+silently treated the source while a finished clip sat one tab away, and since a
+treatment is stored per generation, the knobs you turned landed on a candidate you
+were not looking at. This is not cosmetic — `valuesForMedium` substitutes blue noise
+for error diffusion on a clip, so the two targets do not offer the same knobs.
+
+"Treat this" survives for the case the switch cannot reach: the candidate strip can
+select a candidate that is not any stage's current selection, and the switch
+deliberately lists only selections.
+
 ## A look
 
 One authored effect with knobs — **not a stack the user assembles**. That is

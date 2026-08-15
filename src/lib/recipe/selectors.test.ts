@@ -4,7 +4,11 @@
  * Worth its own file because every answer here is a refusal that costs a
  * disabled button instead of a paid call. The animate cases are the expensive
  * ones: a ratio no video model accepts, a model that will not run without an end
- * frame nobody can supply yet, and a stage with nothing selected upstream.
+ * frame nobody can supply yet, and a stage with no picture anywhere behind it.
+ *
+ * That last one used to be "nothing selected upstream", and the difference is
+ * the point: a stage consumes any earlier candidate now, so the only thing left
+ * to refuse is a project with nothing in it at all.
  *
  * And the other half of the same question, at the end: a project that never runs
  * the animate stage at all, which is a finished project rather than a blocked
@@ -16,6 +20,7 @@ import { ATLAS, LEDGER } from './fixtures'
 import {
   blockedReasonKey,
   generationsForStage,
+  resolvedInputId,
   selectedGeneration,
 } from './selectors'
 import type { Project, StageKind } from './types'
@@ -38,12 +43,50 @@ describe('blockedReasonKey', () => {
     expect(blockedReasonKey(ATLAS, 'animate')).toBeNull()
   })
 
-  it('blocks a stage with nothing selected upstream', () => {
-    // Ledger has a source and nothing else, so style can run and animate cannot.
+  it('lets a stage run off an earlier one, rather than demanding the one before it', () => {
+    // Ledger has a source and nothing else. Animate used to be blocked here —
+    // "pick a styled still first" — which made the style stage mandatory for
+    // anyone whose source came out right the first time. It now runs off the
+    // source, which is what makes a stage skippable at all.
     expect(blockedReasonKey(LEDGER, 'style')).toBeNull()
-    expect(blockedReasonKey(LEDGER, 'animate')).toBe(
-      'editor.reason.needs.style'
-    )
+    expect(blockedReasonKey(LEDGER, 'animate')).toBeNull()
+    expect(resolvedInputId(LEDGER, 'animate')).toBe(LEDGER.selection.source)
+  })
+
+  it('falls back to the nearest stage with candidates, not the newest of any', () => {
+    // Atlas has sources *and* styled stills. With the style selection cleared
+    // and no pointer set, animate falls back — and the fallback must land on a
+    // styled still, because style is the nearer stage.
+    //
+    // The bug this pins ranked by arrival across a flattened list instead, which
+    // is the newest candidate of the *furthest* stage. It reads harmlessly and
+    // is not: the clip would come out of a raw source, skipping the style pass
+    // the user had already paid for, at video prices.
+    const noStyleSelection: Project = {
+      ...ATLAS,
+      drafts: {
+        ...ATLAS.drafts,
+        animate: { ...ATLAS.drafts.animate, inputGenerationId: null },
+      },
+      selection: { ...ATLAS.selection, style: null },
+    }
+
+    const fallback = resolvedInputId(noStyleSelection, 'animate')
+
+    expect(
+      noStyleSelection.generations.find(g => g.id === fallback)?.stage
+    ).toBe('style')
+  })
+
+  it('blocks a stage with no picture anywhere behind it', () => {
+    // The refusal that is left, and it names a picture rather than a stage:
+    // with nothing generated at all there is nothing to work from, whichever
+    // stage you are standing on.
+    const empty: Project = { ...LEDGER, generations: [] }
+
+    expect(blockedReasonKey(empty, 'source')).toBeNull()
+    expect(blockedReasonKey(empty, 'style')).toBe('editor.reason.needsInput')
+    expect(blockedReasonKey(empty, 'animate')).toBe('editor.reason.needsInput')
   })
 
   it('lets animate run on a model that will not run without an end frame', () => {

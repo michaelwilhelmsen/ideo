@@ -18,6 +18,7 @@ import { isVideoAsset } from '@/lib/export'
 import {
   controlAvailability,
   diffRecipes,
+  eligibleInputs,
   generationById,
   isFromAnotherInput,
   isUploadRecipe,
@@ -25,6 +26,7 @@ import {
   MODEL_REGISTRY,
   previewArt,
   recipeSummary,
+  resolvedInputId,
   runGroups,
   seedSibling,
   upstreamOf,
@@ -527,7 +529,18 @@ export function SeedComparison({
   )
 }
 
-/** What this stage is working from — the pointer that makes re-runs sane. */
+/**
+ * What this stage is working from, in one line — the sidebar's version.
+ *
+ * The row below is the place to *change* the input; this only says what it
+ * currently is. Both exist because the two panes ask different questions: the
+ * sidebar is the form you are about to submit and wants one line above the run
+ * button naming what it will consume, while the main pane is where you are
+ * looking at pictures and can therefore choose between them.
+ *
+ * Reads through `resolvedInputId` rather than the upstream selection, so the two
+ * cannot disagree about which candidate a run would actually take.
+ */
 export function InputSummary({
   project,
   stage,
@@ -537,17 +550,114 @@ export function InputSummary({
 }) {
   const { t } = useTranslation()
   const nameOf = useGenerationName()
-  const upstream = upstreamOf(stage)
 
-  if (upstream === null) return null
+  if (upstreamOf(stage) === null) return null
 
-  const input = generationById(project, project.selection[upstream])
+  const current = generationById(project, resolvedInputId(project, stage))
 
   return (
     <p className="text-xs text-muted-foreground">
-      {input === null
-        ? t(`editor.reason.needs.${upstream}`)
-        : t('editor.inputFrom', { name: nameOf(input) })}
+      {current === null
+        ? t('editor.reason.needsInput')
+        : t('editor.inputFrom', { name: nameOf(current) })}
     </p>
+  )
+}
+
+/**
+ * What this stage is working from — and, since stages became skippable, the
+ * place to change it.
+ *
+ * It was a line of grey text naming the upstream selection, which was honest
+ * while the pipeline was fixed: there was only ever one answer, so the only
+ * thing to do with it was read it. Now that a stage may consume any earlier
+ * candidate, the answer is a *choice*, and a choice belongs on the thing you
+ * are choosing between — the pictures.
+ *
+ * The head of the row is what {@link resolvedInputId} settled on and is already
+ * selected, so the common path is unchanged: open Animate, see the styled still
+ * it would use, press Generate. Skipping is picking a different card, which is
+ * why there is no "skip" control anywhere — a skipped stage is not a mode, it is
+ * an input that came from further back.
+ *
+ * Deliberately not the same tile as the candidate strip's: no verdict buttons,
+ * no seed pin, no restore. Those act on a candidate as a *result*, and here it is
+ * an ingredient — the only question this row asks is which one.
+ *
+ * Main pane only. It renders thumbnails, and the one place it must not go is the
+ * right sidebar, which is a column of form controls — see {@link InputSummary}.
+ */
+export function InputRow({
+  project,
+  stage,
+}: {
+  project: Project
+  stage: StageKind
+}) {
+  const { t } = useTranslation()
+  const nameOf = useGenerationName()
+  const dispatch = useEditorStore(store => store.dispatch)
+
+  if (upstreamOf(stage) === null) return null
+
+  const inputs = eligibleInputs(project, stage)
+  const currentId = resolvedInputId(project, stage)
+
+  if (inputs.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t('editor.reason.needsInput')}
+      </p>
+    )
+  }
+
+  const current = generationById(project, currentId)
+
+  return (
+    <section
+      className="flex flex-col gap-2"
+      aria-label={t('editor.input.title')}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          {t('editor.input.title')}
+        </span>
+        {current !== null && (
+          <span className="text-xs text-muted-foreground">
+            {t('editor.inputFrom', { name: nameOf(current) })}
+          </span>
+        )}
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {inputs.map(generation => {
+          const chosen = generation.id === currentId
+
+          return (
+            <button
+              key={generation.id}
+              type="button"
+              aria-pressed={chosen}
+              onClick={() =>
+                dispatch({
+                  type: 'setStageInput',
+                  stage,
+                  generationId: generation.id,
+                })
+              }
+              className={cn(
+                'flex w-28 shrink-0 cursor-pointer flex-col gap-1 rounded-md border p-1 text-start transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+                chosen
+                  ? 'border-primary bg-accent/40'
+                  : 'border-border hover:border-foreground/30'
+              )}
+            >
+              <Preview generation={generation} aspect={project.aspect} />
+              <span className="truncate text-xs">{nameOf(generation)}</span>
+            </button>
+          )
+        })}
+      </div>
+    </section>
   )
 }
