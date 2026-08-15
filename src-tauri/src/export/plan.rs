@@ -13,6 +13,9 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use super::ExportError;
 
 /// The widest a hero ever needs to be delivered.
@@ -22,6 +25,119 @@ use super::ExportError;
 /// ever scales *down*: `min(MAX_WEB_WIDTH, iw)` leaves a narrower clip alone
 /// rather than upscaling it into a bigger file with no more detail in it.
 pub const MAX_WEB_WIDTH: u32 = 1920;
+
+/// How big a deliverable ships (#58).
+///
+/// A treated export is the one case where more pixels are worth paying for, and
+/// the reason is that a treatment is not photographic detail — it is a pattern
+/// generated at the output grid. A dither drawn at 3840 has edges exactly one
+/// output pixel hard whatever the picture underneath was; the upscaled photo
+/// only has to supply tone, and a two-ink quantiser throws away most of the
+/// tonal precision anyway. So the pattern stays sharp where a plain upscale
+/// would just be a bigger blur.
+///
+/// **Every size is the same look.** The pattern is scaled with the export
+/// ([`pattern_scale`](ExportSize::pattern_scale)), so `Double` is the picture the preview showed with harder
+/// edges rather than a finer screen — which is what keeps the preview honest at
+/// one size instead of needing to follow this choice around the app. It is also
+/// what makes the MP4 better rather than merely bigger: a cell several output
+/// pixels across survives the 4:2:0 chroma that ruins a one-pixel one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportSize {
+    /// [`MAX_WEB_WIDTH`], and what every export was before this existed.
+    Web,
+    /// The candidate's own size, uncapped — the pixels the model actually
+    /// returned, rather than the ones left after the web cap.
+    Native,
+    /// Twice the web width. Offered only where a treatment is being baked:
+    /// upscaling a clean plate is bytes with nothing in them.
+    Double,
+}
+
+impl ExportSize {
+    /// The width to deliver at, from the source's own.
+    pub fn target_width(self, source: u32) -> u32 {
+        match self {
+            ExportSize::Web => source.min(MAX_WEB_WIDTH),
+            ExportSize::Native => source,
+            ExportSize::Double => source.min(MAX_WEB_WIDTH).saturating_mul(2),
+        }
+    }
+
+    /// The same number as an ffmpeg `w=` expression, for the paths that scale
+    /// without ever having asked how wide the input is.
+    ///
+    /// Rounded down to even, for the reason the height carries `-2`: 4:2:0
+    /// chroma cannot express an odd number of *columns* either, and libx264
+    /// refuses the encode outright rather than delivering a slightly wrong
+    /// picture. The cap hid this while it was the only expression here — 1920 is
+    /// even, so only a source narrower than the cap could arrive odd — and
+    /// `iw` exposes it for every width a model cares to return.
+    ///
+    /// It is also what keeps this and `bake::shipped_size` in step. That one
+    /// ends `& !1`, so without the same rounding here, turning a treatment on
+    /// would silently resize an odd-width deliverable by a pixel — which is the
+    /// one thing the two are arranged never to do.
+    pub fn width_expression(self) -> String {
+        let target = match self {
+            ExportSize::Web => format!("min({MAX_WEB_WIDTH},iw)"),
+            ExportSize::Native => "iw".to_string(),
+            ExportSize::Double => format!("min({MAX_WEB_WIDTH},iw)*2"),
+        };
+
+        format!("trunc({target}/2)*2")
+    }
+
+    /// Output pixels per look pixel, for the size that was chosen.
+    ///
+    /// The look is defined at the web width, and everything above it is the same
+    /// look with more pixels under it — so this is the number the shader divides its
+    /// pattern coordinates by. `Double` is exactly 2 by construction; `Native` is
+    /// however much wider than the cap the source happened to be, which is 1 for
+    /// every candidate that was never over it.
+    ///
+    /// ## `Native` is the one scale that can be fractional, and that is deliberate
+    ///
+    /// A 2560-wide source gives 1.333, and a grid-based pattern — the ordered
+    /// dithers, the grain — then lands on look pixels one and two output pixels
+    /// wide in turn, rather than uniformly two. That is not the grid coming apart:
+    /// it is exactly what a nearest-neighbour magnification by 1.333 looks like,
+    /// which is what "the same look, resolved by more pixels" *means* at a ratio
+    /// that is not a whole number. The alternatives were both worse and both were
+    /// rejected: rounding the scale to 1 would ship a pattern a third finer than
+    /// the one the preview showed, and rounding the *width* to a whole multiple of
+    /// the cap would quietly deliver `Web` under `Native`'s name.
+    ///
+    /// It only arises for a treated still, and only from a style candidate over the
+    /// cap — every clip is under it (the animate models cap at 720p), so a clip's
+    /// `Native` is its `Web`. The halftone screen scales continuously and is
+    /// unaffected either way.
+    pub fn pattern_scale(self, shipped_width: u32) -> f64 {
+        match self {
+            ExportSize::Web => 1.0,
+            ExportSize::Double => 2.0,
+            ExportSize::Native => {
+                let shipped = shipped_width.max(1);
+                f64::from(shipped) / f64::from(shipped.min(MAX_WEB_WIDTH))
+            }
+        }
+    }
+
+    /// This size, as it applies to an export with no treatment in it.
+    ///
+    /// `Double` degrades to the source's own size, because the argument for
+    /// upscaling is entirely about a pattern drawn at the output grid. With no
+    /// pattern, a 2× file carries exactly the detail the 1× file had and twice
+    /// the bytes. The panel does not offer the combination; this is what makes
+    /// it impossible to route around.
+    fn untreated(self) -> ExportSize {
+        match self {
+            ExportSize::Double => ExportSize::Native,
+            other => other,
+        }
+    }
+}
 
 /// H.264's quality knob. 23 is ffmpeg's own default and the usual web hero
 /// setting — visually clean at a fraction of the source's weight.
@@ -213,6 +329,7 @@ pub fn plan(
     formats: Formats,
     rewind: bool,
     medium: Medium,
+    size: ExportSize,
 ) -> Result<Plan, ExportError> {
     let wants_video = formats.mp4 || formats.webm;
 
@@ -234,6 +351,7 @@ pub fn plan(
             input,
             base_name,
             ping_pong,
+            size,
             &[
                 "-c:v",
                 "libx264",
@@ -273,6 +391,7 @@ pub fn plan(
             input,
             base_name,
             ping_pong,
+            size,
             &[
                 "-c:v",
                 "libvpx-vp9",
@@ -306,7 +425,14 @@ pub fn plan(
             &["-frames:v", "1", "-q:v", POSTER_QUALITY, "-f", "image2"]
         };
 
-        steps.push(step(Deliverable::Poster, input, base_name, false, poster));
+        steps.push(step(
+            Deliverable::Poster,
+            input,
+            base_name,
+            false,
+            size,
+            poster,
+        ));
     }
 
     Ok(Plan { steps })
@@ -336,6 +462,7 @@ fn step(
     input: &Input,
     base_name: &str,
     ping_pong: bool,
+    size: ExportSize,
     encoder: &[&str],
 ) -> Step {
     let file_name = format!(
@@ -344,7 +471,10 @@ fn step(
         deliverable.extension(input.is_treated())
     );
 
-    let scaled = input.needs_scaling();
+    // Only the untreated path still has a scale to apply, and only there does
+    // the chosen size mean anything to ffmpeg: a treated frame arrives at the
+    // size it will ship at, because that is where the shader drew it.
+    let scaled = input.needs_scaling().then(|| size.untreated());
 
     let mut args = vec![
         // Re-exporting the same candidate to the same folder is the normal way
@@ -419,9 +549,9 @@ fn safe_base_name(name: &str) -> String {
 /// odd number of rows, and an odd height is a hard encoder failure rather than a
 /// slightly wrong picture. `setsar=1` because a model that returns non-square
 /// pixels would otherwise deliver a clip the browser stretches.
-fn geometry_filter(scaled: bool) -> String {
-    if scaled {
-        format!("scale=w='min({MAX_WEB_WIDTH},iw)':h=-2,setsar=1")
+fn geometry_filter(scaled: Option<ExportSize>) -> String {
+    if let Some(size) = scaled {
+        format!("scale=w='{}':h=-2,setsar=1", size.width_expression())
     } else {
         // Already at the export resolution, so the only thing left to say is
         // that the pixels are square and the height is even — 4:2:0 chroma
@@ -442,7 +572,7 @@ fn geometry_filter(scaled: bool) -> String {
 ///
 /// `reverse` buffers the decoded stream in memory, which is why this is only
 /// ever pointed at a hero clip of a few seconds.
-fn ping_pong_graph(scaled: bool) -> String {
+fn ping_pong_graph(scaled: Option<ExportSize>) -> String {
     format!(
         "[0:v]{scale},split[a][b];\
          [b]trim=start_frame=1,setpts=PTS-STARTPTS,reverse,\
@@ -490,7 +620,15 @@ mod tests {
 
     #[test]
     fn a_clip_produces_the_three_files_prd_8_promises() {
-        let plan = plan(&clip(), "atlas-hero", ALL, false, Medium::Clip).unwrap();
+        let plan = plan(
+            &clip(),
+            "atlas-hero",
+            ALL,
+            false,
+            Medium::Clip,
+            ExportSize::Web,
+        )
+        .unwrap();
 
         let names: Vec<&str> = plan.steps.iter().map(|s| s.file_name.as_str()).collect();
         assert_eq!(
@@ -511,6 +649,7 @@ mod tests {
             },
             false,
             Medium::Clip,
+            ExportSize::Web,
         )
         .unwrap();
 
@@ -530,6 +669,7 @@ mod tests {
             },
             false,
             Medium::Clip,
+            ExportSize::Web,
         );
 
         assert!(matches!(outcome, Err(ExportError::NothingRequested)));
@@ -545,7 +685,15 @@ mod tests {
             webm: false,
             poster: true,
         };
-        let plan = plan(&still(), "atlas-hero", poster_only, false, Medium::Still).unwrap();
+        let plan = plan(
+            &still(),
+            "atlas-hero",
+            poster_only,
+            false,
+            Medium::Still,
+            ExportSize::Web,
+        )
+        .unwrap();
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].file_name, "atlas-hero-poster.jpg");
 
@@ -564,13 +712,14 @@ mod tests {
             },
             false,
             Medium::Still,
+            ExportSize::Web,
         )
     }
 
     #[test]
     fn the_mp4_is_web_ready_rather_than_merely_encoded() {
         let args = args_for(
-            &plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap(),
+            &plan(&clip(), "hero", ALL, false, Medium::Clip, ExportSize::Web).unwrap(),
             Deliverable::Mp4,
         );
 
@@ -585,7 +734,7 @@ mod tests {
     #[test]
     fn the_webm_pairs_its_crf_with_the_flag_that_makes_it_mean_quality() {
         let args = args_for(
-            &plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap(),
+            &plan(&clip(), "hero", ALL, false, Medium::Clip, ExportSize::Web).unwrap(),
             Deliverable::WebM,
         );
 
@@ -598,7 +747,7 @@ mod tests {
 
     #[test]
     fn every_deliverable_is_capped_at_the_web_width_on_even_dimensions() {
-        let plan = plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap();
+        let plan = plan(&clip(), "hero", ALL, false, Medium::Clip, ExportSize::Web).unwrap();
 
         for step in &plan.steps {
             let filters = step.args.join(" ");
@@ -619,7 +768,7 @@ mod tests {
     #[test]
     fn the_poster_is_a_single_frame() {
         let args = args_for(
-            &plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap(),
+            &plan(&clip(), "hero", ALL, false, Medium::Clip, ExportSize::Web).unwrap(),
             Deliverable::Poster,
         );
 
@@ -630,7 +779,7 @@ mod tests {
     #[test]
     fn rewind_plays_the_clip_forward_then_backwards() {
         let args = args_for(
-            &plan(&clip(), "hero", ALL, true, Medium::Clip).unwrap(),
+            &plan(&clip(), "hero", ALL, true, Medium::Clip, ExportSize::Web).unwrap(),
             Deliverable::Mp4,
         );
 
@@ -650,7 +799,7 @@ mod tests {
     #[test]
     fn without_rewind_nothing_is_reversed() {
         let args = args_for(
-            &plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap(),
+            &plan(&clip(), "hero", ALL, false, Medium::Clip, ExportSize::Web).unwrap(),
             Deliverable::Mp4,
         );
 
@@ -664,7 +813,7 @@ mod tests {
     #[test]
     fn the_poster_never_reverses_even_when_the_clip_does() {
         let args = args_for(
-            &plan(&clip(), "hero", ALL, true, Medium::Clip).unwrap(),
+            &plan(&clip(), "hero", ALL, true, Medium::Clip, ExportSize::Web).unwrap(),
             Deliverable::Poster,
         );
 
@@ -686,6 +835,7 @@ mod tests {
                 },
                 true,
                 Medium::Still,
+                ExportSize::Web,
             )
             .unwrap(),
             Deliverable::Poster,
@@ -699,7 +849,15 @@ mod tests {
         // #36's bake. The frames are already at the export resolution, so the
         // rate has to come with them or the clip is re-timed to whatever ffmpeg
         // assumes for an image sequence.
-        let plan = plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap();
+        let plan = plan(
+            &treated_frames(),
+            "hero",
+            ALL,
+            false,
+            Medium::Clip,
+            ExportSize::Web,
+        )
+        .unwrap();
         let args = args_for(&plan, Deliverable::Mp4);
 
         assert!(args.windows(2).any(|w| w == ["-framerate", "24"]));
@@ -707,12 +865,127 @@ mod tests {
     }
 
     #[test]
+    fn the_scale_is_how_much_bigger_than_the_web_width_it_ended_up() {
+        // The look is defined at the web width; the shader divides its pattern
+        // coordinates by this, so getting it wrong is a treatment that changes
+        // density when the size changes — which is the one thing #58 settled
+        // that it must not do.
+        assert_eq!(ExportSize::Web.pattern_scale(1920), 1.0);
+        assert_eq!(ExportSize::Web.pattern_scale(1280), 1.0);
+        assert_eq!(ExportSize::Double.pattern_scale(3840), 2.0);
+        assert_eq!(ExportSize::Double.pattern_scale(2560), 2.0);
+        // Native is the one size that can land on a fraction, and it is kept
+        // rather than rounded: 1.333 is what a nearest-neighbour magnification
+        // by 1.333 costs, and both ways of rounding it away ship something
+        // other than what the preview showed.
+        assert_eq!(ExportSize::Native.pattern_scale(2560), 2560.0 / 1920.0);
+        // A source that was never over the cap is not scaled at all, so Native
+        // and Web are the same export rather than two names for it.
+        assert_eq!(ExportSize::Native.pattern_scale(1280), 1.0);
+        // Which is every clip there is: the animate models cap at 720p, so a
+        // fractional scale is a treated *still* from an oversized style
+        // candidate and nothing else.
+        assert_eq!(ExportSize::Native.pattern_scale(1920), 1.0);
+    }
+
+    #[test]
+    fn every_size_delivers_an_even_width_whatever_the_source_is() {
+        // 4:2:0 chroma cannot express an odd number of columns any more than an
+        // odd number of rows, and libx264 refuses the encode rather than
+        // delivering a slightly wrong picture. The cap hid this while it was the
+        // only expression here — 1920 is even — and `iw` exposes it for every
+        // width a model cares to return.
+        for size in [ExportSize::Web, ExportSize::Native, ExportSize::Double] {
+            let expression = size.width_expression();
+            assert!(
+                expression.starts_with("trunc(") && expression.ends_with("/2)*2"),
+                "{size:?} can deliver an odd width: {expression}"
+            );
+
+            // And the treated path lands on the same number, or turning a
+            // treatment on would resize the deliverable by a pixel.
+            for source in [1919u32, 1921, 2561, 3841] {
+                let (width, _) = super::super::bake::shipped_size(source, 1080, size);
+                assert_eq!(width % 2, 0, "{size:?} at {source} gave an odd width");
+            }
+        }
+    }
+
+    #[test]
+    fn a_native_export_delivers_the_pixels_the_model_returned() {
+        // The cap is a default rather than a law (#58): asked for native, the
+        // untreated path stops capping instead of capping somewhere else.
+        let plan = plan(
+            &clip(),
+            "hero",
+            ALL,
+            false,
+            Medium::Clip,
+            ExportSize::Native,
+        )
+        .unwrap();
+
+        for step in &plan.steps {
+            let filters = step.args.join(" ");
+            assert!(
+                !filters.contains(&format!("min({MAX_WEB_WIDTH},iw)")),
+                "{:?} was still capped",
+                step.deliverable
+            );
+            assert!(
+                filters.contains("scale=w='trunc(iw/2)*2'"),
+                "{:?}",
+                step.deliverable
+            );
+            assert!(filters.contains("h=-2"), "{:?}", step.deliverable);
+        }
+    }
+
+    #[test]
+    fn an_untreated_export_is_never_upscaled_however_it_is_asked() {
+        // 2x buys a pattern drawn at the output grid. With no pattern there is
+        // nothing to draw, so the same request delivers the source's own size —
+        // the panel does not offer this combination, and this is the half of
+        // that which cannot be routed around.
+        let plan = plan(
+            &clip(),
+            "hero",
+            ALL,
+            false,
+            Medium::Clip,
+            ExportSize::Double,
+        )
+        .unwrap();
+
+        for step in &plan.steps {
+            let filters = step.args.join(" ");
+            assert!(
+                !filters.contains(&format!("min({MAX_WEB_WIDTH},iw)")),
+                "{:?} was upscaled with nothing to sharpen",
+                step.deliverable
+            );
+            assert!(
+                filters.contains("scale=w='trunc(iw/2)*2'"),
+                "{:?}",
+                step.deliverable
+            );
+        }
+    }
+
+    #[test]
     fn a_treated_export_is_not_scaled_a_second_time() {
         // The pattern was rendered at the export resolution; scaling it again
         // is what destroys the cell size the user dialled in.
-        for step in &plan(&treated_frames(), "hero", ALL, false, Medium::Clip)
-            .unwrap()
-            .steps
+        for step in &plan(
+            &treated_frames(),
+            "hero",
+            ALL,
+            false,
+            Medium::Clip,
+            ExportSize::Web,
+        )
+        .unwrap()
+        .steps
         {
             let filters = step.args.join(" ");
             assert!(
@@ -728,6 +1001,25 @@ mod tests {
                 step.deliverable
             );
             assert!(filters.contains("setsar=1"), "{:?}", step.deliverable);
+        }
+    }
+
+    #[test]
+    fn the_size_a_treated_export_was_asked_for_changes_nothing_here() {
+        // Treated frames arrive at the size the shader drew them, whatever that
+        // was, so the chosen size has already been spent by the time these
+        // arguments are built. A scale filter reappearing here would resize the
+        // frames the bake just rendered at the right size.
+        for size in [ExportSize::Web, ExportSize::Native, ExportSize::Double] {
+            let plan = plan(&treated_frames(), "hero", ALL, false, Medium::Clip, size).unwrap();
+            for step in &plan.steps {
+                let filters = step.args.join(" ");
+                assert!(
+                    filters.contains("scale=w=iw:h=-2"),
+                    "{:?} at {size:?} was rescaled",
+                    step.deliverable
+                );
+            }
         }
     }
 
@@ -757,7 +1049,15 @@ mod tests {
         // keeps one chroma sample per four pixels. Measured on a Bayer ramp,
         // 21% of pixels landed near an ink at 4:2:0 against 100% at 4:4:4.
         let treated = args_for(
-            &plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap(),
+            &plan(
+                &treated_frames(),
+                "hero",
+                ALL,
+                false,
+                Medium::Clip,
+                ExportSize::Web,
+            )
+            .unwrap(),
             Deliverable::WebM,
         );
         assert!(treated.windows(2).any(|w| w == ["-pix_fmt", "yuv444p"]));
@@ -765,7 +1065,7 @@ mod tests {
         // Untreated output is photographic, where subsampling is invisible and
         // 4:4:4 would be bytes for nothing.
         let plain = args_for(
-            &plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap(),
+            &plan(&clip(), "hero", ALL, false, Medium::Clip, ExportSize::Web).unwrap(),
             Deliverable::WebM,
         );
         assert!(plain.windows(2).any(|w| w == ["-pix_fmt", "yuv420p"]));
@@ -778,7 +1078,15 @@ mod tests {
         // survive into a file the landing page cannot play. This is the one
         // deliverable that always plays, and it is allowed to be the soft one.
         let args = args_for(
-            &plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap(),
+            &plan(
+                &treated_frames(),
+                "hero",
+                ALL,
+                false,
+                Medium::Clip,
+                ExportSize::Web,
+            )
+            .unwrap(),
             Deliverable::Mp4,
         );
 
@@ -791,7 +1099,15 @@ mod tests {
         // PNG came back pixel-exact at 24 KB where the JPEG was 1.75 MB and
         // still wrong — smaller *and* correct, which is why this is not a
         // trade-off that needs a setting.
-        let treated = plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap();
+        let treated = plan(
+            &treated_frames(),
+            "hero",
+            ALL,
+            false,
+            Medium::Clip,
+            ExportSize::Web,
+        )
+        .unwrap();
         let poster = treated
             .steps
             .iter()
@@ -802,7 +1118,7 @@ mod tests {
         // A quality scale on a lossless format is a knob attached to nothing.
         assert!(!poster.args.iter().any(|arg| arg == "-q:v"));
 
-        let plain = plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap();
+        let plain = plan(&clip(), "hero", ALL, false, Medium::Clip, ExportSize::Web).unwrap();
         let plain_poster = plain
             .steps
             .iter()
@@ -821,7 +1137,15 @@ mod tests {
         // A clean poster advertising a dithered video is a lie about the file
         // it represents — the poster is one more frame through the same shader,
         // so it comes out of the same treated sequence.
-        let plan = plan(&treated_frames(), "hero", ALL, false, Medium::Clip).unwrap();
+        let plan = plan(
+            &treated_frames(),
+            "hero",
+            ALL,
+            false,
+            Medium::Clip,
+            ExportSize::Web,
+        )
+        .unwrap();
 
         assert_eq!(plan.steps.len(), 3);
         for step in &plan.steps {
@@ -842,7 +1166,15 @@ mod tests {
             poster: true,
         };
 
-        let plan = plan(&treated, "hero", poster_only, false, Medium::Still).unwrap();
+        let plan = plan(
+            &treated,
+            "hero",
+            poster_only,
+            false,
+            Medium::Still,
+            ExportSize::Web,
+        )
+        .unwrap();
         let args = args_for(&plan, Deliverable::Poster);
 
         assert!(args.contains(&"/tmp/bake/treated-000000.png".to_string()));
@@ -852,7 +1184,15 @@ mod tests {
     #[test]
     fn rewind_still_works_on_a_treated_clip() {
         let args = args_for(
-            &plan(&treated_frames(), "hero", ALL, true, Medium::Clip).unwrap(),
+            &plan(
+                &treated_frames(),
+                "hero",
+                ALL,
+                true,
+                Medium::Clip,
+                ExportSize::Web,
+            )
+            .unwrap(),
             Deliverable::Mp4,
         );
         let graph = args
@@ -867,7 +1207,7 @@ mod tests {
 
     #[test]
     fn an_existing_export_of_the_same_candidate_is_replaced_rather_than_refused() {
-        let plan = plan(&clip(), "hero", ALL, false, Medium::Clip).unwrap();
+        let plan = plan(&clip(), "hero", ALL, false, Medium::Clip, ExportSize::Web).unwrap();
 
         for step in &plan.steps {
             assert_eq!(step.args.first().map(String::as_str), Some("-y"));
@@ -878,7 +1218,15 @@ mod tests {
     /// carrying a separator would write outside the folder the user picked.
     #[test]
     fn a_name_cannot_leave_the_folder_it_was_exported_to() {
-        let plan = plan(&clip(), "../../etc/passwd", ALL, false, Medium::Clip).unwrap();
+        let plan = plan(
+            &clip(),
+            "../../etc/passwd",
+            ALL,
+            false,
+            Medium::Clip,
+            ExportSize::Web,
+        )
+        .unwrap();
 
         for step in &plan.steps {
             assert!(!step.file_name.contains('/'));

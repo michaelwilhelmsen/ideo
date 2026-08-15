@@ -31,6 +31,7 @@ export type {
   ExportError,
   ExportOutcome,
   ExportRequest,
+  ExportSize,
   FfmpegStatus,
   GenerationError,
   GenerationErrorReason,

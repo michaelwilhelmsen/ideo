@@ -61,6 +61,15 @@ export interface EffectFrame {
   readonly inks: readonly Ink[]
   readonly width: number
   readonly height: number
+  /**
+   * Output pixels per look pixel — 1 unless this is a bigger export (#58).
+   *
+   * The shader divides its pattern coordinates by this, so a 2x bake draws the
+   * look that was dialled in at the web width rather than a screen twice as
+   * fine. Optional because every caller but the bake renders at scale 1, and a
+   * required 1 on each of them would be a number to keep in step for nothing.
+   */
+  readonly scale?: number
 }
 
 /** Whether this webview can render any of it at all. */
@@ -146,6 +155,9 @@ export function createEffectsRenderer(
       )
       set(gl, at, 'uResolution', location =>
         gl.uniform2f(location, canvas.width, canvas.height)
+      )
+      set(gl, at, 'uScale', location =>
+        gl.uniform1f(location, Math.max(frame.scale ?? 1, 1))
       )
 
       bindKnobs(gl, at, frame)

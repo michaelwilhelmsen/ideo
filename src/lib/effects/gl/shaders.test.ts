@@ -20,6 +20,7 @@ import {
   EFFECT_KERNELS,
   EFFECT_LEVEL_PLACEMENTS,
   EFFECT_SHADERS,
+  type EffectShader,
 } from '../looks'
 import { BLUE_NOISE_MASK, BLUE_NOISE_SIZE } from './blue-noise'
 import {
@@ -83,6 +84,59 @@ describe('the source each shader is assembled from', () => {
         expect(source, `${look.id}.${knob.key}`).toContain(`u_${knob.key}`)
       }
     }
+  })
+
+  it('measures every pattern in look pixels rather than output pixels', () => {
+    // The size control works by scaling the pattern with the export (#58), so
+    // a shader that read `gl_FragCoord` raw would draw a pattern twice as fine
+    // at 2x — the one thing that choice settled it must not do. Two ways to
+    // account for it and both are here: a coordinate through `patternCoord()`,
+    // or a cell measured in look pixels and multiplied on the way out.
+    const accounted: Readonly<Record<EffectShader, string>> = {
+      duotone: 'patternCoord()',
+      halftone: 'max(uScale, 1.0)',
+      paletteReduced: 'patternCoord()',
+      // No pattern at all: posterising is a per-pixel curve, so there is
+      // nothing whose size could disagree with the export's.
+      posterised: '',
+      pixelated: 'max(uScale, 1.0)',
+      grained: 'patternCoord()',
+    }
+
+    for (const shader of EFFECT_SHADERS) {
+      const source = fragmentSourceFor(shader)
+      const body = source.slice(source.indexOf('void main()'))
+
+      if (accounted[shader] === '') {
+        expect(body, shader).not.toContain('gl_FragCoord')
+        continue
+      }
+
+      expect(body, shader).toContain(accounted[shader])
+    }
+  })
+
+  it('is the fragment centre exactly when nothing is being scaled', () => {
+    // `floor(gl_FragCoord.xy / 1.0) + 0.5` is `gl_FragCoord.xy`, because a
+    // fragment centre is always a half-integer — which is what makes a
+    // web-sized export and the preview byte-identical to what they drew before
+    // the size control existed.
+    const preamble = fragmentSourceFor('posterised')
+    expect(preamble).toContain(
+      'floor(gl_FragCoord.xy / max(uScale, 1.0)) + 0.5'
+    )
+  })
+
+  it('averages a pixelated block over the texels it actually spans', () => {
+    // The mip level is in texels and the block is in output pixels, and those
+    // are different numbers whenever the texture is not the size being drawn —
+    // a still bakes from its own file rather than a rescaled copy, and the
+    // preview at fit draws smaller than the source. `log2(cell)` assumed one
+    // texel per output pixel, which is a blur rather than a block at both ends.
+    const source = fragmentSourceFor('pixelated')
+    expect(source).toContain('textureSize(uSource, 0)')
+    expect(source).toContain('texels.x / max(uResolution.x, 1.0)')
+    expect(source).not.toContain('log2(cell))')
   })
 
   it('routes the one exception through the ink list instead', () => {

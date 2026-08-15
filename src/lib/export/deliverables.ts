@@ -13,6 +13,7 @@
  */
 
 import type { Generation } from '@/lib/recipe'
+import type { ExportSize } from '@/lib/tauri-bindings'
 
 /** The three files PRD §8 promises, as the panel names them. */
 export type Deliverable = 'mp4' | 'webm' | 'poster'
@@ -135,7 +136,7 @@ export function rewindIsRedundant(
 export const MAX_EXPORT_WIDTH = 1920
 
 /**
- * The size a deliverable ships at — `export_size` in `export/bake.rs`, in the
+ * The size a deliverable ships at — `shipped_size` in `export/bake.rs`, in the
  * one other place that has to know it.
  *
  * The preview needs this because a treatment's pattern is generated at the
@@ -156,6 +157,59 @@ export function exportSizeOf(
   // cannot express an odd number of rows, and an odd height is a hard encoder
   // failure rather than a slightly wrong picture.
   return [capped & ~1, Math.max(scaled, 2) & ~1]
+}
+
+/**
+ * The sizes the panel can offer, widest last (#58).
+ *
+ * Mirrored from `ExportSize` in `export/plan.rs` rather than derived from it:
+ * the generated type is a union of strings and carries no order, and the order
+ * is what the control renders.
+ */
+export const EXPORT_SIZES: readonly ExportSize[] = ['web', 'native', 'double']
+
+/**
+ * Which sizes this export can actually produce.
+ *
+ * Two gates, and both are about the same thing — a size above the web width is
+ * only worth its bytes when there is a pattern being drawn at the output grid:
+ *
+ * - **No treatment, no 2×.** An upscaled clean plate carries exactly the detail
+ *   the smaller file had. Rust refuses the combination as well
+ *   (`ExportSize::untreated`); this is the half that stops it being offered.
+ * - **Error diffusion has no scale to choose.** Those two kernels decide each
+ *   pixel from pixels already decided, which happens in Rust at the source's
+ *   own size — so a diffusion still ships native whatever is asked, and a
+ *   control pretending otherwise would be the panel describing a file it is not
+ *   about to write.
+ */
+export function availableSizes({
+  medium,
+  treated,
+  diffused,
+}: {
+  readonly medium: Medium
+  /** Whether this click bakes a treatment in, rather than exporting the plate. */
+  readonly treated: boolean
+  /** Whether that treatment renders in Rust — the two diffusion kernels. */
+  readonly diffused: boolean
+}): readonly ExportSize[] {
+  if (medium === 'nothing') return []
+  if (diffused) return ['native']
+  return treated ? EXPORT_SIZES : ['web', 'native']
+}
+
+/**
+ * The size to export at, narrowed to one this candidate can produce.
+ *
+ * The same belt and braces {@link requestedFormats} is: the control is a choice
+ * made about one candidate, and the selection moves under it.
+ */
+export function requestedSize(
+  size: ExportSize,
+  available: readonly ExportSize[]
+): ExportSize {
+  return available.includes(size) ? size : (available[0] ?? 'web')
 }
 
 /**

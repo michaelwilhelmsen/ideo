@@ -9,7 +9,7 @@ use tauri::AppHandle;
 
 use crate::export::bake::{self, BakeSession};
 use crate::export::ffmpeg::{self, FfmpegStatus};
-use crate::export::plan::{self, Formats, Input};
+use crate::export::plan::{self, ExportSize, Formats, Input};
 use crate::export::ExportError;
 use crate::projects::store;
 use crate::utils::paths::app_data;
@@ -70,6 +70,9 @@ pub struct ExportRequest {
     pub poster: bool,
     /// PRD §4.5's ping-pong. Ignored on a still, which has no time axis.
     pub rewind: bool,
+    /// How big to deliver (#58). Anything above the web width is only honoured
+    /// where a treatment is being baked — see `ExportSize::untreated`.
+    pub size: ExportSize,
 }
 
 /// What it produced.
@@ -115,6 +118,7 @@ pub async fn export_generation(
         },
         request.rewind,
         plan::medium_of(&source),
+        request.size,
     )?;
 
     let destination = PathBuf::from(&request.destination);
@@ -153,6 +157,7 @@ pub async fn begin_bake(
     session_id: String,
     project_id: String,
     generation_id: String,
+    size: ExportSize,
 ) -> Result<BakeSession, ExportError> {
     let source = asset_for(&app, &project_id, &generation_id)?;
     let medium = plan::medium_of(&source);
@@ -165,7 +170,7 @@ pub async fn begin_bake(
     })?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        bake::begin(&data, &binary, &session_id, &source, medium)
+        bake::begin(&data, &binary, &session_id, &source, medium, size)
     })
     .await
     .map_err(|e| ExportError::EncodeFailed {
@@ -214,6 +219,7 @@ pub async fn finish_bake(
         },
         request.rewind,
         medium,
+        request.size,
     )?;
 
     let destination = PathBuf::from(&request.destination);

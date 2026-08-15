@@ -171,11 +171,21 @@ is in Rust:
    the folder.
 
 **Rendered at the export resolution, not before it.** Exports cap at
-`min(1920, iw)`; a pattern rendered before that scaling is destroyed by it, so
-the frames are extracted already capped and `Input::Treated*` tells `plan()` not
-to scale them again. `export_size` computes the same dimensions the untreated
-filter graph would produce, because turning a treatment on must not silently
-resize the deliverable.
+`min(1920, iw)` by default; a pattern rendered before that scaling is destroyed
+by it, so the frames are extracted already capped and `Input::Treated*` tells
+`plan()` not to scale them again. `shipped_size` computes the same dimensions
+the untreated filter graph would produce, because turning a treatment on must
+not silently resize the deliverable.
+
+**Bigger exports scale the pattern with them (#58).** The export size is a
+choice (`docs/developer/export.md`), and `ExportSize::pattern_scale` turns it into
+`uScale` — how many output pixels one _look_ pixel is worth. Every shader
+divides its pattern coordinates by it (`patternCoord()`, or a cell multiplied on
+the way out), so a 2× export is the same screen resolved by four times the
+pixels rather than a screen twice as fine. That is what lets the preview go on
+drawing at the web width and still be telling the truth about the file. The two
+diffusion kernels have no scale to choose: they run in Rust at the candidate's
+own size, so the panel offers them `native` alone.
 
 **Frames cross by disk.** ~11 MB per raw frame is gigabytes for a five-second
 clip; source frames load through Tauri's asset protocol and treated ones come

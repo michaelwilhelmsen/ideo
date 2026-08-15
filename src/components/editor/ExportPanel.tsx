@@ -32,14 +32,24 @@ import {
   FieldSet,
 } from '@/components/ui/field'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import {
   anyRequested,
   availableFormats,
+  availableSizes,
   DELIVERABLES,
+  EXPORT_SIZES,
   exportBaseName,
   mediumOf,
   requestedFormats,
+  requestedSize,
   rewindIsRedundant,
   rewindWanted,
   type Deliverable,
@@ -48,6 +58,7 @@ import {
 import { isVideoAsset } from '@/lib/export'
 import {
   inksForValues,
+  isDiffusionKernel,
   lookFor,
   resolveTreatment,
   valuesForMedium,
@@ -55,6 +66,7 @@ import {
   type Ink,
   type KnobValue,
 } from '@/lib/effects'
+import type { ExportSize } from '@/lib/tauri-bindings'
 import {
   selectedGeneration,
   type Generation,
@@ -135,6 +147,19 @@ export function ExportPanel({
     rewind: boolean
   } | null>(null)
 
+  /**
+   * How big to deliver (#58), named after its candidate like the two above.
+   *
+   * Session state rather than project state, and deliberately: the size is a
+   * property of what this export is *for* — a retina hero, a clean web asset —
+   * rather than of the candidate, and a project that remembered somebody once
+   * exported at 2× would keep charging them for it.
+   */
+  const [sized, setSized] = useState<{
+    generationId: string
+    size: ExportSize
+  } | null>(null)
+
   // The folder is the remembered one until this session picks another (PRD
   // §11). Read this way round rather than seeded into state, because
   // preferences arrive a tick after the first render and a seeded `useState`
@@ -167,6 +192,19 @@ export function ExportPanel({
   // before there is a frame to report, and a button that waits for one spends
   // those seconds looking like it was never pressed.
   const baking = bake.running
+
+  // Whether this bake would run in Rust rather than in the shader. Error
+  // diffusion is the one look with no scale to choose, and the size control
+  // says so rather than offering a choice that changes nothing.
+  const kernel = treatment?.values.kernel
+  const diffused =
+    bakes && typeof kernel === 'string' && isDiffusionKernel(kernel)
+
+  const sizes = availableSizes({ medium, treated: bakes, diffused })
+  const size = requestedSize(
+    sized !== null && sized.generationId === selected?.id ? sized.size : 'web',
+    sizes
+  )
 
   const blocked =
     medium === 'nothing'
@@ -204,6 +242,7 @@ export function ExportPanel({
       // under the wrong name.
       ...formats,
       rewind,
+      size,
     }
 
     // Every deliverable carries the treatment or none of them do. A clean
@@ -265,6 +304,49 @@ export function ExportPanel({
           <FieldDescription>{t('export.stillIsAPoster')}</FieldDescription>
         )}
       </FieldSet>
+
+      {/* How big, and only ever a choice about pixels — the look is the same
+          picture at every size, because the pattern is scaled with the export
+          (#58). That is what lets the effects tab go on previewing at one size
+          without this control following it around the app. */}
+      {medium !== 'nothing' && (
+        <Field>
+          <FieldLabel htmlFor="export-size">{t('export.size')}</FieldLabel>
+          <Select
+            value={size}
+            disabled={sizes.length < 2 || baking}
+            onValueChange={next => {
+              if (selected === null) return
+              setSized({ generationId: selected.id, size: next as ExportSize })
+            }}
+          >
+            <SelectTrigger id="export-size" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EXPORT_SIZES.map(option => (
+                // Disabled rather than dropped, for PRD §10.1's reason: a list
+                // that silently loses 2× on a clean plate looks like a tool
+                // that cannot do it at all.
+                <SelectItem
+                  key={option}
+                  value={option}
+                  disabled={!sizes.includes(option)}
+                >
+                  {t(`export.size.${option}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FieldDescription>
+            {diffused
+              ? t('export.size.diffusionHint')
+              : !bakes
+                ? t('export.size.cleanPlateHint')
+                : t(`export.size.hint.${size}`)}
+          </FieldDescription>
+        </Field>
+      )}
 
       {/* PRD §4.5's second looping mechanism. Offered on any clip, because it
           is ffmpeg rather than the model — no registry column gates it. */}

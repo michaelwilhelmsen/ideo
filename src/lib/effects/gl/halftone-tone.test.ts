@@ -233,6 +233,62 @@ describe('what the halftone screen delivers', () => {
     }
   })
 
+  /**
+   * A bigger export is the same screen, resolved by more pixels (#58).
+   *
+   * The size control multiplies the cell by `uScale` and nothing else, which is
+   * what makes "2x" mean the picture the preview showed with harder edges
+   * rather than a finer ruling nobody asked for. Stated as the property that
+   * would break: the four output pixels a 2x export spends on one look pixel
+   * average to what that one pixel held at 1x — same dots, same places, same
+   * tone, twice the resolution.
+   *
+   * Not equality per pixel, and deliberately: at 2x a pixel's footprint is half
+   * a look pixel, so the dot's edge is placed more precisely. That difference
+   * *is* the feature, and it is bounded here rather than asserted away — the
+   * worst pixel measured is 0.053, all of it on dot edges, and the patch means
+   * the tests above hold to a fiftieth either way.
+   */
+  it('draws the same screen at a bigger export, only with harder edges', () => {
+    const missed: string[] = []
+    for (let shape = 0; shape < SHAPES.length; shape++) {
+      for (const angle of [0, 15, 45]) {
+        for (const cell of [3, 6, 12]) {
+          for (const ink of [0.25, 0.5, 0.75]) {
+            for (let y = 0; y < 12; y++) {
+              for (let x = 0; x < 12; x++) {
+                const once = paperAt(x + 0.5, y + 0.5, cell, angle, shape, ink)
+
+                // The same look pixel at 2x: four output pixels, on a screen
+                // whose cell is twice as wide.
+                let twice = 0
+                for (const dy of [0, 1]) {
+                  for (const dx of [0, 1]) {
+                    twice +=
+                      paperAt(
+                        2 * x + dx + 0.5,
+                        2 * y + dy + 0.5,
+                        cell * 2,
+                        angle,
+                        shape,
+                        ink
+                      ) / 4
+                  }
+                }
+
+                if (Math.abs(once - twice) > 0.06)
+                  missed.push(
+                    `${SHAPES[shape]} cell ${cell} ${angle}° ink ${ink} at ${x},${y}: ${once.toFixed(3)} vs ${twice.toFixed(3)}`
+                  )
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(missed).toEqual([])
+  })
+
   it('matches the shader it stands in for', () => {
     const source = fragmentSourceFor('halftone')
     // The three shapes' area laws, which are what the old radius constants were
@@ -253,5 +309,10 @@ describe('what the halftone screen delivers', () => {
     // And the two numbers this model replays to reproduce that footprint.
     expect(source).toContain('ceil(16.0 / size), 1.0, 6.0')
     expect(source).toContain('1.0 / float(taps)')
+    // And the one line the size control adds: the ruling is dialled in look
+    // pixels and drawn in output ones, which is the whole of how a 2x export
+    // stays the same screen. Everything above it is measured off `size`, so
+    // this multiplication is the only place the scale has to appear.
+    expect(source).toContain('float size = max(u_cell, 1.0) * max(uScale, 1.0)')
   })
 })

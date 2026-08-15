@@ -32,6 +32,12 @@ export interface FrameJob {
   readonly index: number
   readonly width: number
   readonly height: number
+  /**
+   * Output pixels per look pixel (#58) — 1 for a web-sized export, 2 for a 2x
+   * one. Carried per frame rather than closed over, so the thing that renders
+   * a frame is handed everything that decides what the frame looks like.
+   */
+  readonly scale: number
 }
 
 export interface BakeDriver {
@@ -67,7 +73,11 @@ export class BakeCancelled extends Error {
  */
 export async function bakeFrames(
   frames: readonly string[],
-  size: { readonly width: number; readonly height: number },
+  size: {
+    readonly width: number
+    readonly height: number
+    readonly scale: number
+  },
   driver: BakeDriver
 ): Promise<void> {
   driver.report({ done: 0, total: frames.length })
@@ -80,6 +90,7 @@ export async function bakeFrames(
       index,
       width: size.width,
       height: size.height,
+      scale: size.scale,
     })
     await driver.store(index, png)
 

@@ -59,9 +59,14 @@ void main() {
  *
  * `uResolution` is the size being *rendered*, which is the export resolution at
  * bake time and the on-screen size while previewing at fit. Every pattern below
- * is measured in output pixels off `gl_FragCoord`, which is what makes a cell
- * size mean the same thing in both — and what makes the 1:1 toggle exact rather
- * than an upscaled approximation.
+ * is measured in **look pixels** — output pixels divided by `uScale` — which is
+ * what makes a cell size mean the same thing in both, and what makes the 1:1
+ * toggle exact rather than an upscaled approximation.
+ *
+ * `uScale` is 1 everywhere except a bigger export (#58), where it is how many
+ * output pixels one look pixel is worth. A look dialled in at the web width
+ * therefore delivers the same picture at every size, with the pattern's edges
+ * resolved by more pixels rather than the pattern itself getting finer.
  */
 const PREAMBLE = `#version 300 es
 precision highp float;
@@ -73,6 +78,22 @@ uniform sampler2D uSource;
 uniform sampler2D uNoise;
 uniform vec2 uResolution;
 uniform float uNoiseSize;
+uniform float uScale;
+
+/**
+ * This fragment's position in *look* pixels rather than output pixels (#58).
+ *
+ * \`uScale\` is how many output pixels one look pixel is worth: 1 for a
+ * web-sized export and the preview, 2 for a 2x one. Dividing by it and flooring
+ * means a threshold cell covers a 2x2 block of output pixels at 2x, so the
+ * pattern is the same pattern with harder edges — which is what makes a bigger
+ * export a sharper version of what was on screen rather than a finer screen
+ * nobody dialled in. At scale 1 this is \`gl_FragCoord.xy\` exactly, because a
+ * fragment centre is always a half-integer.
+ */
+vec2 patternCoord() {
+  return floor(gl_FragCoord.xy / max(uScale, 1.0)) + 0.5;
+}
 
 /** Rec. 709 / sRGB primaries, applied to linear light and never to bytes. */
 float luminance(vec3 c) {
@@ -179,7 +200,7 @@ void main() {
 
   // One step wide: the jitter has to be able to push a value across exactly one
   // quantisation boundary and no further.
-  float biased = y + orderedBias(u_kernel, gl_FragCoord.xy) / steps;
+  float biased = y + orderedBias(u_kernel, patternCoord()) / steps;
   float level = clamp(floor(biased * steps + 0.5), 0.0, steps);
 
   fragColor = vec4(encode(mix(u_inkDark, u_inkLight, level / steps)), 1.0);
@@ -272,7 +293,10 @@ void main() {
   float y = luminance(texture(uSource, vUv).rgb);
   float ink = clamp(1.0 - y, 0.0, 1.0);
 
-  float size = max(u_cell, 1.0);
+  // The ruling is dialled in look pixels, so a 2x export draws the same screen
+  // at twice the cell — the same dots, resolved by twice as many pixels. The
+  // sub-sampling below then needs fewer taps, which falls out of this for free.
+  float size = max(u_cell, 1.0) * max(uScale, 1.0);
   float turnX = cos(radians(u_angle));
   float turnY = sin(radians(u_angle));
   mat2 turn = mat2(turnX, -turnY, turnY, turnX);
@@ -359,7 +383,7 @@ void main() {
   // same number is used by both placements so it cannot bias the comparison.
   float span = uInkLuminance[n - 1] - uInkLuminance[0];
   float step = max(span, 1e-4) / steps;
-  float biased = y + orderedBias(u_kernel, gl_FragCoord.xy) * step;
+  float biased = y + orderedBias(u_kernel, patternCoord()) * step;
 
   int chosen = 0;
   if (u_levelPlacement == 1) {
@@ -407,15 +431,29 @@ void main() {
  * hardware has already computed exactly this reduction. Because the texture is
  * `SRGB8_ALPHA8`, that filtering happens on decoded values — the blocks are the
  * mean of the *light*, not the mean of the bytes.
+ *
+ * **The mip level is in texels, not in output pixels**, and those are two
+ * different numbers whenever the texture is not the size being drawn — a still
+ * bakes from its own file rather than from a rescaled copy, and the preview at
+ * fit draws smaller than the source. Asking for `log2(cell)` assumed one texel
+ * per output pixel, so a 2560-wide still delivered at 1920 averaged over too
+ * few texels and a 2x export over too many, which is a blur rather than a
+ * block. Scaling the cell into texels first is the whole fix, and it is exact
+ * for the clip path too, where ffmpeg has already made the two agree.
  */
 const PIXELATED = `
 uniform float u_cell;
 
 void main() {
-  float cell = max(u_cell, 1.0);
+  float cell = max(u_cell, 1.0) * max(uScale, 1.0);
   vec2 centre = (floor(gl_FragCoord.xy / cell) + 0.5) * cell;
 
-  vec3 c = textureLod(uSource, centre / uResolution, log2(cell)).rgb;
+  // How many texels one output pixel covers, so the block is averaged over the
+  // texels it actually spans.
+  vec2 texels = vec2(textureSize(uSource, 0));
+  float perPixel = texels.x / max(uResolution.x, 1.0);
+
+  vec3 c = textureLod(uSource, centre / uResolution, log2(max(cell * perPixel, 1.0))).rgb;
   fragColor = vec4(encode(c), 1.0);
 }
 `
@@ -448,12 +486,13 @@ void main() {
   float y = luminance(c);
   float envelope = 4.0 * y * (1.0 - y);
 
+  vec2 grain = patternCoord();
   vec3 n = u_monochrome
-    ? vec3(hash(gl_FragCoord.xy, u_seed))
+    ? vec3(hash(grain, u_seed))
     : vec3(
-        hash(gl_FragCoord.xy, u_seed),
-        hash(gl_FragCoord.xy, u_seed + 17.0),
-        hash(gl_FragCoord.xy, u_seed + 43.0)
+        hash(grain, u_seed),
+        hash(grain, u_seed + 17.0),
+        hash(grain, u_seed + 43.0)
       );
 
   fragColor = vec4(encode(c + (n - 0.5) * u_amount * envelope), 1.0);

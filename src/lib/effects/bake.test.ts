@@ -10,7 +10,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { bakeFrames, BakeCancelled, loadImage, type BakeProgress } from './bake'
 
-const SIZE = { width: 1920, height: 1080 }
+const SIZE = { width: 1920, height: 1080, scale: 1 }
 
 /** A driver that records what happened, with a cancel you can arm. */
 function driver(options: { cancelAfter?: number } = {}) {
@@ -59,7 +59,26 @@ describe('baking a sequence', () => {
       index: 0,
       width: 1920,
       height: 1080,
+      scale: 1,
     })
+  })
+
+  it('carries the pattern scale to every frame', async () => {
+    // A 2x export is the same look with harder edges, and the only thing that
+    // makes it so is this number reaching the shader (#58). A frame rendered
+    // without it would carry a pattern twice as fine as the rest of the clip.
+    const it = driver()
+    await bakeFrames(['a', 'b'], { width: 3840, height: 2160, scale: 2 }, it)
+
+    for (const [index, source] of ['a', 'b'].entries()) {
+      expect(it.treat).toHaveBeenCalledWith({
+        source,
+        index,
+        width: 3840,
+        height: 2160,
+        scale: 2,
+      })
+    }
   })
 
   it('reports a determinate total before the first frame', async () => {

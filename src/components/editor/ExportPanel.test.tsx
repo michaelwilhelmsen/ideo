@@ -334,11 +334,66 @@ describe('a treated candidate (#36)', () => {
       expect(commands.beginBake).toHaveBeenCalledWith(
         expect.any(String),
         'project-atlas',
-        'gen-sty-2'
+        'gen-sty-2',
+        'web'
       )
     })
     // The untreated path is not also taken — one export, one set of files.
     expect(exportGeneration).not.toHaveBeenCalled()
+  })
+
+  it('exports at the web width until somebody asks for more', async () => {
+    // The default is the file every landing page wanted before the control
+    // existed. A size that had to be chosen every time would be a decision the
+    // app already knows the answer to.
+    render(<ExportPanel project={withAssets()} stage="animate" />)
+
+    await userEvent
+      .setup()
+      .click(await screen.findByRole('button', { name: 'Export' }))
+
+    await waitFor(() => {
+      expect(exportGeneration).toHaveBeenCalledWith(
+        expect.objectContaining({ size: 'web' })
+      )
+    })
+  })
+
+  it('sends the size that was chosen, to the bake that has to render it', async () => {
+    // The bake is where a size costs something — Rust decodes the frames at it
+    // and the shader draws at it — so this is the wiring worth pinning: the
+    // choice reaches `beginBake`, which is the side that turns it into pixels.
+    const user = userEvent.setup()
+    render(<ExportPanel project={treated()} stage="style" />)
+
+    await user.click(await screen.findByRole('combobox', { name: 'Size' }))
+    await user.click(await screen.findByRole('option', { name: /2×/ }))
+    await user.click(screen.getByRole('button', { name: 'Export' }))
+
+    await waitFor(() => {
+      expect(commands.beginBake).toHaveBeenCalledWith(
+        expect.any(String),
+        'project-atlas',
+        'gen-sty-2',
+        'double'
+      )
+    })
+  })
+
+  it('will not offer 2× for a plate with nothing drawn on it', async () => {
+    // Upscaling a clean plate is the same detail in four times the bytes. The
+    // option stays on screen and refuses, rather than vanishing — a list that
+    // silently loses an entry reads as a tool that cannot do it at all.
+    const user = userEvent.setup()
+    render(<ExportPanel project={treated()} stage="style" />)
+
+    await user.click(await screen.findByRole('switch', { name: /Bake in/ }))
+    await user.click(await screen.findByRole('combobox', { name: 'Size' }))
+
+    expect(await screen.findByRole('option', { name: /2×/ })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
   })
 
   it('shows the wait before the decode comes back, not after', async () => {
@@ -358,6 +413,7 @@ describe('a treated candidate (#36)', () => {
               frames: ['/tmp/f-000000.png'],
               width: 1920,
               height: 1080,
+              scale: 1,
               fps: null,
             },
           })

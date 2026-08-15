@@ -53,6 +53,48 @@ number of rows, and an odd height is a hard encoder failure.
 There is no encoder UI. A landing-page hero has one right answer for each of these, and
 exposing them would ask the user to re-derive it on every export.
 
+## Size (#58)
+
+The one delivery decision that is _not_ fixed, because a treatment changes what more
+pixels are worth. `ExportSize` is three choices, and the `w=` expression follows from it:
+
+| Size     | `w=`             | Offered when                           |
+| -------- | ---------------- | -------------------------------------- |
+| `web`    | `min(1920,iw)`   | always — the default, and today's file |
+| `native` | `iw`             | always — the pixels the model returned |
+| `double` | `min(1920,iw)*2` | only while a treatment is being baked  |
+
+Each is wrapped in `trunc(…/2)*2`. 4:2:0 chroma cannot express an odd number of columns
+any more than an odd number of rows, and libx264 refuses the encode outright — the cap hid
+this while `min(1920,iw)` was the only expression, since 1920 is even. It also keeps the
+untreated width equal to `bake::shipped_size`'s `& !1`, so turning a treatment on cannot
+move an odd-width deliverable by a pixel.
+
+A pattern is generated at the output grid, so its edges stay exactly one output pixel
+hard however soft the picture under it is; the upscaled photo only supplies tone, which a
+quantiser mostly discards anyway. With no pattern there is nothing to keep sharp, so
+`ExportSize::untreated` degrades `double` to `native` — the panel does not offer the
+combination and this is the half that cannot be routed around.
+
+**Every size is the same look.** `ExportSize::pattern_scale` gives the shader `uScale`, and the
+shader measures its pattern in _look pixels_ — output pixels divided by that number. So
+2× is the picture the preview showed with harder edges, not a finer screen. Two things
+fall out: the effects preview stays honest at one size instead of having to follow this
+choice around the app, and the MP4 gets _better_ rather than merely bigger, since a cell
+several output pixels across survives the 4:2:0 chroma that ruins a one-pixel one.
+
+`native` is the one scale that can be fractional — a 2560-wide source gives 1.333, and a
+grid-based pattern then lands on look pixels one and two output pixels wide in turn. That
+is what a nearest-neighbour magnification by 1.333 _is_, and it is kept rather than
+rounded: rounding the scale to 1 would ship a pattern a third finer than the preview
+showed, and rounding the width to a whole multiple of the cap would deliver `web` under
+`native`'s name. It only arises for a treated still from an oversized style candidate —
+every clip is under the cap, since the animate models emit 720p.
+
+A 2× bake is four times the pixels to render, PNG-encode and store. Error diffusion is
+excluded: those two kernels are decided pixel by pixel in Rust at the candidate's own
+size, so the control offers `native` alone rather than a choice that changes nothing.
+
 ## Rewind (ping-pong), PRD §4.5's second loop
 
 ```

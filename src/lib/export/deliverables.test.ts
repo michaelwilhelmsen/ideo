@@ -12,10 +12,12 @@ import { ATLAS, type Generation, type StageKind } from '@/lib/recipe'
 import {
   anyRequested,
   availableFormats,
+  availableSizes,
   exportBaseName,
   exportSizeOf,
   mediumOf,
   requestedFormats,
+  requestedSize,
   rewindIsRedundant,
   rewindWanted,
 } from './deliverables'
@@ -171,5 +173,58 @@ describe('the size a deliverable ships at', () => {
   it('still produces something encodable from a degenerate size', () => {
     expect(exportSizeOf(0, 0)).toEqual([2, 2])
     expect(exportSizeOf(1, 1)).toEqual([2, 2])
+  })
+})
+
+describe('which sizes an export can be asked for', () => {
+  it('offers 2× only where there is a treatment to keep sharp', () => {
+    // The whole argument for upscaling is a pattern drawn at the output grid.
+    // With no pattern a 2× file carries exactly the detail the 1× file had, so
+    // the option is there and refused rather than there and pointless.
+    expect(
+      availableSizes({ medium: 'clip', treated: true, diffused: false })
+    ).toEqual(['web', 'native', 'double'])
+    expect(
+      availableSizes({ medium: 'clip', treated: false, diffused: false })
+    ).toEqual(['web', 'native'])
+    expect(
+      availableSizes({ medium: 'still', treated: false, diffused: false })
+    ).toEqual(['web', 'native'])
+  })
+
+  it('offers nothing for a candidate with no file', () => {
+    expect(
+      availableSizes({ medium: 'nothing', treated: false, diffused: false })
+    ).toEqual([])
+  })
+
+  it('gives error diffusion the one size it actually ships at', () => {
+    // Those two kernels are decided pixel by pixel in Rust, at the candidate's
+    // own size. A control offering a choice there would be describing a file it
+    // is not about to write.
+    expect(
+      availableSizes({ medium: 'still', treated: true, diffused: true })
+    ).toEqual(['native'])
+  })
+
+  it('narrows a size the candidate can no longer produce', () => {
+    // The same belt and braces the format checkboxes get: the choice was made
+    // about one candidate and the selection moves under it, so 2× left over
+    // from a treated clip must not follow onto a clean plate.
+    expect(
+      requestedSize(
+        'double',
+        availableSizes({ medium: 'clip', treated: false, diffused: false })
+      )
+    ).toBe('web')
+    expect(
+      requestedSize(
+        'double',
+        availableSizes({ medium: 'clip', treated: true, diffused: false })
+      )
+    ).toBe('double')
+    // And a candidate with nothing to export still answers with something an
+    // encoder could take.
+    expect(requestedSize('double', [])).toBe('web')
   })
 })

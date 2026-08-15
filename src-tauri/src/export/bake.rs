@@ -34,7 +34,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use super::plan::{Input, Medium, MAX_WEB_WIDTH};
+use super::plan::{ExportSize, Input, Medium};
 use super::ExportError;
 
 /// Where every bake's scratch folder goes, under app data.
@@ -62,6 +62,14 @@ pub struct BakeSession {
     /// The size the shader must render at — the size these will ship at.
     pub width: u32,
     pub height: u32,
+    /// Output pixels per look pixel, so the pattern comes out the size it was
+    /// dialled in at rather than the size the grid happens to be (#58).
+    ///
+    /// 1 at [`ExportSize::Web`], 2 at `Double`, and whatever the source's own
+    /// width is worth at `Native`. The shader divides its pattern coordinates by
+    /// this, which is what makes a bigger export the same look with harder edges
+    /// instead of a finer screen nobody asked for.
+    pub scale: f64,
     /// The clip's own rate, so the re-encode does not re-time it. `null` for a
     /// still, which has no time axis.
     pub fps: Option<f64>,
@@ -74,6 +82,7 @@ pub fn begin(
     id: &str,
     source: &Path,
     medium: Medium,
+    size: ExportSize,
 ) -> Result<BakeSession, ExportError> {
     let directory = root(app_data).join(id);
     std::fs::create_dir_all(&directory).map_err(|e| ExportError::DestinationUnusable {
@@ -81,8 +90,8 @@ pub fn begin(
     })?;
 
     let session = match medium {
-        Medium::Still => still_session(id, &directory, source)?,
-        Medium::Clip => clip_session(id, &directory, ffmpeg, source)?,
+        Medium::Still => still_session(id, &directory, source, size)?,
+        Medium::Clip => clip_session(id, &directory, ffmpeg, source, size)?,
     };
 
     remember(id, &directory);
@@ -95,13 +104,18 @@ pub fn begin(
 /// the size the file will ship at and the poster is capped like everything
 /// else. Read from the header rather than by decoding: `imagesize` is already a
 /// dependency for exactly this.
-fn still_session(id: &str, directory: &Path, source: &Path) -> Result<BakeSession, ExportError> {
-    let size = imagesize::size(source).map_err(|e| ExportError::EncodeFailed {
+fn still_session(
+    id: &str,
+    directory: &Path,
+    source: &Path,
+    size: ExportSize,
+) -> Result<BakeSession, ExportError> {
+    let natural = imagesize::size(source).map_err(|e| ExportError::EncodeFailed {
         deliverable: "bake".to_string(),
         detail: e.to_string(),
     })?;
 
-    let (width, height) = export_size(size.width as u32, size.height as u32);
+    let (width, height) = shipped_size(natural.width as u32, natural.height as u32, size);
     // Nothing is written here yet; the folder exists so the treated frame has
     // somewhere to land.
     let _ = directory;
@@ -111,6 +125,7 @@ fn still_session(id: &str, directory: &Path, source: &Path) -> Result<BakeSessio
         frames: vec![source.to_string_lossy().to_string()],
         width,
         height,
+        scale: size.pattern_scale(width),
         fps: None,
     })
 }
@@ -125,6 +140,7 @@ fn clip_session(
     directory: &Path,
     ffmpeg: &str,
     source: &Path,
+    size: ExportSize,
 ) -> Result<BakeSession, ExportError> {
     let pattern = directory.join("source-%06d.png");
 
@@ -134,7 +150,7 @@ fn clip_session(
             "-i",
             &source.to_string_lossy(),
             "-vf",
-            &format!("scale=w='min({MAX_WEB_WIDTH},iw)':h=-2,setsar=1"),
+            &format!("scale=w='{}':h=-2,setsar=1", size.width_expression()),
             // Every frame the container holds, at its own timing.
             "-vsync",
             "0",
@@ -176,6 +192,7 @@ fn clip_session(
             .collect(),
         width: first.width as u32,
         height: first.height as u32,
+        scale: size.pattern_scale(first.width as u32),
         // A clip whose rate ffmpeg did not name is re-encoded at 24, which is
         // wrong by less than refusing the export would be.
         fps: Some(parse_fps(&chatter).unwrap_or(24.0)),
@@ -294,21 +311,21 @@ fn decoded_frames(directory: &Path, prefix: &str) -> Result<Vec<PathBuf>, Export
     Ok(frames)
 }
 
-/// The size a deliverable ships at, capped and even.
+/// The size a deliverable ships at, on the chosen scale and even.
 ///
-/// The same `min(MAX_WEB_WIDTH, iw)` the untreated path applies in its filter
-/// graph, computed here because the shader has to know it before it draws. The
-/// height is forced even for the reason `-2` exists in that filter: 4:2:0 chroma
-/// cannot express an odd number of rows.
-pub fn export_size(width: u32, height: u32) -> (u32, u32) {
-    let capped = width.clamp(2, MAX_WEB_WIDTH);
+/// The same expression the untreated path puts in its filter graph, computed
+/// here because the shader has to know it before it draws. The height is forced
+/// even for the reason `-2` exists in that filter: 4:2:0 chroma cannot express
+/// an odd number of rows.
+pub fn shipped_size(width: u32, height: u32, size: ExportSize) -> (u32, u32) {
+    let target = size.target_width(width).max(2);
     let scaled = if width == 0 {
         height
     } else {
-        ((height as f64) * (capped as f64) / (width as f64)).round() as u32
+        ((height as f64) * (target as f64) / (width as f64)).round() as u32
     };
 
-    (capped & !1, scaled.max(2) & !1)
+    (target & !1, scaled.max(2) & !1)
 }
 
 /// The frame rate out of ffmpeg's own stream line.
@@ -337,11 +354,26 @@ mod tests {
     fn the_export_size_is_the_one_the_untreated_path_would_produce() {
         // The property that matters most here: turning a treatment on must not
         // silently resize the deliverable.
-        assert_eq!(export_size(3840, 2160), (1920, 1080));
-        assert_eq!(export_size(2560, 1440), (1920, 1080));
+        assert_eq!(shipped_size(3840, 2160, ExportSize::Web), (1920, 1080));
+        assert_eq!(shipped_size(2560, 1440, ExportSize::Web), (1920, 1080));
         // Below the cap is left alone rather than upscaled into a bigger file
         // with no more detail in it.
-        assert_eq!(export_size(1280, 720), (1280, 720));
+        assert_eq!(shipped_size(1280, 720, ExportSize::Web), (1280, 720));
+    }
+
+    #[test]
+    fn a_bigger_size_keeps_the_aspect_it_was_given() {
+        // Native is the pixels the model actually returned, uncapped.
+        assert_eq!(shipped_size(2560, 1440, ExportSize::Native), (2560, 1440));
+        // ...which for anything already under the cap is the same file Web
+        // would have produced. A size control that quietly upscaled here would
+        // be selling detail that was never generated.
+        assert_eq!(shipped_size(1280, 720, ExportSize::Native), (1280, 720));
+
+        // Double is twice the *web* width rather than twice the source's, so
+        // the ceiling stays somewhere a landing page can afford.
+        assert_eq!(shipped_size(3840, 2160, ExportSize::Double), (3840, 2160));
+        assert_eq!(shipped_size(1280, 720, ExportSize::Double), (2560, 1440));
     }
 
     #[test]
@@ -349,15 +381,18 @@ mod tests {
         // An odd height is a hard 4:2:0 failure rather than a slightly wrong
         // picture, which is why the filter graph says `-2` and not `-1`.
         for (w, h) in [(1000u32, 563u32), (1920, 1081), (999, 999)] {
-            let (_, height) = export_size(w, h);
-            assert_eq!(height % 2, 0, "{w}x{h} gave an odd height");
+            for size in [ExportSize::Web, ExportSize::Native, ExportSize::Double] {
+                let (_, height) = shipped_size(w, h, size);
+                assert_eq!(height % 2, 0, "{w}x{h} gave an odd height");
+            }
         }
     }
 
     #[test]
     fn a_degenerate_size_still_produces_something_encodable() {
-        assert_eq!(export_size(0, 0), (2, 2));
-        assert_eq!(export_size(1, 1), (2, 2));
+        assert_eq!(shipped_size(0, 0, ExportSize::Web), (2, 2));
+        assert_eq!(shipped_size(1, 1, ExportSize::Web), (2, 2));
+        assert_eq!(shipped_size(0, 0, ExportSize::Double), (2, 2));
     }
 
     #[test]

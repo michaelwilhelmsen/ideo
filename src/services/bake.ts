@@ -80,7 +80,11 @@ export function useBake(): Baking {
       const opened = await commands.beginBake(
         sessionId,
         bake.request.projectId,
-        bake.request.generationId
+        bake.request.generationId,
+        // The size the panel asked for. Rust owns what it means in pixels —
+        // it is the side that knows how big the source is — and hands back the
+        // dimensions and the pattern scale that follow from it.
+        bake.request.size
       )
       if (opened.status === 'error') {
         failed(opened.error)
@@ -108,7 +112,11 @@ export function useBake(): Baking {
       try {
         await bakeFrames(
           session.frames,
-          { width: session.width, height: session.height },
+          {
+            width: session.width,
+            height: session.height,
+            scale: session.scale,
+          },
           {
             treat: async job => {
               if (onCpu) {
@@ -144,6 +152,7 @@ export function useBake(): Baking {
                 inks: bake.inks,
                 width: job.width,
                 height: job.height,
+                scale: job.scale,
               })
               return canvasPng(canvas)
             },

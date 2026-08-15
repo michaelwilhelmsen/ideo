@@ -577,9 +577,9 @@ async exportGeneration(request: ExportRequest) : Promise<Result<ExportOutcome, E
  * 
  * Blocking: decoding a five-second clip to PNGs is seconds of ffmpeg.
  */
-async beginBake(sessionId: string, projectId: string, generationId: string) : Promise<Result<BakeSession, ExportError>> {
+async beginBake(sessionId: string, projectId: string, generationId: string, size: ExportSize) : Promise<Result<BakeSession, ExportError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("begin_bake", { sessionId, projectId, generationId }) };
+    return { status: "ok", data: await TAURI_INVOKE("begin_bake", { sessionId, projectId, generationId, size }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -823,6 +823,16 @@ frames: string[];
  */
 width: number; height: number; 
 /**
+ * Output pixels per look pixel, so the pattern comes out the size it was
+ * dialled in at rather than the size the grid happens to be (#58).
+ * 
+ * 1 at [`ExportSize::Web`], 2 at `Double`, and whatever the source's own
+ * width is worth at `Native`. The shader divides its pattern coordinates by
+ * this, which is what makes a bigger export the same look with harder edges
+ * instead of a finer screen nobody asked for.
+ */
+scale: number; 
+/**
  * The clip's own rate, so the re-encode does not re-time it. `null` for a
  * still, which has no time axis.
  */
@@ -953,7 +963,45 @@ baseName: string; mp4: boolean; webm: boolean; poster: boolean;
 /**
  * PRD §4.5's ping-pong. Ignored on a still, which has no time axis.
  */
-rewind: boolean }
+rewind: boolean; 
+/**
+ * How big to deliver (#58). Anything above the web width is only honoured
+ * where a treatment is being baked — see `ExportSize::untreated`.
+ */
+size: ExportSize }
+/**
+ * How big a deliverable ships (#58).
+ * 
+ * A treated export is the one case where more pixels are worth paying for, and
+ * the reason is that a treatment is not photographic detail — it is a pattern
+ * generated at the output grid. A dither drawn at 3840 has edges exactly one
+ * output pixel hard whatever the picture underneath was; the upscaled photo
+ * only has to supply tone, and a two-ink quantiser throws away most of the
+ * tonal precision anyway. So the pattern stays sharp where a plain upscale
+ * would just be a bigger blur.
+ * 
+ * **Every size is the same look.** The pattern is scaled with the export
+ * ([`pattern_scale`](ExportSize::pattern_scale)), so `Double` is the picture the preview showed with harder
+ * edges rather than a finer screen — which is what keeps the preview honest at
+ * one size instead of needing to follow this choice around the app. It is also
+ * what makes the MP4 better rather than merely bigger: a cell several output
+ * pixels across survives the 4:2:0 chroma that ruins a one-pixel one.
+ */
+export type ExportSize = 
+/**
+ * [`MAX_WEB_WIDTH`], and what every export was before this existed.
+ */
+"web" | 
+/**
+ * The candidate's own size, uncapped — the pixels the model actually
+ * returned, rather than the ones left after the web cap.
+ */
+"native" | 
+/**
+ * Twice the web width. Offered only where a treatment is being baked:
+ * upscaling a clean plate is bytes with nothing in them.
+ */
+"double"
 /**
  * What the frontend needs to decide whether export is offerable.
  * 
