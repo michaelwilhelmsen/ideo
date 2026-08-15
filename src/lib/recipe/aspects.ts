@@ -12,6 +12,16 @@
  * video model's enum — they are reachable only through Kling O1's inherited
  * 0.40–2.50 range, which carries no seed parameter and so cannot be re-run.
  * Marking those two as animatable would be assuming the expensive thing.
+ *
+ * The two portrait entries are here because a hero is not always a desktop
+ * banner — a Reel, a TikTok and a full-bleed mobile section are all taller than
+ * they are wide, and a landscape-only list makes those unbuildable rather than
+ * merely awkward. Both are animatable on the same evidence as the rest, read
+ * from `docs/research/model-schemas.md`: 9:16 is in the enum of Veo 3.1 (both
+ * variants), FLUX 3, Luma Ray 2, LTX 2.3 and Wan FLF2V, and 3:4 is in FLUX 3's
+ * and Luma Ray 2's. Note the asymmetry with the landscape half — the widest
+ * ratios are the ones video models are shy about, and every model in the
+ * registry serves 9:16.
  */
 
 import type { AspectId } from './types'
@@ -74,6 +84,22 @@ export const ASPECTS: readonly Aspect[] = [
     ratio: 1,
     animatable: true,
     noteKey: 'editor.aspect.note.square',
+  },
+  {
+    id: '3:4',
+    width: 3,
+    height: 4,
+    ratio: 3 / 4,
+    animatable: true,
+    noteKey: 'editor.aspect.note.portrait',
+  },
+  {
+    id: '9:16',
+    width: 9,
+    height: 16,
+    ratio: 9 / 16,
+    animatable: true,
+    noteKey: 'editor.aspect.note.vertical',
   },
 ]
 

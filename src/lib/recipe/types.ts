@@ -22,7 +22,7 @@ export const STAGE_ORDER = ['source', 'style', 'animate'] as const
  * PRD §4.4 — locked at project creation, inherited by every stage, and each
  * entry carries whether animation is possible at that ratio.
  */
-export type AspectId = '16:9' | '21:9' | '2:1' | '3:2' | '1:1'
+export type AspectId = '16:9' | '21:9' | '2:1' | '3:2' | '1:1' | '3:4' | '9:16'
 
 /**
  * PRD §10.3 — nothing is deleted, so a candidate needs somewhere to record

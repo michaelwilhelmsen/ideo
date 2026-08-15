@@ -123,8 +123,14 @@ genuinely re-runnable rather than approximately re-runnable.
 ### 4.4 Aspect ratio
 
 **Locked at project creation**, inherited by all stages, chosen from a **curated list
-validated end-to-end** (16:9, 21:9, 2:1, 3:2, square), with each entry marked for
-whether animation is possible at that ratio.
+validated end-to-end** (16:9, 21:9, 2:1, 3:2, square, 3:4, 9:16), with each entry marked
+for whether animation is possible at that ratio.
+
+The list covers portrait as well as landscape, because a hero is not always a desktop
+banner — a Reel, a TikTok and a full-bleed mobile section are all taller than they are
+wide. Both portrait entries are animatable on the same evidence as the rest
+(`docs/research/model-schemas.md`): 9:16 is declared by Veo 3.1, FLUX 3, Luma Ray 2,
+LTX 2.3 and Wan FLF2V, and 3:4 by FLUX 3 and Luma Ray 2.
 
 This is load-bearing. Video models are far pickier about dimensions than image models,
 and a ratio the video model rejects would fail at the **last and most expensive step**.

@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { ASPECTS } from './aspects'
 import {
   aspectRequestFields,
   controlAvailability,
@@ -119,7 +120,7 @@ describe('legalSizeFor', () => {
       maxRatio: 3,
     }
 
-    for (const aspect of ['16:9', '21:9', '2:1', '3:2', '1:1'] as const) {
+    for (const { id: aspect } of ASPECTS) {
       const size = legalSizeFor(constraints, aspect)
       if (size === null) throw new Error(`no legal size for ${aspect}`)
       expect(Math.max(size.width, size.height)).toBeLessThanOrEqual(2560)

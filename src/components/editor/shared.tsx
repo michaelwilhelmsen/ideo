@@ -41,12 +41,25 @@ import { useEditorStore } from '@/store/editor-store'
 import { assetSource } from './assets'
 import { useGenerationName } from './naming'
 
+/**
+ * The box a candidate is shown in, at the project's locked ratio.
+ *
+ * The two portrait entries carry a width cap the landscape ones do not need.
+ * Every box here is `w-full`, and height follows from width — which is fine
+ * until the ratio is taller than it is wide and the column is a wide one: 9:16
+ * across the middle pane is a preview several screens tall, scrolled past
+ * rather than looked at. Capping the *width* keeps the ratio exact where
+ * capping the height would crop it, and it is a no-op in the strip and the run
+ * grid, whose columns are already narrower than the cap.
+ */
 const ASPECT_CLASS: Record<string, string> = {
   '16:9': 'aspect-video',
   '21:9': 'aspect-[21/9]',
   '2:1': 'aspect-[2/1]',
   '3:2': 'aspect-[3/2]',
   '1:1': 'aspect-square',
+  '3:4': 'aspect-[3/4] mx-auto max-w-[calc(70vh*3/4)]',
+  '9:16': 'aspect-[9/16] mx-auto max-w-[calc(70vh*9/16)]',
 }
 
 /**

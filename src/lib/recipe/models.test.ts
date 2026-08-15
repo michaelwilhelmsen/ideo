@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { ASPECTS } from './aspects'
 import { DEFAULT_MODEL_IDS, MODEL_REGISTRY } from './models'
 import {
   durationSeconds,
@@ -104,6 +105,32 @@ describe('MODEL_REGISTRY', () => {
     }
   })
 
+  it('backs every animatable ratio with an animate model that takes it', () => {
+    // `Aspect.animatable` is the promise the picker makes at creation, and the
+    // only thing that can keep it is a row in this registry. A ratio marked
+    // animatable with nothing to animate it would send the user through source
+    // and style before the last and most expensive step refused them
+    // (PRD §4.4) — which is the exact failure the mark exists to prevent.
+    //
+    // A *declared* enum, not merely an available model: the rows that inherit
+    // their geometry (Kling, Seedance) are available at every ratio by
+    // definition, so counting them would leave this assertion true whatever
+    // the curated list claimed — which is the assumption `animatable` exists
+    // to refuse.
+    for (const aspect of ASPECTS.filter(entry => entry.animatable)) {
+      const declaring = modelsForStage(MODEL_REGISTRY, 'animate').filter(
+        model =>
+          model.aspects.kind === 'ratioEnum' &&
+          model.aspects.values[aspect.id] !== undefined
+      )
+
+      expect(
+        declaring.map(model => model.id),
+        aspect.id
+      ).not.toHaveLength(0)
+    }
+  })
+
   it('marks exactly the two endpoints that will not run without an end frame', () => {
     // Both refuse a submit naming only a start frame. Since #30 the still goes
     // out again as the end frame, so what this marks is a loop that cannot be
@@ -166,10 +193,11 @@ describe('DEFAULT_MODEL_IDS', () => {
 
   it('can serve every ratio a project is allowed to lock', () => {
     // A default that a new 21:9 project cannot use would mean the picker opens
-    // on a refused model.
+    // on a refused model. Read off `ASPECTS` rather than listed here, so
+    // adding a ratio to the curated list is what runs this check against it.
     for (const stage of STAGE_ORDER) {
       const model = modelById(MODEL_REGISTRY, DEFAULT_MODEL_IDS[stage])
-      for (const aspect of ['16:9', '21:9', '2:1', '3:2', '1:1'] as const) {
+      for (const { id: aspect } of ASPECTS) {
         expect(
           modelAvailability(model, aspect).state,
           `${stage} @ ${aspect}`

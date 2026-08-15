@@ -99,6 +99,8 @@ const KONTEXT_RATIOS = {
   '21:9': '21:9',
   '3:2': '3:2',
   '1:1': '1:1',
+  '3:4': '3:4',
+  '9:16': '9:16',
 } as const
 
 /** Nano Banana, both generations. 11 and 15 ratios respectively, no 2:1. */
@@ -107,6 +109,8 @@ const NANO_BANANA_RATIOS = {
   '21:9': '21:9',
   '3:2': '3:2',
   '1:1': '1:1',
+  '3:4': '3:4',
+  '9:16': '9:16',
 } as const
 
 /** Grok Imagine: widest is 2:1, and there is no 21:9 anywhere in the enum. */
@@ -115,10 +119,17 @@ const GROK_RATIOS = {
   '2:1': '2:1',
   '3:2': '3:2',
   '1:1': '1:1',
+  '3:4': '3:4',
+  '9:16': '9:16',
 } as const
 
-/** Veo 3.1 and LTX 2.3: `auto`, `16:9`, `9:16` — no native ultrawide. */
-const SIXTEEN_NINE_ONLY = { '16:9': '16:9' } as const
+/**
+ * Veo 3.1 and LTX 2.3: `auto`, `16:9`, `9:16` — no native ultrawide, but the
+ * vertical is native. `auto` is not offered, per PRD §6.3: the project's ratio
+ * is locked and handing the decision back to the provider is how a stage comes
+ * back the wrong shape.
+ */
+const LANDSCAPE_OR_VERTICAL = { '16:9': '16:9', '9:16': '9:16' } as const
 
 // ── Source ──────────────────────────────────────────────────────────────────
 
@@ -807,7 +818,12 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     aspects: {
       kind: 'ratioEnum',
       param: 'aspect_ratio',
-      values: { '16:9': '16:9', '21:9': '21:9' },
+      values: {
+        '16:9': '16:9',
+        '21:9': '21:9',
+        '3:4': '3:4',
+        '9:16': '9:16',
+      },
     },
     imageParam: 'image_url',
     supportsSeed: false,
@@ -837,7 +853,14 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     aspects: {
       kind: 'ratioEnum',
       param: 'aspect_ratio',
-      values: { '16:9': '16:9', '21:9': '21:9', '2:1': '2:1', '1:1': '1:1' },
+      values: {
+        '16:9': '16:9',
+        '21:9': '21:9',
+        '2:1': '2:1',
+        '1:1': '1:1',
+        '3:4': '3:4',
+        '9:16': '9:16',
+      },
     },
     imageParam: 'start_image_url',
     supportsSeed: false,
@@ -885,7 +908,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     aspects: {
       kind: 'ratioEnum',
       param: 'aspect_ratio',
-      values: SIXTEEN_NINE_ONLY,
+      values: LANDSCAPE_OR_VERTICAL,
     },
     // Spelled `first_frame_url` here, `start_image_url` on Kling O1 and FLUX 3,
     // and `image_url` on the rest — PRD §9.1's case for the registry, twice over.
@@ -920,7 +943,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     aspects: {
       kind: 'ratioEnum',
       param: 'aspect_ratio',
-      values: SIXTEEN_NINE_ONLY,
+      values: LANDSCAPE_OR_VERTICAL,
     },
     imageParam: 'image_url',
     supportsSeed: true,
@@ -950,7 +973,7 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     aspects: {
       kind: 'ratioEnum',
       param: 'aspect_ratio',
-      values: SIXTEEN_NINE_ONLY,
+      values: LANDSCAPE_OR_VERTICAL,
     },
     imageParam: 'image_url',
     supportsSeed: false,

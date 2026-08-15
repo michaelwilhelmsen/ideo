@@ -108,10 +108,17 @@ export function NewProjectDialog({
                   )}
                 >
                   <span className="flex items-center gap-2">
+                    {/* Sized off the long edge rather than off the height, so
+                        the portrait entries read as portrait: at a fixed
+                        height, 9:16 would be a 9px sliver next to a 37px
+                        21:9 and the two would look like the same decision. */}
                     <span
                       aria-hidden
-                      className="h-4 shrink-0 rounded-xs border border-current opacity-60"
-                      style={{ width: `${candidate.ratio * 16}px` }}
+                      className="shrink-0 rounded-xs border border-current opacity-60"
+                      style={{
+                        width: `${Math.min(1, candidate.ratio) * 24}px`,
+                        height: `${Math.min(1, 1 / candidate.ratio) * 24}px`,
+                      }}
                     />
                     <span className="text-sm font-medium">{candidate.id}</span>
                   </span>

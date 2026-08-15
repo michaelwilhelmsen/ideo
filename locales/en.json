@@ -184,6 +184,8 @@
   "editor.aspect.note.standardWide": "Standard wide. Animation supported.",
   "editor.aspect.note.ultrawide": "Ultrawide. Animation supported.",
   "editor.aspect.note.square": "Square. Animation supported.",
+  "editor.aspect.note.portrait": "Portrait. Animation supported.",
+  "editor.aspect.note.vertical": "Vertical — Reels, TikTok, full-bleed mobile. Animation supported.",
   "editor.aspect.note.noVideoEnum": "No video model confirms this ratio — stills only.",
   "editor.reason.aspectNotAnimatable": "No video model is confirmed to accept this ratio.",
   "editor.action.create": "Create",

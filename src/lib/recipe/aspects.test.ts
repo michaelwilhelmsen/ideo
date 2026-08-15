@@ -15,6 +15,8 @@ describe('the aspect catalogue', () => {
       '2:1',
       '3:2',
       '1:1',
+      '3:4',
+      '9:16',
     ])
   })
 
@@ -35,6 +37,10 @@ describe('the aspect catalogue', () => {
     expect(aspectById('1:1').animatable).toBe(true)
     expect(aspectById('2:1').animatable).toBe(false)
     expect(aspectById('3:2').animatable).toBe(false)
+    // The portrait pair, on the same evidence: 9:16 is in five video enums,
+    // 3:4 in FLUX 3's and Luma Ray 2's.
+    expect(aspectById('9:16').animatable).toBe(true)
+    expect(aspectById('3:4').animatable).toBe(true)
   })
 
   it('gives every entry a reason string key rather than English', () => {
