@@ -162,7 +162,7 @@ export function resolvedInputId(
   if (isEligibleInput(project, stage, selected)) return selected
 
   // The fallback that makes skipping cost nothing: with no style candidates at
-  // all, animate runs off the newest source rather than demanding a pass first.
+  // all, animate runs off a source rather than demanding a pass first.
   //
   // Stage by stage, nearest first, and the first stage with anything in it wins
   // outright. Flattening every upstream stage into one list and taking the last
@@ -172,14 +172,54 @@ export function resolvedInputId(
   // cleared would quietly animate a raw source, skipping the style pass it had
   // already paid for, at video prices.
   for (const earlier of upstreamStages(stage)) {
-    const nearest = generationsForStage(project, earlier)
-      .filter(generation => generation.verdict !== 'rejected')
-      .at(-1)
-
-    if (nearest !== undefined) return nearest.id
+    const fallback = bestOf(project, stage, earlier)
+    if (fallback !== null) return fallback
   }
 
   return null
+}
+
+/**
+ * The candidate a skipped-over stage offers up, in falling order of how
+ * deliberate it is.
+ *
+ * The same shape as {@link resolvedInputId}'s own ladder, one stage down, and
+ * it exists because answer 2 up there only ever asks the stage *immediately*
+ * upstream. When style is empty, animate skips past it — and used to arrive at
+ * the newest source, discarding the source the user had chosen and was looking
+ * at one tab over. Twelve sources deep with the ninth selected, animate offered
+ * to spend video money on the twelfth.
+ *
+ * 1. **What this stage is working from.** `selection` means exactly that
+ *    everywhere else in the app: it is the candidate the stage's own tab
+ *    previews, and it moved there because somebody clicked it or because the
+ *    first arrival of an undecided run claimed it.
+ * 2. **The newest approved one.** With nothing selected, a verdict is the only
+ *    statement anyone has made about these pictures, and "approved" is the one
+ *    that means keep.
+ * 3. **The newest of the rest**, which is where this started.
+ *
+ * A selection that lost its eligibility — rejected since, or deleted by a hand
+ * edit — falls through rather than blocking the ladder, the same way a stale
+ * pointer does above.
+ */
+function bestOf(
+  project: Project,
+  stage: StageKind,
+  earlier: StageKind
+): string | null {
+  const selected = project.selection[earlier]
+  if (isEligibleInput(project, stage, selected)) return selected
+
+  const candidates = generationsForStage(project, earlier).filter(
+    generation => generation.verdict !== 'rejected'
+  )
+
+  const approved = candidates.filter(
+    generation => generation.verdict === 'approved'
+  )
+
+  return approved.at(-1)?.id ?? candidates.at(-1)?.id ?? null
 }
 
 /**

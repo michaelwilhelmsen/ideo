@@ -23,7 +23,7 @@ import {
   resolvedInputId,
   selectedGeneration,
 } from './selectors'
-import type { Project, StageKind } from './types'
+import type { Generation, Project, StageKind } from './types'
 
 /** The same project with one stage's model swapped. */
 function on(project: Project, stage: StageKind, modelId: string): Project {
@@ -163,5 +163,83 @@ describe('a project that stops at the still', () => {
     // the point: the stage is available and skipped, not unavailable.
     expect(blockedReasonKey(stillOnly, 'animate')).toBeNull()
     expect(blockedReasonKey(stillOnly, 'style')).toBeNull()
+  })
+})
+
+describe('what a skipped stage falls back to', () => {
+  /**
+   * Atlas with the style and animate candidates taken away, so animate has to
+   * skip past an empty style stage to reach the sources — the shape of a
+   * project whose source came out right the first time.
+   */
+  function sourcesOnly(
+    verdicts: Partial<Record<string, Generation['verdict']>>,
+    selected: string | null
+  ): Project {
+    return {
+      ...ATLAS,
+      generations: ATLAS.generations
+        .filter(generation => generation.stage === 'source')
+        .map(generation => ({
+          ...generation,
+          verdict: verdicts[generation.id] ?? 'unrated',
+        })),
+      drafts: {
+        ...ATLAS.drafts,
+        animate: { ...ATLAS.drafts.animate, inputGenerationId: null },
+      },
+      selection: { source: selected, style: null, animate: null },
+    }
+  }
+
+  it('uses what the earlier stage is working from, not its newest candidate', () => {
+    // The reported bug: twelve sources deep with the ninth selected and
+    // previewed one tab over, animate offered to spend video money on the
+    // twelfth. `selection` means "what this stage is working from" everywhere
+    // else in the app, and skipping a stage must not throw that away.
+    const project = sourcesOnly({}, 'gen-src-1')
+
+    expect(resolvedInputId(project, 'animate')).toBe('gen-src-1')
+  })
+
+  it('prefers the newest approved one when nothing is selected', () => {
+    // With no selection, a verdict is the only statement anyone has made about
+    // these pictures, and "approved" is the one that means keep.
+    const project = sourcesOnly({ 'gen-src-1': 'approved' }, null)
+
+    expect(resolvedInputId(project, 'animate')).toBe('gen-src-1')
+  })
+
+  it('takes the newest of the rest when nothing is selected or approved', () => {
+    // Where this started, and still right: an untriaged project animates the
+    // last thing it made rather than refusing to run.
+    const project = sourcesOnly({}, null)
+    const sources = generationsForStage(project, 'source').filter(
+      generation => generation.verdict !== 'rejected'
+    )
+
+    expect(resolvedInputId(project, 'animate')).toBe(sources.at(-1)?.id)
+  })
+
+  it('keeps honouring a selection that has since been rejected', () => {
+    // Deliberately the same answer the *non*-skipped path gives: rejecting a
+    // candidate does not move the selection off it, the stage's own tab goes on
+    // previewing it (PRD §10.3 — a reject is a filter, not a tombstone), and
+    // the skipped path disagreeing would put a different picture behind each of
+    // two tabs. Choosing another one is a click in the working-from row.
+    const project = sourcesOnly(
+      { 'gen-src-1': 'rejected', 'gen-src-2': 'approved' },
+      'gen-src-1'
+    )
+
+    expect(resolvedInputId(project, 'animate')).toBe('gen-src-1')
+  })
+
+  it('falls past a selection the project no longer holds', () => {
+    // A hand-edited manifest, or a pointer left behind by an older build. A
+    // stale id must not block the ladder any more than it blocks the one above.
+    const project = sourcesOnly({ 'gen-src-2': 'approved' }, 'gen-src-gone')
+
+    expect(resolvedInputId(project, 'animate')).toBe('gen-src-2')
   })
 })
