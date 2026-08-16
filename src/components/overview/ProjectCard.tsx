@@ -27,8 +27,29 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { assetSource } from '@/components/editor/assets'
-import type { ProjectSummary } from '@/lib/recipe'
+import { isAspectId, type AspectId, type ProjectSummary } from '@/lib/recipe'
 import { cn } from '@/lib/utils'
+import { MASONRY_GAP_PX, useMasonrySpan } from './use-masonry'
+
+/**
+ * The box a card's picture gets, at the project's own locked ratio.
+ *
+ * The editor keeps its own copy of this map (`editor/shared.tsx`) and the two
+ * are deliberately not shared: that one is a preview bound by the height of a
+ * pane, this one is a card in a column, and they answer to different pressures.
+ * What they do share is the reason for being a `Record<AspectId, …>` — adding a
+ * ratio to the curated list should be a compile error here, not a card that
+ * silently renders 16:9.
+ */
+const ASPECT_CLASS: Record<AspectId, string> = {
+  '16:9': 'aspect-video',
+  '21:9': 'aspect-[21/9]',
+  '2:1': 'aspect-[2/1]',
+  '3:2': 'aspect-[3/2]',
+  '1:1': 'aspect-square',
+  '3:4': 'aspect-[3/4]',
+  '9:16': 'aspect-[9/16]',
+}
 
 /** Below this a real charge rounds to `$0.00`, which reads as free. */
 const SMALLEST_SHOWN = 0.005
@@ -68,8 +89,18 @@ export function ProjectCard({
     : null
   const playing = useHoverIntent(clip !== null)
 
+  // A manifest is read off disk, so its ratio is untrusted input — a build that
+  // has dropped a ratio still has to draw the projects made with it.
+  const box = isAspectId(summary.aspect)
+    ? ASPECT_CLASS[summary.aspect]
+    : 'aspect-video'
+
+  const [cardRef, cardSpan] = useMasonrySpan(MASONRY_GAP_PX)
+
   return (
     <div
+      ref={cardRef}
+      style={cardSpan}
       className="group relative flex flex-col gap-2"
       onMouseEnter={playing.enter}
       onMouseLeave={playing.leave}
@@ -82,25 +113,26 @@ export function ProjectCard({
         onFocus={playing.enter}
         onBlur={playing.leave}
         aria-label={summary.name}
-        className="relative aspect-video w-full cursor-pointer overflow-hidden rounded-lg border border-border bg-muted transition-colors hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className={cn(
+          'relative w-full cursor-pointer overflow-hidden rounded-lg border border-border bg-muted transition-colors hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+          box
+        )}
       >
         {thumbnail === null ? (
           <span className="flex h-full w-full items-center justify-center text-muted-foreground">
             <ImageOff className="h-6 w-6" aria-hidden />
           </span>
         ) : (
-          // `contain`, not `cover`. The card box is 16:9 and stays that way —
-          // the overview is a grid, and a 9:16 card 1.8x the height of its
-          // neighbours makes ragged rows of the whole page. But cropping a
-          // portrait hero to a wide strip through this box throws away most of
-          // the picture and shows a band of sky, which is the one thing a
-          // thumbnail exists not to do. Letterboxing shows the shape instead,
-          // and for a 16:9 project it is the same fit `cover` was.
+          // `cover`, and it crops nothing: the box is the project's own ratio
+          // and every asset in a project is generated at that ratio, so this is
+          // the fit `contain` was — with no letterbox when a thumbnail is a
+          // pixel off, and no band of sky when a manifest names a ratio this
+          // build no longer knows and the box falls back to 16:9.
           <img
             src={thumbnail}
             alt=""
             loading="lazy"
-            className="h-full w-full object-contain"
+            className="h-full w-full object-cover"
           />
         )}
 
@@ -120,7 +152,7 @@ export function ProjectCard({
             tabIndex={-1}
             // Same fit as the poster underneath it, or the clip would jump to a
             // different framing the moment it started playing.
-            className="absolute inset-0 h-full w-full object-contain"
+            className="absolute inset-0 h-full w-full object-cover"
           />
         )}
 

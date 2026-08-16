@@ -54,6 +54,7 @@ import { useUIStore } from '@/store/ui-store'
 import { useQueryClient } from '@tanstack/react-query'
 import { ProjectCard } from './ProjectCard'
 import { ProjectFootprint } from './ProjectFootprint'
+import { masonryGridStyle } from './use-masonry'
 import { useVideoPosters } from './use-video-posters'
 
 export function Overview() {
@@ -119,7 +120,12 @@ export function Overview() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-x-4 gap-y-6 px-6 pb-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        // `items-start`, without which a card is stretched to the pixel-tall
+        // row it was placed in and then measures itself as a pixel tall.
+        <div
+          style={masonryGridStyle}
+          className="grid grid-cols-1 items-start gap-x-4 px-6 pb-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        >
           {(summaries ?? []).map(summary => (
             <ProjectCard
               key={summary.id}
