@@ -1,6 +1,7 @@
 {
   "app.name": "Ideo",
   "menu.about": "About {{appName}}",
+  "menu.checkForUpdates": "Check for Updates...",
   "menu.preferences": "Preferences...",
   "menu.hide": "Hide {{appName}}",
   "menu.hideOthers": "Hide Others",
@@ -518,5 +519,17 @@
   "editor.action.enlarge": "View full size",
   "editor.viewer.previous": "Previous",
   "editor.viewer.next": "Next",
-  "editor.viewer.position": "{{index}} of {{total}}"
+  "editor.viewer.position": "{{index}} of {{total}}",
+  "commands.checkForUpdates.label": "Check for Updates",
+  "commands.checkForUpdates.description": "See whether a newer version of Ideo is available",
+  "updater.available": "Version {{version}} is available",
+  "updater.install": "Install",
+  "updater.upToDate": "You're on the latest version",
+  "updater.downloading": "Downloading update...",
+  "updater.downloadingPercent": "Downloading update... {{percent}}%",
+  "updater.installing": "Installing update...",
+  "updater.installed": "Version {{version}} installed",
+  "updater.restart": "Restart",
+  "updater.failed": "Couldn't install the update",
+  "updater.checkFailed": "Couldn't check for updates"
 }

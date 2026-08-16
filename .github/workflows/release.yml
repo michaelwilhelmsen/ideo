@@ -15,19 +15,114 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # Three platforms spend roughly an hour of runner time between them, so
+  # everything that can be known from one Linux box is settled first.
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # inputs.version first: on workflow_dispatch, github.ref_name is the
+      # branch the workflow was started from, not a tag.
+      - name: Resolve version
+        id: resolve
+        run: |
+          VERSION="${{ inputs.version || github.ref_name }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$VERSION' is not a vMAJOR.MINOR.PATCH version"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # A tag that disagrees with the manifests ships a build that reports the
+      # wrong version to the updater, which then never offers it again.
+      - name: Check versions agree with the tag
+        run: |
+          TAG="${{ steps.resolve.outputs.version }}"
+          EXPECTED="${TAG#v}"
+          FAILED=0
+
+          check() {
+            if [ "$2" != "$EXPECTED" ]; then
+              echo "::error::$1 is $2, expected $EXPECTED"
+              FAILED=1
+            else
+              echo "ok: $1 is $2"
+            fi
+          }
+
+          check "package.json" "$(node -p "require('./package.json').version")"
+          check "tauri.conf.json" "$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          check "Cargo.toml" "$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
+
+          exit $FAILED
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run ast:lint
+      - run: npm run format:check
+      - run: npm run test:run
+
+      # tauri-build reads frontendDist (../dist) at compile time.
+      - name: Build frontend
+        run: npm run build
+
+      - name: cargo fmt
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
+
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test
+
   publish-tauri:
+    name: Bundle (${{ matrix.platform }})
+    needs: preflight
     permissions:
       contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
+          # One universal binary rather than two downloads; Intel Macs are
+          # still a meaningful share of installs.
           - platform: 'macos-latest'
-            args: '--bundles app,dmg'
+            args: '--target universal-apple-darwin --bundles app,dmg'
           - platform: 'windows-latest'
             args: '--bundles msi'
+          # AppImage carries the updater; deb is the one most people
+          # actually want to install with.
           - platform: 'ubuntu-22.04'
-            args: '--bundles appimage'
+            args: '--bundles appimage,deb'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -41,11 +136,14 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          key: ${{ matrix.platform }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -56,23 +154,71 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # Imported into a throwaway keychain with a throwaway password, so the
+      # certificate never touches the runner's login keychain and no extra
+      # long-lived secret is needed to unlock it.
+      - name: Import Apple Developer certificate
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f certificate.p12
+
+          # Distribution needs the Developer ID Application identity
+          # specifically — an Apple Development cert builds but will not
+          # notarize, and Gatekeeper rejects the result.
+          CERT_ID=$(security find-identity -v -p codesigning build.keychain \
+            | grep "Developer ID Application" \
+            | head -1 \
+            | awk -F'"' '{print $2}')
+          if [ -z "$CERT_ID" ]; then
+            echo "::error::No 'Developer ID Application' identity in APPLE_CERTIFICATE"
+            exit 1
+          fi
+          echo "CERT_ID=$CERT_ID" >> "$GITHUB_ENV"
+          echo "Imported: $CERT_ID"
+
       - name: Build and release
-        uses: tauri-apps/tauri-action@dev
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the updater manifest; without it the bundler fails, because
+          # tauri.conf.json asks for updater artifacts.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Overrides bundle.macOS.signingIdentity, which stays "-" so local
+          # builds keep working without a certificate.
+          APPLE_SIGNING_IDENTITY: ${{ env.CERT_ID }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # Presence of these three is what turns on notarization.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name || inputs.version }}
-          releaseName: 'Ideo ${{ github.ref_name || inputs.version }}'
+          tagName: ${{ needs.preflight.outputs.version }}
+          releaseName: 'Ideo ${{ needs.preflight.outputs.version }}'
           releaseBody: |
-            ## Ideo ${{ github.ref_name || inputs.version }}
+            ## Ideo ${{ needs.preflight.outputs.version }}
 
             ### Installation Instructions
             - **macOS**: Download the `.dmg` file and drag to Applications folder
             - **Windows**: Download the `.msi` file and run the installer
-            - **Linux**: Download the `.AppImage` file, make it executable (`chmod +x`), and run
+            - **Linux**: Download the `.deb` and install it, or download the
+              `.AppImage`, make it executable (`chmod +x`), and run
 
-            **Full Changelog**: https://github.com/${{ github.repository }}/commits/${{ github.ref_name || inputs.version }}
+            **Full Changelog**: https://github.com/${{ github.repository }}/commits/${{ needs.preflight.outputs.version }}
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: false
+          # latest.json is what installed copies read to discover this release.
+          includeUpdaterJson: true
           args: ${{ matrix.args }}

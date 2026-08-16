@@ -1,181 +1,149 @@
 # Releases
 
-Release process, version management, and auto-update system.
+Release process, version management, and the auto-update system.
 
 ## Overview
 
-The release system provides:
+Two workflows in `.github/workflows/`:
 
-- Automated GitHub Actions workflow for building releases
-- Version management script for updating all version files
-- Auto-updater for seamless user updates
-- Cross-platform builds (macOS, Windows, Linux)
+- **`ci.yml`** — runs on every pull request and every push to `main`. Frontend
+  checks and Rust checks always; a three-platform bundle only off pull requests,
+  because the bundler is the part that breaks per-platform and a tag is a bad
+  place to find that out.
+- **`release.yml`** — runs on a `v*` tag. A preflight job settles everything
+  knowable from one Linux box (version agreement, `check:all`) before three
+  runners start bundling. Produces a **draft** GitHub release.
 
-## Initial Setup
+Releases are cross-platform (macOS universal, Windows, Linux) and carry a signed
+`latest.json` that installed copies read to discover updates.
 
-### 1. Generate Signing Keys
+## One-time setup
+
+### Updater signing key
+
+Updates are verified against a public key compiled into the app. The keypair is
+generated once and must never change afterwards — installed copies only trust
+the key they shipped with.
 
 ```bash
-npm install -g @tauri-apps/cli
-tauri signer generate -w ~/.tauri/myapp.key
-# Outputs private key (saved) and public key (displayed)
+npm run tauri signer generate -- -w ~/.tauri/ideo.key
 ```
 
-### 2. Configure GitHub Repository
+The public half is already in `src-tauri/tauri.conf.json` under
+`plugins.updater.pubkey`. The private half stays out of the repository.
 
-Add these secrets (Settings → Secrets and variables → Actions):
+### GitHub repository secrets
 
-- `TAURI_PRIVATE_KEY`: Content of `~/.tauri/myapp.key`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: Password you set (if any)
+Settings → Secrets and variables → Actions:
 
-### 3. Update Configuration
+| Secret                               | What it is                                             |
+| ------------------------------------ | ------------------------------------------------------ |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Contents of `~/.tauri/ideo.key`                        |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Its password; set to empty if the key has none         |
+| `APPLE_CERTIFICATE`                  | Base64 of the exported Developer ID Application `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD`         | Password set when exporting that `.p12`                |
+| `APPLE_ID`                           | Apple ID email                                         |
+| `APPLE_PASSWORD`                     | App-specific password, **not** the Apple ID password   |
+| `APPLE_TEAM_ID`                      | Team ID (`NBUP88JQ35`)                                 |
 
-**`src-tauri/tauri.conf.json`:**
+Note the v2 names: `TAURI_SIGNING_PRIVATE_KEY`, not the v1 `TAURI_PRIVATE_KEY`.
 
-```json
-{
-  "plugins": {
-    "updater": {
-      "active": true,
-      "endpoints": [
-        "https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest/download/latest.json"
-      ],
-      "dialog": false,
-      "pubkey": "YOUR_PUBLIC_KEY_FROM_STEP_1"
-    }
-  }
-}
-```
+The certificate must be a **Developer ID Application** identity. An Apple
+Development certificate builds fine, then fails notarization, and Gatekeeper
+rejects the result — so the workflow checks for the right one and fails loudly.
 
-**Bundle info in `tauri.conf.json`:**
-
-- Update `publisher`, `shortDescription`, `longDescription`
-- Update `productName` and `identifier`
-
-## Release Process
-
-### Simple Method
+## Release process
 
 ```bash
 npm run release:prepare v1.0.0
 ```
 
-This will:
+Which will:
 
-1. Check git status is clean
-2. Run all quality checks (`npm run check:all`)
-3. Update versions in `package.json`, `Cargo.toml`, `tauri.conf.json`
-4. Ask if you want to commit and push
+1. Refuse to continue on a dirty working tree
+2. Run `npm run check:all`
+3. Set the version in `package.json`, `Cargo.toml` and `tauri.conf.json`
+4. Offer to commit, tag and push
 
-Then GitHub Actions will:
+Then, on the tag, GitHub Actions:
 
-1. Build the app for all platforms
-2. Create a draft release
-3. Generate `latest.json` for auto-updates
-4. Upload all installers and signatures
+1. Verifies the tag matches all three manifests, and re-runs the checks
+2. Builds and signs for all three platforms
+3. Notarizes the macOS build
+4. Creates a **draft** release with the installers, signatures and `latest.json`
 
-Finally, manually publish the draft release on GitHub.
+Finally, **publish the draft release on GitHub**. Until you do, the updater
+endpoint (`releases/latest/download/latest.json`) does not resolve, so no
+installed copy will see the update.
 
-### Manual Method
+### Manual method
 
 ```bash
-# Update versions in package.json, Cargo.toml, tauri.conf.json
 npm run check:all
-git add .
-git commit -m "chore: release v1.0.0"
+# set the version in package.json, Cargo.toml and tauri.conf.json
+git commit -am "chore: release v1.0.0"
 git tag v1.0.0
 git push origin main --tags
 ```
 
-## Version Strategy
+## Version strategy
 
-Semantic versioning (`v1.0.0`):
-
-- **Major** (1.x.x): Breaking changes
-- **Minor** (x.1.x): New features, backwards compatible
-- **Patch** (x.x.1): Bug fixes
-
-All three files must have matching versions:
+Semantic versioning. All three files must agree, and the preflight job fails the
+release if they don't:
 
 - `package.json` → `"version": "1.0.0"`
 - `src-tauri/Cargo.toml` → `version = "1.0.0"`
 - `src-tauri/tauri.conf.json` → `"version": "1.0.0"`
 
-## Auto-Update System
+## Auto-update system
 
-### Behavior
+Implemented in [`src/lib/updater.ts`](../../src/lib/updater.ts).
 
-- Checks for updates 5 seconds after app launch
-- Shows confirmation dialog when update is available
-- Downloads and installs in background
-- Offers to restart when complete
-- Fails silently on network issues
+- **At launch**: one check, five seconds in, silent. Nothing is shown unless an
+  update exists — someone who opened the app to do something else should not be
+  told that nothing has changed.
+- **On demand**: the App → Check for Updates menu item, or "Check for Updates"
+  in the command palette. This route reports every outcome, including "you're on
+  the latest version", because silence would read as a broken button.
 
-### Update Flow
+An available update appears as a toast with an Install action. Download progress
+replaces that toast in place, and a Restart action appears when it completes.
 
-```
-App Launch → (5s delay) → Check GitHub → Show Dialog → Download → Install → Restart
-```
+Update artifacts exist for macOS (`.app.tar.gz`), Windows (`.msi.zip`) and Linux
+(AppImage only — `.deb` installs are not self-updating).
 
-### Implementation
+### The macOS target key
 
-```typescript
-// src/App.tsx
-import { check } from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
+macOS ships one universal binary, which the bundler files in `latest.json` under
+`darwin-universal`. The updater's default lookup key is `darwin-aarch64` or
+`darwin-x86_64`, so `lib.rs` overrides it to `darwin-universal` on macOS.
 
-useEffect(() => {
-  const checkForUpdates = async () => {
-    try {
-      const update = await check()
-      if (update) {
-        const shouldUpdate = confirm(`Update available: ${update.version}...`)
-        if (shouldUpdate) {
-          await update.downloadAndInstall()
-          if (confirm('Restart to apply update?')) {
-            await relaunch()
-          }
-        }
-      }
-    } catch {
-      // Silent fail - don't bother user with network issues
-    }
-  }
+These two have to agree. If the release ever stops being universal, or the
+override is dropped, macOS finds no matching key and reports being up to date
+forever — the failure is silent, which is what makes it worth stating here.
 
-  const timer = setTimeout(checkForUpdates, 5000)
-  return () => clearTimeout(timer)
-}, [])
+## Local builds
+
+`createUpdaterArtifacts` is on, so the bundler signs its output and
+`npm run tauri:build` needs the signing key:
+
+```bash
+export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/ideo.key)"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+npm run tauri:build
 ```
 
-### Manual Update Check
-
-Users can manually check via:
-
-- **Menu**: App → Check for Updates
-- **Command Palette**: Cmd+K → "Check for Updates"
-
-## Release Artifacts
-
-Each release creates:
-
-- **macOS**: `.dmg` installer
-- **Windows**: `.msi` installer (when configured)
-- **Linux**: `.deb` and `.AppImage` (when configured)
-- **Auto-updater**: `latest.json` manifest and `.sig` signature files
-
-## Security
-
-All updates are cryptographically signed:
-
-1. Private key signs releases during build
-2. Public key in config verifies downloads
-3. Invalid signatures are automatically rejected
+`bundle.macOS.signingIdentity` stays `"-"` (ad-hoc) so local builds work without
+a certificate. CI overrides it via `APPLE_SIGNING_IDENTITY`.
 
 ## Troubleshooting
 
-| Issue                    | Solution                                              |
-| ------------------------ | ----------------------------------------------------- |
-| Workflow doesn't trigger | Ensure tag starts with `v` and is pushed              |
-| Build fails              | Check GitHub secrets, run `npm run check:all` locally |
-| Updates not detected     | Verify endpoint URL and public key match              |
-| Download fails           | Check signatures, file permissions, disk space        |
+| Issue                              | Cause                                                                       |
+| ---------------------------------- | --------------------------------------------------------------------------- |
+| Workflow doesn't trigger           | Tag must start with `v` and be pushed (`git push --tags`)                   |
+| Preflight fails on versions        | The three manifests disagree with the tag; `release:prepare` sets all three |
+| Bundler fails on a missing key     | `TAURI_SIGNING_PRIVATE_KEY` not set — required by `createUpdaterArtifacts`  |
+| "No Developer ID Application"      | `APPLE_CERTIFICATE` holds a development cert, not a distribution one        |
+| Notarization fails to authenticate | `APPLE_PASSWORD` must be an app-specific password, and `APPLE_TEAM_ID` set  |
+| Updates never detected             | The release is still a draft, so `releases/latest` doesn't resolve          |
+| Update rejected after download     | Built with a different signing key than the `pubkey` in `tauri.conf.json`   |

@@ -1,6 +1,7 @@
 {
   "app.name": "Ideo",
   "menu.about": "حول {{appName}}",
+  "menu.checkForUpdates": "التحقق من وجود تحديثات...",
   "menu.preferences": "التفضيلات...",
   "menu.hide": "إخفاء {{appName}}",
   "menu.hideOthers": "إخفاء الآخرين",
@@ -373,5 +374,17 @@
   "editor.action.enlarge": "عرض بالحجم الكامل",
   "editor.viewer.previous": "السابق",
   "editor.viewer.next": "التالي",
-  "editor.viewer.position": "{{index}} من {{total}}"
+  "editor.viewer.position": "{{index}} من {{total}}",
+  "commands.checkForUpdates.label": "التحقق من وجود تحديثات",
+  "commands.checkForUpdates.description": "معرفة ما إذا كان هناك إصدار أحدث من Ideo",
+  "updater.available": "الإصدار {{version}} متاح",
+  "updater.install": "تثبيت",
+  "updater.upToDate": "أنت تستخدم أحدث إصدار",
+  "updater.downloading": "جارٍ تنزيل التحديث...",
+  "updater.downloadingPercent": "جارٍ تنزيل التحديث... {{percent}}٪",
+  "updater.installing": "جارٍ تثبيت التحديث...",
+  "updater.installed": "تم تثبيت الإصدار {{version}}",
+  "updater.restart": "إعادة التشغيل",
+  "updater.failed": "تعذر تثبيت التحديث",
+  "updater.checkFailed": "تعذر التحقق من وجود تحديثات"
 }

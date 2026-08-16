@@ -57,6 +57,27 @@ pub fn run() {
         );
     }
 
+    // Updater plugin - checks GitHub releases for a signed newer version.
+    // Desktop only: there is no bundle to replace on mobile, and the crate is
+    // not compiled for those targets (see Cargo.toml).
+    #[cfg(desktop)]
+    {
+        #[allow(unused_mut)]
+        let mut updater = tauri_plugin_updater::Builder::new();
+
+        // macOS ships one universal binary, which the bundler files in
+        // latest.json under "darwin-universal". Left to itself the updater
+        // looks for "darwin-aarch64" or "darwin-x86_64", finds neither, and
+        // reports no update forever — silently, since that is what "you are
+        // up to date" looks like.
+        #[cfg(target_os = "macos")]
+        {
+            updater = updater.target("darwin-universal");
+        }
+
+        app_builder = app_builder.plugin(updater.build());
+    }
+
     app_builder = app_builder
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
