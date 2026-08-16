@@ -70,7 +70,6 @@ function bilingualFork(): unknown {
     strength: null,
     aspect: null,
     headlineZone: null,
-    note: null,
     ditherKernel: null,
     levelPlacement: null,
   })
@@ -103,7 +102,6 @@ function savedFork({
       strength: null,
       aspect: null,
       headlineZone: null,
-      note: null,
       ditherKernel: null,
       levelPlacement: null,
     })
@@ -316,9 +314,7 @@ describe('picking a look', () => {
       .getState()
       .dispatch({ type: 'chooseModel', stage: 'style', modelId: FLUX_I2I.id })
 
-    expect(
-      await screen.findByText(/no version written for prose/i)
-    ).toBeVisible()
+    expect(await screen.findByText(/no prose version written/i)).toBeVisible()
   })
 })
 
@@ -342,9 +338,7 @@ describe('after switching models', () => {
     const offer = await screen.findByRole('button', {
       name: /seed again from the preset/i,
     })
-    expect(
-      screen.getByText(/reads prompts differently from the one this text/i)
-    ).toBeVisible()
+    expect(screen.getByText(/seeded for a different idiom/i)).toBeVisible()
     expect(styleDraft().prompt).toBe(prose)
 
     await userEvent.setup().click(offer)
@@ -365,7 +359,7 @@ describe('after switching models', () => {
       .dispatch({ type: 'setPrompt', stage: 'style', prompt: 'my own words' })
 
     expect(
-      await screen.findByText(/no longer says what the preset does/i)
+      await screen.findByText(/prompt edited since seeding/i)
     ).toBeVisible()
   })
 
@@ -540,7 +534,7 @@ describe('saving a fork', () => {
     expect(update).toBeDisabled()
     // Disabled with the reason already on screen (PRD §10.1), not hidden: it is
     // still yours, and deleting it is still offered.
-    expect(screen.getByText(/no version written for prose/i)).toBeVisible()
+    expect(screen.getByText(/no prose version written/i)).toBeVisible()
     expect(screen.getByRole('button', { name: /delete preset/i })).toBeEnabled()
 
     await user.click(update)

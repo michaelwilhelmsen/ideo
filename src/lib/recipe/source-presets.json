@@ -56,7 +56,6 @@
       "aspect": "16:9",
       "blurb": "Stylised mountains, cypress, rolling hills. Reduce in post.",
       "headlineZone": "lowerThirdFull",
-      "note": "Dither on luminance, then map to the two inks. Atkinson, at output resolution.",
       "ditherKernel": "atkinson",
       "variants": {
         "tags": {
@@ -80,7 +79,6 @@
       "aspect": "16:9",
       "blurb": "Fog, distance, restraint. Carries overlaid type better than anything else here.",
       "headlineZone": "upperLeft",
-      "note": "Ordered Bayer 4x4 at output resolution.",
       "ditherKernel": "bayer4",
       "variants": {
         "tags": {

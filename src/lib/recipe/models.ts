@@ -165,10 +165,14 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     // raising it buys nothing on a 4-step schedule.
     defaults: { num_inference_steps: 4 },
     price: { amount: 0.003, unit: 'megapixel', verifiedOn: VERIFIED_ON },
-    notes:
-      'PRD §9 — provisional default. ~13× cheaper than anything else, and 21:9 is reachable through explicit dimensions. Not the quality tier of the shortlist.',
+    // ~13× cheaper than anything else here, and 21:9 is reachable through
+    // explicit dimensions — but not the quality tier of the shortlist (PRD §9).
+    notes: 'Cheapest. Lowest quality tier.',
   },
   {
+    // The text-to-image variant. `fal-ai/flux-pro/kontext` without the suffix
+    // is image-to-image and requires an input image — it is the style-stage
+    // sibling further down this file.
     id: 'fal-ai/flux-pro/kontext/text-to-image',
     label: 'FLUX Kontext Pro',
     provider: 'fal',
@@ -193,8 +197,7 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.04, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes:
-      'The text-to-image variant. `fal-ai/flux-pro/kontext` without the suffix is image-to-image and requires an input image.',
+    notes: 'Cheaper Kontext tier.',
   },
   {
     id: 'fal-ai/flux-pro/kontext/max/text-to-image',
@@ -221,9 +224,11 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.08, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes: 'Same schema as Kontext Pro at twice the price.',
+    // Same schema as Kontext Pro, so the two differ only by tier and price.
+    notes: 'Same, at double price.',
   },
   {
+    // The endpoint the #22 spike ran live.
     id: 'fal-ai/flux-pro/v1.1',
     label: 'FLUX Pro 1.1',
     provider: 'fal',
@@ -248,8 +253,8 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.04, unit: 'megapixel', verifiedOn: VERIFIED_ON },
-    notes:
-      'The endpoint the #22 spike ran live. Billed per megapixel, rounded up, so the dimension cap here is a cost decision.',
+    // Billed per megapixel, rounded up, so the dimension cap is a cost decision.
+    notes: 'Billed per megapixel.',
   },
   {
     id: 'fal-ai/flux-2-pro',
@@ -276,8 +281,9 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.03, unit: 'megapixel', verifiedOn: VERIFIED_ON },
-    notes:
-      'Tiered pricing: $0.03 for the first megapixel then $0.015 each. The flat rate here therefore over-estimates, which is the safe direction.',
+    // Tiered upstream: $0.03 for the first megapixel then $0.015 each. The flat
+    // rate above therefore over-estimates, which is the safe direction.
+    notes: 'Per megapixel. Estimate over-states.',
   },
   {
     id: 'fal-ai/nano-banana-pro',
@@ -304,8 +310,8 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.15, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes:
-      '4K output is charged at double. The estimate shown assumes it is not used.',
+    // 4K is charged at double; the estimate assumes it is not used.
+    notes: '4K costs double.',
   },
   {
     id: 'fal-ai/nano-banana-2',
@@ -332,8 +338,8 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.08, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes:
-      '2K and 4K carry 1.5× and 2× surcharges not reflected in the estimate.',
+    // 2K and 4K carry 1.5× and 2× surcharges the estimate does not reflect.
+    notes: 'Higher resolutions cost extra.',
   },
   {
     id: 'fal-ai/qwen-image-2/text-to-image',
@@ -360,8 +366,9 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: { negative_prompt: '' },
     price: { amount: 0.035, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes:
-      'PRD §9 — the `tags` exemplar. One of two families surveyed with a real negative prompt, which matters because all 44 v4 recipes carry one.',
+    // PRD §9's `tags` exemplar, and one of two families surveyed with a real
+    // negative prompt — which matters because all 44 v4 recipes carry one.
+    notes: 'Keyword prompts. Real negatives.',
   },
   {
     id: 'fal-ai/qwen-image-2/pro/text-to-image',
@@ -388,7 +395,8 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: { negative_prompt: '' },
     price: { amount: 0.075, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes: 'Same schema as Qwen-Image 2 at the pro tier.',
+    // Same schema as Qwen-Image 2, one tier up.
+    notes: 'Qwen at pro tier.',
   },
   {
     id: 'openai/gpt-image-2',
@@ -419,8 +427,8 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     // Token-priced. There is no per-image number, and inventing one would
     // defeat the point of a dated estimate (PRD §10.2).
     price: null,
-    notes:
-      'The largest output ceiling surveyed at 8.29 MP, but no seed and no per-image price.',
+    // The largest output ceiling surveyed, at 8.29 MP.
+    notes: 'Largest output. No seed.',
   },
   {
     id: 'xai/grok-imagine-image',
@@ -447,8 +455,8 @@ const SOURCE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.02, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes:
-      'The cheapest surveyed, and the only source model whose enum reaches 2:1 but not 21:9. No seed.',
+    // The only source model whose enum reaches 2:1 but not 21:9.
+    notes: 'Cheapest per image. No seed.',
   },
 ]
 
@@ -493,8 +501,9 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: { negative_prompt: '' },
     price: { amount: 0.035, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes:
-      'Defaults to the input size when no dimensions are sent; we send them, so the project ratio survives the restyle.',
+    // Defaults to the input size when no dimensions are sent; we send them, so
+    // the project ratio survives the restyle.
+    notes: 'Keyword prompts. Real negatives.',
   },
   {
     id: 'fal-ai/qwen-image-2/pro/edit',
@@ -521,7 +530,8 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: { negative_prompt: '' },
     price: { amount: 0.075, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes: 'Same schema as the Qwen edit endpoint at the pro tier.',
+    // Same schema as the Qwen edit endpoint, one tier up.
+    notes: 'Qwen edit, pro tier.',
   },
   {
     id: 'fal-ai/nano-banana-pro/edit',
@@ -548,8 +558,9 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.15, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes:
-      'No negative prompt, so a preset’s negative fragment has to fold into the prompt body.',
+    // No negative prompt, so a preset's negative fragment has to fold into the
+    // prompt body.
+    notes: 'Priciest edit. No negatives.',
   },
   {
     id: 'fal-ai/nano-banana-2/edit',
@@ -576,9 +587,12 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.08, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes: 'Cheaper than the Pro edit, with the same absent negative prompt.',
+    // Cheaper than the Pro edit, with the same absent negative prompt.
+    notes: 'Cheaper. No negatives.',
   },
   {
+    // The image-to-image endpoint. The source-stage sibling carries a
+    // `/text-to-image` suffix.
     id: 'fal-ai/flux-pro/kontext',
     label: 'FLUX Kontext Pro — edit',
     provider: 'fal',
@@ -605,8 +619,7 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.04, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes:
-      'This is the image-to-image endpoint. The source-stage sibling carries a `/text-to-image` suffix.',
+    notes: 'Cheaper Kontext edit.',
   },
   {
     id: 'fal-ai/flux-pro/kontext/max',
@@ -633,7 +646,8 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.08, unit: 'image', verifiedOn: VERIFIED_ON },
-    notes: 'Same schema as Kontext Pro edit at twice the price.',
+    // Same schema as the Kontext Pro edit, so the two differ only by tier.
+    notes: 'Same, at double price.',
   },
   {
     id: 'fal-ai/flux/dev/image-to-image',
@@ -658,8 +672,9 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     // which costs the same and produces something unrelated.
     defaults: { strength: 0.7 },
     price: { amount: 0.03, unit: 'megapixel', verifiedOn: VERIFIED_ON },
-    notes:
-      'The only endpoint of 33 surveyed with a strength field. Usable window is roughly 0.65–0.8.',
+    // The only endpoint of the 33 surveyed with a strength field. The usable
+    // window is said out loud by the strength control itself, not here.
+    notes: 'Only one with strength.',
   },
   {
     id: 'fal-ai/flux-kontext/dev',
@@ -682,8 +697,8 @@ const STYLE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: {},
     price: { amount: 0.025, unit: 'megapixel', verifiedOn: VERIFIED_ON },
-    notes:
-      'The cheapest edit surveyed. No size field, so the restyle keeps whatever the source produced.',
+    // No size field, so the restyle keeps whatever the source produced.
+    notes: 'Cheapest edit. Keeps source size.',
   },
 ]
 
@@ -743,8 +758,9 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       generate_audio: false,
     },
     price: { amount: 0.473, unit: 'second', verifiedOn: VERIFIED_ON },
-    notes:
-      'PRD §9 — provisional default. The most expensive animate option surveyed, caps at 720p, and has no seed. The schema also offers an "auto" duration, which is not, because the estimate has to be computable before the click. Audio is on by default upstream and is switched off here.',
+    // The most expensive animate option surveyed, and the only one that caps at
+    // 720p. The `auto` duration and the upstream audio default are handled above.
+    notes: 'Priciest. Caps at 720p.',
   },
   {
     id: 'fal-ai/kling-video/o1/image-to-video',
@@ -762,14 +778,18 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     endFrameRequired: false,
     durationParam: 'duration',
     durations: ['3', '4', '5', '6', '7', '8', '9', '10'],
+    // Live schema re-fetch 2026-08-09: strings of digits, not integers. An
+    // earlier note said integer, and the wrong primitive is a 422 at the paid
+    // step.
     durationFormat: 'string',
     resolutionParam: null,
     resolutions: [],
     extraParams: [],
     defaults: { duration: '5' },
     price: { amount: 0.112, unit: 'second', verifiedOn: VERIFIED_ON },
-    notes:
-      'The cheapest end-frame model surveyed. Whole input is prompt, start image, end image and duration — no aspect, resolution or seed. The start frame is spelled start_image_url here and image_url on most of its neighbours. Live schema re-fetch 2026-08-09: the duration wire type is a string of digits, not an integer — an earlier note said integer, and the wrong primitive is a 422 at the paid step.',
+    // The cheapest end-frame model surveyed. The whole input is prompt, start
+    // image, end image and duration — no aspect, resolution or seed.
+    notes: 'Cheapest end-frame model.',
   },
   {
     id: 'fal-ai/kling-video/o3/pro/image-to-video',
@@ -800,14 +820,18 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
       '14',
       '15',
     ],
+    // Live schema re-fetch 2026-08-09: strings of digits, not integers, exactly
+    // as on Kling O1.
     durationFormat: 'string',
     resolutionParam: null,
     resolutions: [],
     extraParams: [],
     defaults: { duration: '5' },
+    // $0.14/s rather than $0.112/s if audio is enabled, which we never do.
     price: { amount: 0.112, unit: 'second', verifiedOn: VERIFIED_ON },
-    notes:
-      'Kling O1’s schema with a longer duration enum and the commoner start-frame spelling. $0.14/s rather than $0.112/s if audio is enabled, which we never do. Live schema re-fetch 2026-08-09: the duration wire type is a string of digits, not an integer — an earlier note said integer, and the wrong primitive is a 422 at the paid step.',
+    // Kling O1's schema with a longer duration enum and the commoner
+    // start-frame spelling.
+    notes: 'Kling with longer clips.',
   },
   {
     id: 'fal-ai/luma-dream-machine/ray-2/image-to-video',
@@ -841,8 +865,8 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     // (PRD §5).
     defaults: { duration: '5s', resolution: '1080p' },
     price: { amount: 0.1, unit: 'second', verifiedOn: VERIFIED_ON },
-    notes:
-      'The only animate model with an explicit 21:9 enum and an end frame. Defaults to 540p upstream, overridden here.',
+    // The only animate model with an explicit 21:9 enum and an end frame.
+    notes: 'Native 21:9. End frame.',
   },
   {
     id: 'blackforestlabs/flux-3/first-last-frame-to-video',
@@ -895,9 +919,10 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     resolutions: ['720p', '1080p'],
     extraParams: [],
     defaults: { duration: '5', resolution: '1080p' },
+    // $0.17/s at 720p; the rate below is the 1080p we default to.
     price: { amount: 0.29, unit: 'second', verifiedOn: VERIFIED_ON },
-    notes:
-      'The widest ratio enum of any animate model — 21:9 and 2:1 both. The end frame is required upstream, so it cannot serve a non-looping animate. $0.17/s at 720p.',
+    // The widest ratio enum of any animate model — 21:9 and 2:1 both.
+    notes: 'Widest ratios. Loops only.',
   },
   {
     id: 'fal-ai/veo3.1/first-last-frame-to-video',
@@ -930,9 +955,9 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     resolutions: ['720p', '1080p', '4k'],
     extraParams: [],
     defaults: { duration: '6s', resolution: '1080p', negative_prompt: '' },
+    // $0.40/s with audio, which we never enable.
     price: { amount: 0.2, unit: 'second', verifiedOn: VERIFIED_ON },
-    notes:
-      'No native ultrawide, but the only reproducible loop. $0.40/s with audio, which we never enable.',
+    notes: 'Reproducible loop. No ultrawide.',
   },
   {
     id: 'fal-ai/veo3.1/image-to-video',
@@ -961,8 +986,9 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     extraParams: [],
     defaults: { duration: '6s', resolution: '1080p', negative_prompt: '' },
     price: { amount: 0.2, unit: 'second', verifiedOn: VERIFIED_ON },
-    notes:
-      'The plain image-to-video variant. Use the first/last-frame sibling when the loop matters.',
+    // The plain variant — the first/last-frame sibling is the one to pick when
+    // the loop matters.
+    notes: 'Veo without the loop.',
   },
   {
     id: 'fal-ai/ltx-2.3/image-to-video',
@@ -988,9 +1014,10 @@ const ANIMATE_MODELS: readonly ModelCapabilities[] = [
     resolutions: ['1080p', '1440p', '2160p'],
     extraParams: [],
     defaults: { duration: '6', resolution: '1080p' },
+    // $0.16/s at 1440p and $0.32/s at 2160p; the rate below is the 1080p floor.
     price: { amount: 0.08, unit: 'second', verifiedOn: VERIFIED_ON },
-    notes:
-      'The only animate model whose floor is 1080p. $0.16/s at 1440p and $0.32/s at 2160p.',
+    // The only animate model whose floor is 1080p.
+    notes: 'Cheapest. 1080p floor.',
   },
 ]
 

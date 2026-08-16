@@ -140,11 +140,11 @@ describe('the built-in library', () => {
     // for grain barely registers and #36 owns the deterministic kernels. #48
     // brings the reduction and print families in anyway, and the reason it is
     // not a reversal is this: the model does the *reduction*, which it is good
-    // at, and the recipe carries a note saying the dither is still to come.
+    // at, and the recipe declares the kernel the dither is still to come with.
     //
     // So the assertion is not "no dither" any more. It is that a preset asking
-    // to be dithered says so — silence there is the failure, because a two-ink
-    // reduction nobody dithered reads as a preset that came out wrong.
+    // to be dithered declares it — silence there is the failure, because a
+    // two-ink reduction nobody dithered reads as a preset that came out wrong.
     //
     // Over **both** libraries, and keyed on the recipe rather than on its
     // family. The two scenes are filed under `illustration` and the two looks
@@ -152,14 +152,9 @@ describe('the built-in library', () => {
     // reports the other half as fine — which is exactly how the count in this
     // module's own header comment drifted to "four" on a library holding two.
     //
-    // `ordered bayer` is in the note check because a Bayer matrix *is* ordered
-    // dithering — the source note names the kernel where the style note names
-    // the effect, and a check that only knew the word "dither" would call the
-    // terser of the two a preset with no note worth reading.
-    const wantsPost = /\bdither|halftone dot|two-entry palette|ordered bayer/i
     const everyBuiltIn = [...BUILT_IN_SOURCE_PRESETS, ...BUILT_IN_STYLE_PRESETS]
 
-    // Two ways a recipe can be one the model cannot finish, and a note is owed
+    // Two ways a recipe can be one the model cannot finish, and a kernel is owed
     // for either. A **hard quantise** — no third colour, no tone between the two
     // inks — is a palette reduction #36 does exactly and a model approximates.
     // **Tone from density alone** is the same problem one step on: the greys
@@ -191,14 +186,13 @@ describe('the built-in library', () => {
     expect(owed).toHaveLength(4)
 
     for (const preset of owed) {
-      expect(preset.note, preset.id).not.toBeNull()
-      expect(preset.note ?? '', preset.id).toMatch(wantsPost)
+      expect(preset.ditherKernel, preset.id).not.toBeNull()
     }
 
-    // And that the note is nowhere it is not earned: a note is an unfinished
+    // And that the declaration is nowhere it is not earned: it is an unfinished
     // step, so one on a look that is finished would be permanent scaffolding.
-    const noted = everyBuiltIn.filter(preset => preset.note !== null)
-    expect(noted.map(preset => preset.id)).toEqual([
+    const declared = everyBuiltIn.filter(preset => preset.ditherKernel !== null)
+    expect(declared.map(preset => preset.id)).toEqual([
       'gn-duotone-landscape',
       'gn-halftone-highkey',
       'rs-duotone-dither',
@@ -206,20 +200,17 @@ describe('the built-in library', () => {
     ])
   })
 
-  it('says which kernel it wants, where the note says it in English', () => {
-    // #53. The four notes above already name a kernel — to a human. #36 reads
-    // data, so the same intention is declared beside the prose rather than
-    // re-derived from it. The note stays: it says things a schema should not
-    // try to hold ("at output resolution", "the regular grid stays legible
-    // under overlaid type"), and what it stops being is the only record.
+  it('says which kernel it wants, in a form #36 can read', () => {
+    // #53. These four used to say it twice — once as this declaration and once
+    // as English prose in a `note` the picker rendered. The prose was a to-do
+    // addressed to us and shown to a user who could not act on it, so it now
+    // lives in the comment on `ditherKernel` and this is the only record.
     const everyBuiltIn = [...BUILT_IN_SOURCE_PRESETS, ...BUILT_IN_STYLE_PRESETS]
     const declared = everyBuiltIn.filter(preset => preset.ditherKernel !== null)
 
-    // A *preferred* kernel and not a lock. The two style notes offer a choice
-    // on purpose ("Atkinson or Floyd-Steinberg"), and the preference recorded
-    // here is the one each note names first — which is also the one its sibling
-    // scene names alone, so the pair now agree by declaration rather than by
-    // accident of prose.
+    // A *preferred* kernel and not a lock: the duotone pair reads as well off
+    // Floyd–Steinberg, and the user can still switch. Each scene and the look
+    // that mirrors it agree by declaration rather than by accident of prose.
     expect(
       Object.fromEntries(
         declared.map(preset => [preset.id, preset.ditherKernel])
@@ -230,15 +221,6 @@ describe('the built-in library', () => {
       'gn-halftone-highkey': 'bayer4',
       'rs-halftone-highkey': 'bayer4',
     })
-
-    // Exactly the recipes that carry a note, and no others: a declaration is
-    // an unfinished step the same way the note is, so one on a look the model
-    // finishes by itself would be a post-pass nobody asked for.
-    expect(declared.map(preset => preset.id)).toEqual(
-      everyBuiltIn
-        .filter(preset => preset.note !== null)
-        .map(preset => preset.id)
-    )
 
     // Placement is a look and not a fix, so it is only declared where someone
     // is choosing one. All four take the default — palette-shaped, which #36
@@ -888,7 +870,6 @@ describe('template variables', () => {
       strength: null,
       aspect: null,
       headlineZone: null,
-      note: null,
       ditherKernel: null,
       levelPlacement: null,
     })
@@ -1181,32 +1162,26 @@ describe('a preset document that is not what we expect', () => {
     expect(only?.levelPlacement).toBeNull()
   })
 
-  it('refuses a blurb or a note that is there but empty', () => {
+  it('refuses a blurb that is there but empty', () => {
     // Absent means nobody wrote one, which is a fork's normal state. The empty
     // string is a field somebody started and left, and it renders as a blank
     // line where a sentence should be — which reads as a bug, not as silence.
-    for (const field of ['blurb', 'note'] as const) {
-      expect(
-        () =>
-          readPresetLibrary(document({ presets: [preset({ [field]: '  ' })] })),
-        field
-      ).toThrow(new RegExp(field, 'i'))
-    }
+    expect(() =>
+      readPresetLibrary(document({ presets: [preset({ blurb: '  ' })] }))
+    ).toThrow(/blurb/i)
   })
 
-  it('takes a missing blurb, note or zone as nothing to say', () => {
+  it('takes a missing blurb or zone as nothing to say', () => {
     const only = readPresetLibrary(document()).presets[0]
 
     expect(only?.blurb).toBeNull()
-    expect(only?.note).toBeNull()
     expect(only?.headlineZone).toBeNull()
   })
 
   it('round-trips the display-only fields through a saved fork', () => {
     // They are on `writeUserPreset` because a fork of a scene that has to be
-    // dithered is still a scene that has to be dithered — the note that says so
-    // in English, and the declaration that says the same thing to #36. The
-    // blurb is not: it is a line about one of ours.
+    // dithered is still a scene that has to be dithered, and the declaration is
+    // what says so to #36. The blurb is not: it is a line about one of ours.
     const forked = userPresetFrom({
       id: 'mine',
       name: 'Mine',
@@ -1216,7 +1191,6 @@ describe('a preset document that is not what we expect', () => {
       strength: null,
       aspect: '16:9',
       headlineZone: 'leftThird',
-      note: 'Dither this afterwards.',
       ditherKernel: 'atkinson',
       levelPlacement: 'even',
     })
@@ -1495,7 +1469,6 @@ describe('a saved fork', () => {
     strength: 0.72,
     aspect: null,
     headlineZone: null,
-    note: null,
     ditherKernel: null,
     levelPlacement: null,
   } as const

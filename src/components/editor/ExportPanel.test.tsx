@@ -173,9 +173,7 @@ describe('ExportPanel', () => {
     expect(rewind).toBeChecked()
     // The two mechanisms combine rather than conflict, and the redundancy is
     // said out loud rather than refused (#45).
-    expect(
-      screen.getByText(/already returns to its first frame/i)
-    ).toBeVisible()
+    expect(screen.getByText(/already loops/i)).toBeVisible()
   })
 
   /**

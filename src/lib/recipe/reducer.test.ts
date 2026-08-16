@@ -595,7 +595,6 @@ describe('seeding the form from a preset', () => {
       strength: null,
       aspect: null,
       headlineZone: null,
-      note: null,
       ditherKernel: null,
       levelPlacement: null,
     })
@@ -628,7 +627,6 @@ describe('seeding the form from a preset', () => {
       strength: null,
       aspect: null,
       headlineZone: null,
-      note: null,
       ditherKernel: null,
       levelPlacement: null,
     })

@@ -175,9 +175,7 @@ describe('StageParameters — the loop switch (#30)', () => {
     })
     expect(loop).not.toBeChecked()
     expect(loop).toBeDisabled()
-    expect(
-      screen.getByText(/needs a model with end-frame support/i)
-    ).toBeVisible()
+    expect(screen.getByText(/needs an end-frame model/i)).toBeVisible()
   })
 
   it('offers rewind alongside it, on any video model (#31)', () => {
@@ -210,7 +208,7 @@ describe('StageParameters — prompt style', () => {
   it('says a prose model wants sentences', () => {
     render(<StageParameters project={ATLAS} stage="source" />)
 
-    expect(screen.getByText(/reads the prompt as prose/i)).toBeInTheDocument()
+    expect(screen.getByText(/write in sentences/i)).toBeInTheDocument()
   })
 
   it('follows the selected model onto a keyword-list one', () => {
@@ -227,10 +225,8 @@ describe('StageParameters — prompt style', () => {
 
     render(<StageParameters project={onQwen} stage="source" />)
 
-    expect(
-      screen.getByText(/reads the prompt as a keyword list/i)
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/reads the prompt as prose/i)).toBeNull()
+    expect(screen.getByText(/comma-separated tags/i)).toBeInTheDocument()
+    expect(screen.queryByText(/write in sentences/i)).toBeNull()
   })
 })
 
@@ -256,7 +252,7 @@ describe('StageParameters — cost (PRD §10.2)', () => {
 
     render(<StageParameters project={tokenPriced} stage="source" />)
 
-    expect(screen.getByText(/not checked/i)).toBeVisible()
+    expect(screen.getByText(/price unknown/i)).toBeVisible()
   })
 })
 
@@ -334,7 +330,7 @@ describe('StageParameters — batch (#26)', () => {
     await userEvent.setup().click(screen.getByRole('switch', { name: /pin/i }))
 
     expect(screen.getByRole('button', { name: 'Generate 1' })).toBeEnabled()
-    expect(screen.getByText(/pinned seed makes every candidate/i)).toBeVisible()
+    expect(screen.getByText(/one candidate per run/i)).toBeVisible()
     // The setting itself is untouched — unpinning gets the four back.
     expect(
       screen.getByLabelText<HTMLInputElement>('Candidates per run').value

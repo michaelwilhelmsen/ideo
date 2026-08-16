@@ -255,31 +255,35 @@ export interface Preset {
    */
   readonly headlineZone: HeadlineZone | null
   /**
-   * What still has to happen to this image outside the model, or `null`.
+   * The dither this recipe is authored to be finished with, or `null` (#53).
    *
-   * Inert text. The four recipes that carry one — two scenes and the two looks
-   * that mirror them — reduce to a flat two-ink image that is authored to be
-   * dithered afterwards, and #36 is the ticket that will do the dithering — so
-   * until it lands this is displayed as an unfinished step rather than quietly
-   * dropped, because a two-colour reduction that was never dithered looks like a
-   * preset that came out wrong.
-   */
-  readonly note: string | null
-  /**
-   * The same intention as `note`, in a form something can read (#53).
+   * Four recipes declare one — two scenes and the two looks that mirror them.
+   * Each reduces to a flat two-ink image that is *not* the finished picture: the
+   * model does the reduction, which it is good at, and the screen goes on
+   * afterwards. #36 is the ticket that will apply this; until it lands, these
+   * four look like presets that came out wrong rather than presets that are half
+   * a feature, and that is the cost of #36 not being done.
    *
-   * `note` is display copy and stays display copy. This is what stops it being
-   * the *only* record: the four recipes that declare a post-treatment declare it
-   * in prose, to a human, and #36 would otherwise have to re-derive four
-   * intentions from English or ask the user to re-enter by hand what the recipe
-   * already said. The recipe is the right place to say it, because the recipe
-   * author is the one who knows.
+   * The four used to say the same thing twice, once here and once as prose in a
+   * `note` the picker rendered in a dashed box. That box was a to-do addressed to
+   * us shown to the user, who could not act on it, so it is gone and this is the
+   * only record. What the prose knew and a kernel name does not:
    *
-   * A **preferred** kernel and never a lock — two of the four notes offer a
-   * choice on purpose, and the user can still switch. `null` on the other forty,
-   * meaning this recipe has no opinion rather than meaning nobody looked.
+   * - **At output resolution, never at display size.** A screen laid down before
+   *   a scale is a screen the scale destroys — this is the one constraint that
+   *   makes a correct kernel still come out wrong.
+   * - **Duotone dithers on luminance**, to a two-level mask that is then mapped
+   *   to the two inks. Picking each pixel's ink by colour instead keeps the hues
+   *   and loses the tonal structure the whole reduction is built on.
+   * - **The halftone pair wants the ordered grid** rather than diffusion, because
+   *   a regular grid stays legible under overlaid type where error diffusion
+   *   fights it. Bayer 4×4 or a clustered dot, either way.
    *
-   * Nothing reads either field yet. #36 does.
+   * A **preferred** kernel and never a lock — the duotone pair reads as well off
+   * Floyd–Steinberg as off Atkinson, and the user can still switch. `null` on the
+   * other forty means this recipe has no opinion, not that nobody looked.
+   *
+   * Nothing reads this yet. #36 does.
    */
   readonly ditherKernel: DitherKernel | null
   /**
@@ -477,14 +481,13 @@ function readPreset(document: unknown, blocks: LibraryBlocks): Preset {
   if (family === '') fail('has no family')
 
   const aspect = readAspect(record.aspect, fail)
-  const blurb = readNote(record.blurb, 'blurb', fail)
+  const blurb = readBlurb(record.blurb, fail)
   const headlineZone = readChoice(
     record.headlineZone,
     HEADLINE_ZONES,
     'headline zone',
     fail
   )
-  const note = readNote(record.note, 'note', fail)
   const ditherKernel = readChoice(
     record.ditherKernel,
     DITHER_KERNELS,
@@ -510,7 +513,6 @@ function readPreset(document: unknown, blocks: LibraryBlocks): Preset {
     aspect,
     blurb,
     headlineZone,
-    note,
     ditherKernel,
     levelPlacement,
     variants,
@@ -521,20 +523,19 @@ function readPreset(document: unknown, blocks: LibraryBlocks): Preset {
  * A line of display-only prose, or `null` where there is none.
  *
  * Absent and `null` mean the same thing here, and the absent-versus-null rule
- * does not apply: these are notes *about* a preset rather than answers a preset
- * owes per idiom, and a fork legitimately has none of them. What is refused is
+ * does not apply: a blurb is a note *about* a preset rather than an answer a
+ * preset owes per idiom, and a fork legitimately has none. What is refused is
  * the empty string, which is a field somebody started and left — it renders as a
  * blank line where a sentence should be, which reads as a bug rather than as
  * silence.
  */
-function readNote(
+function readBlurb(
   document: unknown,
-  kind: 'blurb' | 'note',
   fail: (problem: string) => never
 ): string | null {
   if (document === undefined || document === null) return null
   if (typeof document !== 'string' || document.trim() === '') {
-    fail(`has an empty ${kind}`)
+    fail('has an empty blurb')
   }
   return document.trim()
 }
@@ -916,12 +917,12 @@ function strengthFor(
  *
  * The v4 twenty include the texture-led families the proving set deliberately
  * left out — reduction, print, and the analog-degradation looks. That is not a
- * reversal of #36. Two of them carry a `note` saying what still has to happen
- * outside the model — `rs-duotone-dither` and `rs-halftone-highkey`, the two the
- * source library mirrors with scenes of its own — because PRD §6.2 measured that
- * asking for grain barely registers: the model does the *reduction*, which it is
- * good at, and the dither is #36's kernel, which does not exist yet. Displaying
- * the unfinished step is the point.
+ * reversal of #36. Two of them declare a `ditherKernel` naming what still has to
+ * happen outside the model — `rs-duotone-dither` and `rs-halftone-highkey`, the
+ * two the source library mirrors with scenes of its own — because PRD §6.2
+ * measured that asking for grain barely registers: the model does the
+ * *reduction*, which it is good at, and the dither is #36's kernel, which does
+ * not exist yet.
  *
  * Every preset carries both idioms, and the module note above explains why they
  * are not word-for-word translations of each other. Nothing is ever cross-sent —
@@ -1142,7 +1143,6 @@ export function writeUserPreset(preset: Preset): Record<string, unknown> {
     aspect: preset.aspect,
     blurb: preset.blurb,
     headlineZone: preset.headlineZone,
-    note: preset.note,
     ditherKernel: preset.ditherKernel,
     levelPlacement: preset.levelPlacement,
     variants: preset.variants,
@@ -1179,7 +1179,6 @@ export interface PresetCapture {
    */
   readonly aspect: AspectId | null
   readonly headlineZone: HeadlineZone | null
-  readonly note: string | null
   readonly ditherKernel: DitherKernel | null
   readonly levelPlacement: LevelPlacement | null
 }
@@ -1235,7 +1234,6 @@ export function userPresetFrom(
     // it has since rewritten.
     blurb: null,
     headlineZone: capture.headlineZone,
-    note: capture.note,
     ditherKernel: capture.ditherKernel,
     levelPlacement: capture.levelPlacement,
     variants: {

@@ -47,7 +47,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { FieldDescription, FieldTitle } from '@/components/ui/field'
+import { FieldDescription } from '@/components/ui/field'
 import {
   Select,
   SelectContent,
@@ -750,9 +750,9 @@ function MotionPresetField({ project }: { project: Project }) {
 }
 
 /**
- * What the selected preset says about itself — all of it display-only (#48).
+ * What the selected preset says about itself — both of it display-only (#48).
  *
- * Three different kinds of statement, and they are deliberately styled apart
+ * Two different kinds of statement, and they are deliberately styled apart
  * rather than run together into one paragraph:
  *
  * - The **blurb** is what this look is for. It is the line that makes a
@@ -762,11 +762,11 @@ function MotionPresetField({ project }: { project: Project }) {
  *   whoever lays out the page and never a crop: headline type belongs in HTML,
  *   which is the whole reason the source library appends "no lettering" to
  *   every prompt it composes.
- * - The **note** is the one that is not finished. Four presets are reductions
- *   authored to be dithered afterwards, and the dither is #36 and does not
- *   exist yet — so this is called out as an outstanding step rather than
- *   dropped, because a two-ink reduction nobody dithered looks like a preset
- *   that came out wrong rather than like a preset that is half a feature.
+ *
+ * What is *not* here is the outstanding dither the four reduction recipes want.
+ * That is a job for #36 and is declared as `ditherKernel` for it to read — a
+ * to-do belongs next to the code that will do it, not in a panel the user can
+ * only read and not act on.
  *
  * Nothing here is rendered for a preset that has none of it, which is the
  * normal state of a fork.
@@ -775,13 +775,7 @@ function PresetNotes({ preset }: { preset: Preset | null }) {
   const { t } = useTranslation()
 
   if (preset === null) return null
-  if (
-    preset.blurb === null &&
-    preset.headlineZone === null &&
-    preset.note === null
-  ) {
-    return null
-  }
+  if (preset.blurb === null && preset.headlineZone === null) return null
 
   return (
     <div className="space-y-1">
@@ -793,17 +787,6 @@ function PresetNotes({ preset }: { preset: Preset | null }) {
         <FieldDescription>
           {t(`editor.preset.headlineZone.${preset.headlineZone}`)}
         </FieldDescription>
-      )}
-
-      {preset.note !== null && (
-        <div className="rounded-md border border-dashed border-border p-2">
-          <FieldTitle>{t('editor.preset.noteTitle')}</FieldTitle>
-          {/* The instruction itself is the preset's, in its own words. */}
-          <FieldDescription>{preset.note}</FieldDescription>
-          <FieldDescription>
-            {t('editor.preset.noteNotApplied')}
-          </FieldDescription>
-        </div>
       )}
     </div>
   )
@@ -1002,7 +985,6 @@ function captureOf(
         : Number(draft.params[model.strengthParam] ?? 0),
     aspect: seeded?.aspect ?? null,
     headlineZone: seeded?.headlineZone ?? null,
-    note: seeded?.note ?? null,
     ditherKernel: seeded?.ditherKernel ?? null,
     levelPlacement: seeded?.levelPlacement ?? null,
   }
