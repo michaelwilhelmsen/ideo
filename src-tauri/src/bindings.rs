@@ -73,6 +73,11 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
 
 /// Export TypeScript bindings to the frontend.
 /// Run with: cargo test export_bindings -- --ignored
+///
+/// Gated to match its only caller in `lib.rs`, which is itself
+/// `debug_assertions`-only — a release build has no path to this, and an
+/// ungated definition is just a dead_code warning in every release log.
+#[cfg(debug_assertions)]
 pub fn export_ts_bindings() {
     generate_bindings()
         .export(

@@ -4,6 +4,7 @@ import { buildAppMenu, setupMenuLanguageListener } from './lib/menu'
 import { initializeLanguage } from './i18n/language-init'
 import { logger } from './lib/logger'
 import { cleanupOldFiles } from './lib/recovery'
+import { scheduleStartupUpdateCheck } from './lib/updater'
 import { commands } from './lib/tauri-bindings'
 import './App.css'
 import { MainWindow } from './components/layout/MainWindow'
@@ -54,6 +55,9 @@ function App() {
       isDev: import.meta.env.DEV,
       mode: import.meta.env.MODE,
     })
+
+    // Look for a newer signed release a few seconds in, quietly
+    return scheduleStartupUpdateCheck()
   }, [])
 
   return (

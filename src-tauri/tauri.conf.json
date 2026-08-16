@@ -40,7 +40,7 @@
     "macOSPrivateApi": true
   },
   "bundle": {
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "active": true,
     "targets": "all",
     "icon": [
@@ -64,5 +64,12 @@
       "exceptionDomain": ""
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDczMzEwOEY1MjJCRTMwMTQKUldRVU1MNGk5UWd4YzlyeWs5ZDdOSHhxVy9ZUWNFa0pFeitWNUFvV25rbkR6YlE3N041YlIzeWcK",
+      "endpoints": [
+        "https://github.com/michaelwilhelmsen/ideo/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }

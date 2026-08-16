@@ -1,6 +1,7 @@
 {
   "app.name": "Ideo",
   "menu.about": "À propos de {{appName}}",
+  "menu.checkForUpdates": "Rechercher des mises à jour...",
   "menu.preferences": "Préférences...",
   "menu.hide": "Masquer {{appName}}",
   "menu.hideOthers": "Masquer les autres",
@@ -373,5 +374,17 @@
   "editor.action.enlarge": "Afficher en grand",
   "editor.viewer.previous": "Précédent",
   "editor.viewer.next": "Suivant",
-  "editor.viewer.position": "{{index}} sur {{total}}"
+  "editor.viewer.position": "{{index}} sur {{total}}",
+  "commands.checkForUpdates.label": "Rechercher des mises à jour",
+  "commands.checkForUpdates.description": "Vérifier si une nouvelle version d'Ideo est disponible",
+  "updater.available": "La version {{version}} est disponible",
+  "updater.install": "Installer",
+  "updater.upToDate": "Vous utilisez la dernière version",
+  "updater.downloading": "Téléchargement de la mise à jour...",
+  "updater.downloadingPercent": "Téléchargement de la mise à jour... {{percent}} %",
+  "updater.installing": "Installation de la mise à jour...",
+  "updater.installed": "Version {{version}} installée",
+  "updater.restart": "Redémarrer",
+  "updater.failed": "Impossible d'installer la mise à jour",
+  "updater.checkFailed": "Impossible de rechercher des mises à jour"
 }

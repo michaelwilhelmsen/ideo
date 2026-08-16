@@ -13,6 +13,7 @@ import {
 import i18n from '@/i18n/config'
 import { useUIStore } from '@/store/ui-store'
 import { logger } from '@/lib/logger'
+import { checkForUpdates } from '@/lib/updater'
 
 const APP_NAME = 'Ideo'
 
@@ -31,6 +32,11 @@ export async function buildAppMenu(): Promise<Menu> {
           id: 'about',
           text: t('menu.about', { appName: APP_NAME }),
           action: handleAbout,
+        }),
+        await MenuItem.new({
+          id: 'check-for-updates',
+          text: t('menu.checkForUpdates'),
+          action: handleCheckForUpdates,
         }),
         await PredefinedMenuItem.new({ item: 'Separator' }),
         await MenuItem.new({
@@ -152,6 +158,11 @@ function handleAbout(): void {
   alert(
     `${APP_NAME}\n\nVersion: ${__APP_VERSION__}\n\nBuilt with Tauri v2 + React + TypeScript`
   )
+}
+
+function handleCheckForUpdates(): void {
+  logger.info('Check for Updates menu item clicked')
+  void checkForUpdates()
 }
 
 function handleOpenPreferences(): void {
