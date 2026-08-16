@@ -70,6 +70,19 @@ export interface EffectFrame {
    * required 1 on each of them would be a number to keep in step for nothing.
    */
   readonly scale?: number
+  /**
+   * How far into the effect this frame is, in seconds — 0 for a still look.
+   *
+   * **Never a wall clock.** The preview derives it from elapsed time, the bake
+   * from `index / fps`, and those two have to agree or the export disagrees
+   * with what was on screen — which is the one property this renderer exists to
+   * guarantee (see the header of `shaders.ts`). Passing `performance.now()`
+   * through here would make every bake a different film.
+   *
+   * Optional because the six reductive looks do not move, and a required 0 on
+   * each of their call sites is a number to keep in step for nothing.
+   */
+  readonly time?: number
 }
 
 /** Whether this webview can render any of it at all. */
