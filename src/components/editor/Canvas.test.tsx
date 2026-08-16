@@ -22,6 +22,7 @@ import { useEditorStore } from '@/store/editor-store'
 import {
   ATLAS,
   ATLAS_ANIMATE_NODE,
+  ATLAS_SOURCE_NODE,
   ATLAS_STYLE_NODE,
   withFixtureDraft,
 } from '../../lib/recipe/fixtures'
@@ -166,6 +167,64 @@ describe('the canvas', () => {
 
     await userEvent.keyboard('{ArrowLeft}')
     expect(dialog.getByText('1 of 2')).toBeVisible()
+  })
+
+  it('marks the picture the selected step works from, on the card that made it', () => {
+    // "Working from" is decided in the sidebar and looked at on the canvas, so
+    // the answer has to be legible where the pictures are. Without it, changing
+    // the input moved the edge and nothing else — and the eye goes to the
+    // highlighted thumbnail, which is the card's own pick and stays put.
+    open()
+    render(<Canvas />)
+
+    act(() => {
+      useEditorStore
+        .getState()
+        .dispatch({ type: 'selectNode', nodeId: ATLAS_STYLE_NODE })
+    })
+
+    const marked = () =>
+      canvas()
+        .getByLabelText('The selected step works from this.')
+        .closest('button')
+
+    // Nothing pinned, so the style step follows the source card's pick.
+    expect(marked()).toHaveAccessibleName('Source 2')
+
+    act(() => {
+      useEditorStore.getState().dispatch({
+        type: 'pinNodeInput',
+        nodeId: ATLAS_STYLE_NODE,
+        generationId: 'gen-src-1',
+      })
+    })
+
+    expect(marked()).toHaveAccessibleName('Source 1')
+    // And the pick is untouched: a pin is the consumer's, the pick is the
+    // card's, and the two are allowed to disagree.
+    expect(marked()).toHaveAttribute('aria-pressed', 'false')
+    expect(canvas().getByRole('button', { name: 'Source 2' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  })
+
+  it('marks nothing on a card whose pictures the selected step does not take', () => {
+    // The mark follows the selection, because a pin lives on the consumer: two
+    // style steps wired to one source can be taking different candidates of it.
+    open()
+    render(<Canvas />)
+
+    act(() => {
+      useEditorStore
+        .getState()
+        .dispatch({ type: 'selectNode', nodeId: ATLAS_SOURCE_NODE })
+    })
+
+    // A source node takes no input, so nothing on the canvas feeds it.
+    expect(
+      canvas().queryByLabelText('The selected step works from this.')
+    ).toBeNull()
   })
 
   it('opens the effects panel on a candidate and gets back to the graph', () => {

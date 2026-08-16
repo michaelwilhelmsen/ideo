@@ -64,6 +64,7 @@ import {
   nodeById,
   placeNode,
   rejectedCount,
+  resolvedInputId,
   runSizeFor,
   STAGE_ORDER,
   visibleGenerations,
@@ -113,6 +114,7 @@ function Card({
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
   const showRejected = useEditorStore(store => store.state.showRejected)
+  const selectedNodeId = useEditorStore(store => store.state.selectedNodeId)
   const updateNodeInternals = useUpdateNodeInternals()
   const [renaming, setRenaming] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -130,6 +132,17 @@ function Card({
   const hidden = showRejected ? 0 : rejectedCount(project, node.id)
 
   const label = node.title ?? t(`editor.stage.${node.kind}`)
+
+  // Which of this card's pictures the step in the sidebar works from, so
+  // "Working from" is answered where the pictures are and not only in the
+  // panel. It is the *selected* node's question, which is why it is asked here
+  // and not from `node`: a pin lives on the consumer, and two steps wired to
+  // this card can be taking different candidates of it.
+  //
+  // Resolved rather than read off `pinnedInputId`, so the ring shows what a run
+  // would actually consume — including the rungs below the pin.
+  const editing = nodeById(project, selectedNodeId)
+  const feeding = editing === null ? null : resolvedInputId(project, editing)
 
   // Every candidate is a handle, so a run arriving changes this node's handle
   // count — and React Flow caches handle positions per node. Without this, the
@@ -312,6 +325,7 @@ function Card({
               node={node}
               generation={generation}
               siblings={shown}
+              feeds={generation.id === feeding}
             />
           ))}
         </div>

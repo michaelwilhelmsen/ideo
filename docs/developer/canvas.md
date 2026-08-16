@@ -59,6 +59,36 @@ Because the handle count changes whenever a run lands, the card calls
 caches handle positions per node, and without it the edges of a card that just
 grew stay anchored where its handles used to be.
 
+### Pick and pin, as two marks
+
+A tile carries two different statements, and they are drawn differently on
+purpose:
+
+- **The pick** (`node.pick`) is the card's own — "this is the one this step
+  settled on". A solid primary border tight to the picture, and it is what
+  `aria-pressed` reports.
+- **The pin** is the _consumer's_ — "the step being edited works from this
+  picture". A dashed sky halo outside the tile, plus a named icon in the marks
+  strip, and it follows `selectedNodeId`: `DraftNodeCard` resolves the
+  **selected** node's input (`resolvedInputId`) and marks whichever of its own
+  candidates that is.
+
+They differ in kind and not only in colour, because on a greyscale theme two
+coloured borders are one highlight seen twice. For the same reason the tile
+carries the app's own `focus-visible` ring and `outline-none`: an unstyled
+button lets the browser draw a blue focus ring on whatever was clicked last,
+which is a third highlight nobody asked for, in the one hue the theme never
+uses.
+
+They are separate because the state is separate: two style steps wired to one
+source can pin different candidates of it, and changing "Working from" in the
+sidebar writes a pin on the consumer while the upstream pick stays where it was.
+One mark doing both jobs looked like a bug the moment they disagreed — the
+sidebar changed, the edge moved, and the highlighted thumbnail did not.
+
+Resolved rather than read off `pinnedInputId`, so the ring shows what a run would
+actually consume, including the rungs below the pin.
+
 ### Looking at one properly
 
 A tile is ~118px. `CandidateViewer` is the full-size look: opened from the

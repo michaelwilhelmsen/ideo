@@ -510,6 +510,7 @@
   "editor.sidebar.noNodeTitle": "Nothing selected",
   "editor.sidebar.noNodeDescription": "Click a step on the canvas to edit what it generates.",
   "editor.badge.staleInput": "Made from a different input.",
+  "editor.badge.feedsSelected": "The selected step works from this.",
   "editor.error.incompatibleManifest": "This project was written by a different version of the app and cannot be opened. Nothing has been changed on disk.",
   "common.cancel": "Cancel",
   "editor.canvas": "Steps",

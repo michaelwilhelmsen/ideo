@@ -19,7 +19,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Handle, Position } from '@xyflow/react'
-import { Check, Maximize2, Sparkles, X } from 'lucide-react'
+import { ArrowRightToLine, Check, Maximize2, Sparkles, X } from 'lucide-react'
 import {
   Tooltip,
   TooltipContent,
@@ -42,12 +42,22 @@ export function CandidateTile({
   node,
   generation,
   siblings,
+  feeds,
 }: {
   project: Project
   node: DraftNode
   generation: Generation
   /** The row this tile is in, so the full-size view can step along it. */
   siblings: readonly Generation[]
+  /**
+   * Whether the step the sidebar is editing works from this picture.
+   *
+   * A **pin**, not a pick, and the two are different facts about different
+   * nodes: the border says what this card settled on, the dashed halo says what
+   * the selected step will consume. Changing "Working from" in the sidebar
+   * moves the halo and leaves the border alone, which is what the state does.
+   */
+  feeds: boolean
 }) {
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
@@ -82,9 +92,22 @@ export function CandidateTile({
             }}
             className={cn(
               'nodrag block w-full cursor-pointer overflow-hidden rounded-md border-2 transition-colors',
+              // The app's own focus ring, and `outline-none` to stop the
+              // browser drawing a second one. A blue UA ring on the last tile
+              // clicked reads as a third kind of highlight next to the two this
+              // card actually has, in the one hue the theme never uses.
+              'focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
               picked
                 ? 'border-primary'
                 : 'border-transparent hover:border-foreground/30',
+              // Three marks that must never be mistaken for one another, so
+              // they differ in *kind* and not only in colour: the pick is a
+              // solid border tight to the picture, this is a dashed halo
+              // outside it, and focus is a soft ring. Both can be true at once —
+              // a card's pick is usually what the next step consumes — and the
+              // dashes say the same thing the canvas already says with them.
+              feeds &&
+                'outline-2 outline-offset-2 outline-dashed outline-sky-500',
               // A reject stays visible and stays clickable (PRD §10.3). Dimmed
               // rather than removed, because it is still a thing you can point a
               // downstream step at if you change your mind.
@@ -97,10 +120,11 @@ export function CandidateTile({
               className="rounded-none border-0"
             />
 
-            {/* Three marks, and each is a different sentence. The verdict is
-                what somebody decided about the picture; the staleness flag is
-                what the project has done since; the treatment dot is what has
-                been applied on top. Two of them can be true at once. */}
+            {/* Four marks, and each is a different sentence. The verdict is
+                what somebody decided about the picture; the treatment dot is
+                what has been applied on top; the arrow is the step being edited
+                taking it as its input; the staleness flag is what the project
+                has done since. Any of them can be true at once. */}
             <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-0.5 bg-background/70 px-1 py-0.5">
               {generation.verdict === 'approved' && (
                 <Check className="size-3 text-primary" aria-hidden />
@@ -113,6 +137,18 @@ export function CandidateTile({
                   className="size-3 text-muted-foreground"
                   aria-hidden
                 />
+              )}
+              {/* Named rather than hidden, unlike its neighbours: the halo is
+                  the only thing on the card that answers "which picture does
+                  the step I am editing take", and an outline is not an answer
+                  to a screen reader. */}
+              {feeds && (
+                <span role="img" aria-label={t('editor.badge.feedsSelected')}>
+                  <ArrowRightToLine
+                    className="size-3 text-sky-600"
+                    aria-hidden
+                  />
+                </span>
               )}
               {stale && (
                 <span
@@ -127,6 +163,11 @@ export function CandidateTile({
         <TooltipContent side="bottom" className="max-w-64">
           <p className="font-medium">{nameOf(generation)}</p>
           <p className="text-xs opacity-80">{generation.recipe.modelId}</p>
+          {feeds && (
+            <p className="text-xs opacity-80">
+              {t('editor.badge.feedsSelected')}
+            </p>
+          )}
           {stale && (
             <p className="text-xs opacity-80">{t('editor.badge.staleInput')}</p>
           )}
