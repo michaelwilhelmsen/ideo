@@ -17,9 +17,12 @@ import {
 import type { Project } from '@/lib/recipe'
 import {
   actionsForConnection,
+  actionsForConnectionDrop,
   actionsForNodeChanges,
+  connectionDrop,
   flowEdges,
   flowNodes,
+  INPUT_HANDLE,
   OUTPUT_HANDLE,
 } from './flow-graph'
 
@@ -142,6 +145,113 @@ describe('actionsForConnection', () => {
         targetNodeId: ATLAS_ANIMATE_NODE,
       },
     ])
+  })
+})
+
+describe('connectionDrop', () => {
+  it('reads a line let go over bare canvas as a request for the next step', () => {
+    expect(
+      connectionDrop({
+        fromNode: { id: ATLAS_SOURCE_NODE },
+        fromHandle: { id: 'gen-src-1', type: 'source' },
+        toNode: null,
+      })
+    ).toEqual({ source: ATLAS_SOURCE_NODE, sourceHandle: 'gen-src-1' })
+  })
+
+  it('ignores a drop on a node, whether it connected or was refused', () => {
+    // `onConnect` has the legal case, and building a card under the cursor in
+    // the illegal one would land it on top of the node the user aimed at.
+    expect(
+      connectionDrop({
+        fromNode: { id: ATLAS_SOURCE_NODE },
+        fromHandle: { id: OUTPUT_HANDLE, type: 'source' },
+        toNode: { id: ATLAS_STYLE_NODE },
+      })
+    ).toBeNull()
+  })
+
+  it('ignores a drag out of an input handle', () => {
+    // The new node would have to feed the old one — a different action, and a
+    // different set of legal kinds.
+    expect(
+      connectionDrop({
+        fromNode: { id: ATLAS_STYLE_NODE },
+        fromHandle: { id: INPUT_HANDLE, type: 'target' },
+        toNode: null,
+      })
+    ).toBeNull()
+  })
+
+  it('ignores the idle state', () => {
+    expect(
+      connectionDrop({ fromNode: null, fromHandle: null, toNode: null })
+    ).toBeNull()
+  })
+})
+
+describe('actionsForConnectionDrop', () => {
+  const at = { x: 400, y: 120 }
+
+  it('adds the step already wired to whatever the line left', () => {
+    expect(
+      actionsForConnectionDrop(
+        ATLAS,
+        { source: ATLAS_SOURCE_NODE, sourceHandle: OUTPUT_HANDLE },
+        'node-new',
+        'style',
+        at
+      )
+    ).toEqual([
+      {
+        type: 'addNode',
+        nodeId: 'node-new',
+        kind: 'style',
+        position: at,
+        fromNodeId: ATLAS_SOURCE_NODE,
+      },
+    ])
+  })
+
+  it('pins the picture when the line left a candidate handle', () => {
+    // Dragging from a thumbnail names the picture just as clearly when the step
+    // is being created as when it already exists.
+    expect(
+      actionsForConnectionDrop(
+        ATLAS,
+        { source: ATLAS_SOURCE_NODE, sourceHandle: 'gen-src-1' },
+        'node-new',
+        'animate',
+        at
+      )
+    ).toEqual([
+      {
+        type: 'addNode',
+        nodeId: 'node-new',
+        kind: 'animate',
+        position: at,
+        fromNodeId: ATLAS_SOURCE_NODE,
+      },
+      {
+        type: 'pinNodeInput',
+        nodeId: 'node-new',
+        generationId: 'gen-src-1',
+      },
+    ])
+  })
+
+  it('holds the pin to a kind that consumes a picture', () => {
+    // A source node arrives unwired however it was asked for, so a pin on it
+    // would name a candidate nothing resolves against.
+    expect(
+      actionsForConnectionDrop(
+        ATLAS,
+        { source: ATLAS_SOURCE_NODE, sourceHandle: 'gen-src-1' },
+        'node-new',
+        'source',
+        at
+      )
+    ).toHaveLength(1)
   })
 })
 

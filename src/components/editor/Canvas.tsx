@@ -17,7 +17,7 @@
  * which is why `activeProject` is nullable.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Background,
@@ -25,8 +25,10 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   type Connection,
   type EdgeChange,
+  type FinalConnectionState,
   type NodeChange,
   type NodeTypes,
 } from '@xyflow/react'
@@ -37,22 +39,28 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useTheme } from '@/hooks/use-theme'
 import {
   activeProject,
   canConnect,
+  needsInput,
   placeNode,
   STAGE_ORDER,
+  type NodePosition,
   type Project,
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
 import {
   actionsForConnection,
+  actionsForConnectionDrop,
   actionsForNodeChanges,
+  connectionDrop,
   flowEdges,
   flowNodes,
+  type ConnectionDrop,
   type IdeoNode,
 } from './flow-graph'
 import { DraftNodeCard } from './DraftNodeCard'
@@ -102,7 +110,13 @@ function Graph({ project }: { project: Project }) {
   const selectedNodeId = useEditorStore(store => store.state.selectedNodeId)
   const runs = useEditorStore(store => store.state.runs)
   const effectsOpen = useEditorStore(store => store.state.effectsOpen)
+  const { screenToFlowPosition } = useReactFlow()
   const [editingPalette, setEditingPalette] = useState(false)
+  const [drop, setDrop] = useState<PendingDrop | null>(null)
+  // The pane, to turn a pointer's page coordinates into somewhere inside it —
+  // the "+" menu is anchored where the line was let go, and that point is only
+  // meaningful relative to the box it was dropped in.
+  const paneRef = useRef<HTMLElement | null>(null)
 
   const nodes = flowNodes(project, selectedNodeId)
   const edges = flowEdges(project, showRejected)
@@ -143,6 +157,43 @@ function Graph({ project }: { project: Project }) {
       }
     },
     [dispatch, project]
+  )
+
+  /**
+   * A line let go over bare canvas asks for the step it would have pointed at
+   * (#46): the drag already said what feeds it, so the menu only has to ask
+   * which kind, and it opens where the line was dropped rather than in the
+   * header — the answer belongs at the end of the gesture that asked.
+   *
+   * Nothing is created here. The kind is still unchosen, so this only remembers
+   * the drop; `DropAddMenu` is what dispatches, once there is something to make.
+   */
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, connection: FinalConnectionState) => {
+      const dropped = connectionDrop(connection)
+      if (dropped === null) return
+
+      const pointer =
+        'changedTouches' in event ? event.changedTouches[0] : event
+      if (pointer === undefined) return
+
+      const pane = paneRef.current?.getBoundingClientRect()
+      setDrop({
+        ...dropped,
+        // Two coordinate systems, and both are needed: the node is placed in
+        // the graph's, which pans and zooms, and the menu is placed in the
+        // pane's, which does not.
+        position: screenToFlowPosition({
+          x: pointer.clientX,
+          y: pointer.clientY,
+        }),
+        at: {
+          x: pointer.clientX - (pane?.left ?? 0),
+          y: pointer.clientY - (pane?.top ?? 0),
+        },
+      })
+    },
+    [screenToFlowPosition]
   )
 
   /**
@@ -215,7 +266,11 @@ function Graph({ project }: { project: Project }) {
       {/* Named as a region so the graph is findable — by a screen reader, and
           by a test that wants "the steps" rather than "the step the sidebar
           happens to be editing", which carries the same names. */}
-      <section aria-label={t('editor.canvas')} className="relative flex-1">
+      <section
+        ref={paneRef}
+        aria-label={t('editor.canvas')}
+        className="relative flex-1"
+      >
         <ReactFlow<IdeoNode>
           nodes={[...nodes]}
           edges={[...edges]}
@@ -223,6 +278,7 @@ function Graph({ project }: { project: Project }) {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
           // Clicking bare canvas is a real answer — "no node" — and the sidebar
           // shows the project's own panel there.
@@ -252,6 +308,14 @@ function Graph({ project }: { project: Project }) {
           <MiniMap pannable zoomable nodeStrokeWidth={2} />
         </ReactFlow>
 
+        {drop !== null && (
+          <DropAddMenu
+            project={project}
+            drop={drop}
+            onClose={() => setDrop(null)}
+          />
+        )}
+
         {openRun !== null && <RunGrid project={project} run={openRun} />}
 
         {/* The effects panel keeps the layout every other mode has: the picture
@@ -276,6 +340,80 @@ function Graph({ project }: { project: Project }) {
         )}
       </section>
     </div>
+  )
+}
+
+/**
+ * A drop, plus the two places it happened: `position` in the graph, where the
+ * node goes, and `at` in the pane, where the menu opens.
+ */
+interface PendingDrop extends ConnectionDrop {
+  readonly position: NodePosition
+  readonly at: { readonly x: number; readonly y: number }
+}
+
+/**
+ * The "+ add step" the dropped line opens.
+ *
+ * A menu rather than an immediate node, because the kind cannot be guessed: a
+ * picture can be restyled or animated, and picking for the user would be wrong
+ * half the time. It is the same list the header's "+" shows, minus the kinds
+ * that take no input — a source node hung off an edge would arrive unwired,
+ * which is not what the drag asked for.
+ *
+ * Anchored to a zero-size span at the drop point so Radix handles the rest: a
+ * click outside or Escape dismisses, arrow keys walk the kinds, and the menu
+ * flips itself when the drop was near an edge of the window.
+ */
+function DropAddMenu({
+  project,
+  drop,
+  onClose,
+}: {
+  project: Project
+  drop: PendingDrop
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const dispatch = useEditorStore(store => store.dispatch)
+
+  return (
+    <DropdownMenu open onOpenChange={open => !open && onClose()}>
+      <DropdownMenuTrigger asChild>
+        <span
+          aria-hidden
+          className="absolute size-0"
+          style={{ insetInlineStart: drop.at.x, top: drop.at.y }}
+        />
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="start" className="nodrag">
+        <DropdownMenuLabel className="flex items-center gap-1.5">
+          <Plus className="size-3.5" />
+          {t('editor.node.add')}
+        </DropdownMenuLabel>
+
+        {STAGE_ORDER.filter(needsInput).map(kind => (
+          <DropdownMenuItem
+            key={kind}
+            onSelect={() => {
+              for (const action of actionsForConnectionDrop(
+                project,
+                drop,
+                crypto.randomUUID(),
+                kind,
+                drop.position
+              )) {
+                dispatch(action)
+              }
+              onClose()
+            }}
+          >
+            {t(`editor.stage.${kind}`)}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

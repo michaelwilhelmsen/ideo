@@ -124,6 +124,29 @@ Dragging an edge is two different requests depending on which handle it left, an
 check. The reducer asks again on `connectNodes`, because a hand-edited manifest
 never went through a drag.
 
+## Dropping a line on bare canvas
+
+A third request wears the same gesture: letting the line go over nothing opens a
+"+ Add step" menu at the drop point, and choosing a kind creates that node
+already wired to whatever the drag left.
+
+`onConnectEnd` hands React Flow's `FinalConnectionState` to `connectionDrop`,
+which either names the drop (`{source, sourceHandle}`) or refuses it. It refuses
+a drop **on** a node — `onConnect` already has the legal case, and a card built
+under the cursor in the illegal one lands on top of the node the user aimed at —
+and a drag out of a _target_ handle, which would be an upstream node and is not
+implemented.
+
+`actionsForConnectionDrop` then says the same two things `actionsForConnection`
+does, with the target minted rather than picked: `addNode` carrying
+`fromNodeId`, plus `pinNodeInput` where the line left a candidate's handle. The
+menu offers only kinds where `needsInput` holds — a source node hung off an edge
+would arrive unwired, which is not what the drag asked for.
+
+Two coordinate systems are in play, and both are needed: the node is placed with
+`screenToFlowPosition` (pans and zooms with the graph), the menu with the
+pointer's offset inside the pane (does not).
+
 ## What is deliberately not deletable
 
 Cards declare `deletable: false` and the canvas sets `deleteKeyCode={null}`.
