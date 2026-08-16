@@ -97,6 +97,17 @@ async function prepareRelease() {
     )
     console.log(`   ${oldTauriVersion} → ${cleanVersion}`)
 
+    // JSON.stringify is not Prettier: it expands every array one element per
+    // line, so rewriting a version reformats whatever else the file holds.
+    // The checks above ran before these writes and cannot see it, and the next
+    // thing to look is `format:check` in the release preflight — which fails
+    // the release for a diff this script introduced itself.
+    console.log('\n💅 Formatting rewritten files...')
+    exec('npx prettier --write package.json src-tauri/tauri.conf.json', {
+      silent: true,
+    })
+    console.log('✅ Formatted')
+
     // Run npm install to update lock files
     console.log('\n📦 Updating lock files...')
     exec('npm install', { silent: true })
