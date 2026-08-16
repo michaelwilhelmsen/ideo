@@ -112,15 +112,26 @@ replaces that toast in place, and a Restart action appears when it completes.
 Update artifacts exist for macOS (`.app.tar.gz`), Windows (`.msi.zip`) and Linux
 (AppImage only — `.deb` installs are not self-updating).
 
-### The macOS target key
+### The macOS target key, and why there is no override
 
-macOS ships one universal binary, which the bundler files in `latest.json` under
-`darwin-universal`. The updater's default lookup key is `darwin-aarch64` or
-`darwin-x86_64`, so `lib.rs` overrides it to `darwin-universal` on macOS.
+A universal macOS build looks like it needs `tauri_plugin_updater`'s custom
+target set to `darwin-universal`, and the Tauri migration guide suggests
+exactly that. Do not. `tauri-action` writes the universal tarball into
+`latest.json` under **both** `darwin-aarch64` and `darwin-x86_64`, and emits no
+`darwin-universal` key at all. The default lookup already resolves; the
+override asks for a key that is not in the manifest, and the app then reports
+being up to date forever.
 
-These two have to agree. If the release ever stops being universal, or the
-override is dropped, macOS finds no matching key and reports being up to date
-forever — the failure is silent, which is what makes it worth stating here.
+This was shipped and caught in the v0.1.0 draft. The manifest is the authority,
+so read it before trusting a claim about it:
+
+```bash
+gh release download v0.1.0 --pattern latest.json -D /tmp
+node -p "Object.keys(require('/tmp/latest.json').platforms)"
+```
+
+Worth re-checking whenever the bundle targets change. It fails silently, which
+is the only reason it needs a section.
 
 ## Local builds
 

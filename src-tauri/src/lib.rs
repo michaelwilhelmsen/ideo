@@ -62,20 +62,14 @@ pub fn run() {
     // not compiled for those targets (see Cargo.toml).
     #[cfg(desktop)]
     {
-        #[allow(unused_mut)]
-        let mut updater = tauri_plugin_updater::Builder::new();
-
-        // macOS ships one universal binary, which the bundler files in
-        // latest.json under "darwin-universal". Left to itself the updater
-        // looks for "darwin-aarch64" or "darwin-x86_64", finds neither, and
-        // reports no update forever — silently, since that is what "you are
-        // up to date" looks like.
-        #[cfg(target_os = "macos")]
-        {
-            updater = updater.target("darwin-universal");
-        }
-
-        app_builder = app_builder.plugin(updater.build());
+        // No target override. A universal macOS build might look like it needs
+        // one, but tauri-action writes the universal tarball into latest.json
+        // under *both* "darwin-aarch64" and "darwin-x86_64" rather than a
+        // "darwin-universal" key, so the default lookup already resolves.
+        // Setting the target to "darwin-universal" makes the app ask for a key
+        // that is not in the manifest, and it reports being up to date forever.
+        // Verified against the v0.1.0 manifest; see docs/developer/releases.md.
+        app_builder = app_builder.plugin(tauri_plugin_updater::Builder::new().build());
     }
 
     app_builder = app_builder
