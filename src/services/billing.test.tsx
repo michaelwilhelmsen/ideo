@@ -29,7 +29,6 @@ const PAID: Project = {
       actualCostUsd: null,
     },
   ],
-  selection: { ...ATLAS.selection, source: 'gen-paid' },
 }
 
 /** The library as the index reports it: one project, nothing reconciled. */

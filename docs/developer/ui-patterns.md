@@ -279,25 +279,25 @@ break independently.
 
 **The run id.** Every candidate carries `runId` in the manifest, minted by
 `mintRunId()` in `lib/recipe/runs.ts` — the only place a run id is ever made, used by
-the click (`planBatch`), by the fixture stages, and by the sweep that adopts work a
-previous launch left behind, so none of them can group candidates differently from the
-others. `null` is a normal value: a candidate from before the field existed, or one
+the click (`planRun`) and by the sweep that adopts work a previous launch left behind, so
+neither can group candidates differently from the other. One `runId` covers a whole
+**fan-out**: three models at two candidates each is six jobs and one question (ADR 0005). `null` is a normal value: a candidate from before the field existed, or one
 whose job settled before anything saw it. The strip groups on it (`runGroups`) and
 shows nothing for a `null` group rather than inventing one.
 
-**The grid.** While a run is unanswered, `StageEditor` shows `RunGrid` instead of the
-hero: every candidate at the same size, placeholders where the rest will land. It is
+**The grid.** While a run is unanswered, `Canvas` shows `RunGrid` over the graph: every
+candidate at the same size, placeholders where the rest will land. It is
 driven by the `RunRecord` in editor state, **never** by the job list — `active_jobs`
 returns only what is _running_, so a job-driven grid would empty out exactly when the
 four-up was finally complete. The record also survives a job stalling, failing, or
 being cancelled: those ids move to `abandonedIds` and the grid stops waiting for them
 rather than showing a placeholder forever.
 
-**The selection hold.** Two flags on the run record say what has been decided about
-it: `claimed` (one of its candidates has taken the stage's selection) and `answered`
-(the user picked, dismissed, or chose something else for that stage). An arrival may
-take the selection only if its own run is neither. That one rule gives all of: the
-first arrival claims an undecided stage (so the next stage always has an input), the
+**The pick hold.** Two flags on the run record say what has been decided about
+it: `claimed` (one of its candidates has taken the node's `pick`) and `answered`
+(the user picked, dismissed, or chose something else on that node). An arrival may
+take the pick only if its own run is neither. That one rule gives all of: the
+first arrival claims an undecided node (so anything downstream always has an input), the
 second and third do not (or a four-up would end on whichever job finished last), and
 none of them do after the user has clicked — until the next `beginRun`, because asking
 for new candidates is asking to be shown one. Keeping this on the runs rather than in a

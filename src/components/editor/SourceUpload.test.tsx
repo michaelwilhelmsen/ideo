@@ -16,6 +16,11 @@ import { commands } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { isWithinDropZone } from './drop-zone'
 import { SourceUpload } from './SourceUpload'
+import {
+  ATLAS,
+  ATLAS_SOURCE_NODE,
+  fixtureNode,
+} from '../../lib/recipe/fixtures'
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -60,7 +65,12 @@ async function mountedPanel(): Promise<(event: DragDropEvent) => void> {
     },
   } as unknown as ReturnType<typeof getCurrentWebview>)
 
-  render(<SourceUpload project={LEDGER} />)
+  render(
+    <SourceUpload
+      node={fixtureNode(ATLAS, ATLAS_SOURCE_NODE)}
+      project={LEDGER}
+    />
+  )
   await vi.waitFor(() => expect(handler).toBeDefined())
 
   return handler as (event: DragDropEvent) => void

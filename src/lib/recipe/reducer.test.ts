@@ -11,13 +11,26 @@ import {
   awaitingReconciliation,
   createEditorReducer,
   emptyEditorState,
-  freezeRecipe,
+  freezeDraft,
   presetVariablesFor,
   withReconciledCosts,
   type CompletedRun,
   type EditorAction,
 } from './reducer'
-import { ATLAS, LEDGER, fixtureEditorState, summaryOf } from './fixtures'
+import {
+  ATLAS,
+  ATLAS_ANIMATE_NODE,
+  ATLAS_SOURCE_NODE,
+  ATLAS_STYLE_NODE,
+  LEDGER,
+  LEDGER_SOURCE_NODE,
+  fixtureDraft,
+  fixtureEditorState,
+  fixtureNode,
+  summaryOf,
+  withFixtureDraft,
+  withFixtureNode,
+} from './fixtures'
 import { MODEL_REGISTRY } from './models'
 import { modelById } from './registry'
 import {
@@ -41,10 +54,9 @@ import {
   activeProject,
   activeRunFor,
   batchSizeFor,
-  configuredBatchSize,
-  generationsForStage,
+  generationsForNode,
   runGroups,
-  selectedGeneration,
+  pickedGeneration,
   visibleGenerations,
 } from './selectors'
 import type { EditorState, Project, StageParams, StageRecipe } from './types'
@@ -70,6 +82,28 @@ function presetOf(id: string): Preset {
 }
 
 /** Choosing a style preset as the panel does: the preset rides along. */
+/** The models Atlas's nodes run — named so planned runs can carry one. */
+const STYLE_MODEL = 'fal-ai/flux/dev/image-to-image'
+const SOURCE_MODEL = 'fal-ai/flux-pro/kontext/text-to-image'
+
+/**
+ * A frozen source recipe, as the job store would hand one back.
+ *
+ * Frozen rather than the node's draft: since ADR 0005 the two are different
+ * types, and what a `CompletedRun` carries is the copy that made the round trip
+ * — which is also where its node id lives.
+ */
+function frozenSource(): StageRecipe {
+  const draft = fixtureDraft(ATLAS, ATLAS_SOURCE_NODE)
+  const { modelIds, ...shared } = draft
+  return {
+    ...shared,
+    modelId: modelIds[0] ?? SOURCE_MODEL,
+    inputGenerationId: null,
+    nodeId: ATLAS_SOURCE_NODE,
+  }
+}
+
 /** The one animate model with a `negative_prompt` field to leave alone. */
 const VEO = 'fal-ai/veo3.1/image-to-video'
 
@@ -77,26 +111,64 @@ const VEO = 'fal-ai/veo3.1/image-to-video'
 function chooseMotion(id: string): EditorAction {
   const preset = motionPresetById(id)
   if (preset === null) throw new Error(`no motion preset "${id}"`)
-  return { type: 'choosePreset', stage: 'animate', presetId: id, preset }
+  return {
+    type: 'choosePreset',
+    nodeId: ATLAS_ANIMATE_NODE,
+    presetId: id,
+    preset,
+  }
 }
 
 function choose(id: string): EditorAction {
   return {
     type: 'choosePreset',
-    stage: 'style',
+    nodeId: ATLAS_STYLE_NODE,
     presetId: id,
     preset: presetOf(id),
   }
 }
 
-function runOf(
-  stage: 'source' | 'style' | 'animate',
+/**
+ * One run of a fixture node, on its primary model.
+ *
+ * Every planned candidate names the model it went to since ADR 0005 — a run is
+ * several recipes, not one recipe sent several times — so a helper that did not
+ * carry one would be describing a fan-out of nothing.
+ */
+function runOf(project: Project, nodeId: string, seed: number): EditorAction {
+  const modelId = fixtureDraft(project, nodeId).modelIds[0] ?? ''
+  return {
+    type: 'runNode',
+    nodeId,
+    runs: [
+      {
+        id: `run-${nodeId}-${String(seed)}`,
+        modelId,
+        seed,
+        asset: null,
+        runId: null,
+      },
+    ],
+    at: 1,
+  }
+}
+
+/** The same, fanned out across every model the node holds. */
+function fanOutOf(
+  project: Project,
+  nodeId: string,
   seed: number
 ): EditorAction {
   return {
-    type: 'runStage',
-    stage,
-    runs: [{ id: `run-${stage}-${seed}`, seed, asset: null, runId: null }],
+    type: 'runNode',
+    nodeId,
+    runs: fixtureDraft(project, nodeId).modelIds.map((modelId, index) => ({
+      id: `run-${nodeId}-${String(seed)}-${String(index)}`,
+      modelId,
+      seed: seed + index,
+      asset: null,
+      runId: 'run-fan',
+    })),
     at: 1,
   }
 }
@@ -104,64 +176,81 @@ function runOf(
 describe('stage independence (PRD §4.1)', () => {
   it('re-running style leaves the source generations untouched', () => {
     const before = openProjectOf(fixtureEditorState())
-    const after = openProjectOf(apply(fixtureEditorState(), runOf('style', 42)))
-
-    expect(generationsForStage(after, 'source')).toEqual(
-      generationsForStage(before, 'source')
+    const after = openProjectOf(
+      apply(fixtureEditorState(), runOf(ATLAS, ATLAS_STYLE_NODE, 42))
     )
-    expect(generationsForStage(after, 'style')).toHaveLength(
-      generationsForStage(before, 'style').length + 1
+
+    expect(generationsForNode(after, ATLAS_SOURCE_NODE)).toEqual(
+      generationsForNode(before, ATLAS_SOURCE_NODE)
+    )
+    expect(generationsForNode(after, ATLAS_STYLE_NODE)).toHaveLength(
+      generationsForNode(before, ATLAS_STYLE_NODE).length + 1
     )
   })
 
   it('re-running the source leaves existing style candidates alone', () => {
     const before = openProjectOf(fixtureEditorState())
-    const after = openProjectOf(apply(fixtureEditorState(), runOf('source', 7)))
+    const after = openProjectOf(
+      apply(fixtureEditorState(), runOf(ATLAS, ATLAS_SOURCE_NODE, 7))
+    )
 
-    expect(generationsForStage(after, 'style')).toEqual(
-      generationsForStage(before, 'style')
+    expect(generationsForNode(after, ATLAS_STYLE_NODE)).toEqual(
+      generationsForNode(before, ATLAS_STYLE_NODE)
     )
   })
 
   it('a new style generation records the source it actually consumed', () => {
-    const state = apply(fixtureEditorState(), runOf('style', 42))
+    const state = apply(
+      fixtureEditorState(),
+      runOf(ATLAS, ATLAS_STYLE_NODE, 42)
+    )
     const project = openProjectOf(state)
-    const created = generationsForStage(project, 'style').at(-1)
+    const created = generationsForNode(project, ATLAS_STYLE_NODE).at(-1)
 
     expect(created?.recipe.inputGenerationId).toBe('gen-src-2')
   })
 
-  it('runs a stage off an earlier one when the stage before it was skipped', () => {
-    // Ledger has a source and no styled still. This used to mint nothing —
-    // animate consumed the style stage by definition — which meant a source that
-    // came out right still had to be paid through a style pass to be animated.
+  it('runs a node wired straight past the step in between', () => {
+    // What "skipping a stage" became (ADR 0005). It used to be an inference the
+    // selector made when the style stage was empty — at video prices, guessing
+    // which picture you meant. Now it is an edge, and the frozen recipe records
+    // the source it actually consumed.
+    const wired = withFixtureNode(ATLAS, ATLAS_ANIMATE_NODE, {
+      inputNodeId: ATLAS_SOURCE_NODE,
+      pinnedInputId: null,
+    })
+
     const state = apply(
       fixtureEditorState(),
-      { type: 'openProject', project: LEDGER, directory: '/tmp/ledger' },
-      runOf('animate', 3)
+      { type: 'openProject', project: wired, directory: '/tmp/atlas' },
+      runOf(wired, ATLAS_ANIMATE_NODE, 3)
     )
 
-    const created = generationsForStage(openProjectOf(state), 'animate').at(-1)
+    const created = generationsForNode(
+      openProjectOf(state),
+      ATLAS_ANIMATE_NODE
+    ).at(-1)
 
     expect(created).toBeDefined()
-    // And it records the source it actually consumed, not the empty slot the
-    // pipeline would have pointed at.
-    expect(created?.recipe.inputGenerationId).toBe(LEDGER.selection.source)
+    expect(created?.recipe.inputGenerationId).toBe(
+      fixtureNode(wired, ATLAS_SOURCE_NODE).pick
+    )
   })
 
   it('refuses to run a stage with no picture anywhere behind it', () => {
     const empty = {
       ...LEDGER,
       generations: [],
-      selection: { ...LEDGER.selection, source: null },
     }
     const state = apply(
       fixtureEditorState(),
       { type: 'openProject', project: empty, directory: '/tmp/ledger' },
-      runOf('animate', 3)
+      runOf(ATLAS, ATLAS_ANIMATE_NODE, 3)
     )
 
-    expect(generationsForStage(openProjectOf(state), 'animate')).toHaveLength(0)
+    expect(
+      generationsForNode(openProjectOf(state), ATLAS_ANIMATE_NODE)
+    ).toHaveLength(0)
   })
 })
 
@@ -169,29 +258,32 @@ describe('seeds (PRD §4.3)', () => {
   it('records the rolled seed so it can be pinned afterwards', () => {
     const state = apply(
       fixtureEditorState(),
-      { type: 'unpinSeed', stage: 'style' },
-      runOf('style', 1234)
+      { type: 'unpinSeed', nodeId: ATLAS_STYLE_NODE },
+      runOf(ATLAS, ATLAS_STYLE_NODE, 1234)
     )
 
     expect(
-      generationsForStage(openProjectOf(state), 'style').at(-1)?.seed
+      generationsForNode(openProjectOf(state), ATLAS_STYLE_NODE).at(-1)?.seed
     ).toBe(1234)
   })
 
   it('a pinned seed wins over the rolled one, and collapses the batch to one', () => {
     const state = apply(fixtureEditorState(), {
-      type: 'runStage',
-      stage: 'style',
+      type: 'runNode',
+      nodeId: ATLAS_STYLE_NODE,
       runs: [
-        { id: 'a', seed: 1, asset: null, runId: 'run-1' },
-        { id: 'b', seed: 2, asset: null, runId: 'run-1' },
-        { id: 'c', seed: 3, asset: null, runId: 'run-1' },
-        { id: 'd', seed: 4, asset: null, runId: 'run-1' },
+        { id: 'a', modelId: STYLE_MODEL, seed: 1, asset: null, runId: 'run-1' },
+        { id: 'b', modelId: STYLE_MODEL, seed: 2, asset: null, runId: 'run-1' },
+        { id: 'c', modelId: STYLE_MODEL, seed: 3, asset: null, runId: 'run-1' },
+        { id: 'd', modelId: STYLE_MODEL, seed: 4, asset: null, runId: 'run-1' },
       ],
       at: 1,
     })
 
-    const created = generationsForStage(openProjectOf(state), 'style').slice(3)
+    const created = generationsForNode(
+      openProjectOf(state),
+      ATLAS_STYLE_NODE
+    ).slice(3)
     expect(created).toHaveLength(1)
     // The fixture draft is pinned to this value.
     expect(created.at(0)?.seed).toBe(640_213_889)
@@ -200,21 +292,26 @@ describe('seeds (PRD §4.3)', () => {
   it('drops the pin when the chosen model has no seed parameter', () => {
     const state = apply(
       fixtureEditorState(),
-      { type: 'pinSeed', stage: 'animate', value: 99 },
+      { type: 'pinSeed', nodeId: ATLAS_ANIMATE_NODE, value: 99 },
       {
-        type: 'chooseModel',
-        stage: 'animate',
-        modelId: 'fal-ai/kling-video/o1/image-to-video',
+        type: 'setModels',
+        nodeId: ATLAS_ANIMATE_NODE,
+        modelIds: ['fal-ai/kling-video/o1/image-to-video'],
       }
     )
 
-    expect(openProjectOf(state).drafts.animate.seed).toEqual({ mode: 'roll' })
+    expect(fixtureDraft(openProjectOf(state), ATLAS_ANIMATE_NODE).seed).toEqual(
+      { mode: 'roll' }
+    )
   })
 
   it('records no seed at all for a model that has none', () => {
-    const state = apply(fixtureEditorState(), runOf('animate', 5))
+    const state = apply(
+      fixtureEditorState(),
+      runOf(ATLAS, ATLAS_ANIMATE_NODE, 5)
+    )
     expect(
-      generationsForStage(openProjectOf(state), 'animate').at(-1)?.seed
+      generationsForNode(openProjectOf(state), ATLAS_ANIMATE_NODE).at(-1)?.seed
     ).toBeNull()
   })
 })
@@ -230,11 +327,19 @@ describe('candidates are kept, not deleted (PRD §10.3)', () => {
 
     expect(project.generations.some(g => g.id === 'gen-sty-3')).toBe(true)
     expect(
-      visibleGenerations(project, 'style', false).map(g => g.id)
+      visibleGenerations(
+        project,
+        fixtureNode(project, ATLAS_STYLE_NODE),
+        false
+      ).map(g => g.id)
     ).not.toContain('gen-sty-3')
-    expect(visibleGenerations(project, 'style', true).map(g => g.id)).toContain(
-      'gen-sty-3'
-    )
+    expect(
+      visibleGenerations(
+        project,
+        fixtureNode(project, ATLAS_STYLE_NODE),
+        true
+      ).map(g => g.id)
+    ).toContain('gen-sty-3')
   })
 
   it('keeps the selected candidate visible even after rejecting it', () => {
@@ -246,7 +351,11 @@ describe('candidates are kept, not deleted (PRD §10.3)', () => {
     const project = openProjectOf(state)
 
     expect(
-      visibleGenerations(project, 'style', false).map(g => g.id)
+      visibleGenerations(
+        project,
+        fixtureNode(project, ATLAS_STYLE_NODE),
+        false
+      ).map(g => g.id)
     ).toContain('gen-sty-2')
   })
 
@@ -254,25 +363,33 @@ describe('candidates are kept, not deleted (PRD §10.3)', () => {
     const state = apply(
       fixtureEditorState(),
       { type: 'setVerdict', generationId: 'gen-sty-3', verdict: 'rejected' },
-      runOf('style', 9)
+      runOf(ATLAS, ATLAS_STYLE_NODE, 9)
     )
 
-    const ordinals = generationsForStage(openProjectOf(state), 'style').map(
-      g => g.ordinal
-    )
+    const ordinals = generationsForNode(
+      openProjectOf(state),
+      ATLAS_STYLE_NODE
+    ).map(g => g.ordinal)
     expect(ordinals).toEqual([1, 2, 3, 4])
   })
 })
 
 describe('the recipe is the artefact (PRD §1)', () => {
   it('freezes the draft onto the generation rather than referencing it', () => {
-    const state = apply(fixtureEditorState(), runOf('style', 11), {
-      type: 'setPrompt',
-      stage: 'style',
-      prompt: 'something else entirely',
-    })
+    const state = apply(
+      fixtureEditorState(),
+      runOf(ATLAS, ATLAS_STYLE_NODE, 11),
+      {
+        type: 'setPrompt',
+        nodeId: ATLAS_STYLE_NODE,
+        prompt: 'something else entirely',
+      }
+    )
 
-    const created = generationsForStage(openProjectOf(state), 'style').at(-1)
+    const created = generationsForNode(
+      openProjectOf(state),
+      ATLAS_STYLE_NODE
+    ).at(-1)
     expect(created?.recipe.prompt).toBe('restyle')
   })
 
@@ -283,9 +400,22 @@ describe('the recipe is the artefact (PRD §1)', () => {
     })
     const project = openProjectOf(state)
 
-    // gen-sty-1 was made from source 1, which is not what the stage was on.
-    expect(project.selection.source).toBe('gen-src-1')
-    expect(project.drafts.style.presetId).toBe('brutalist-monochrome')
+    // gen-sty-1 was made from source 1, which is not what the node is working
+    // from. Restored as a **pin** on the style node rather than by moving the
+    // source node's own pick (ADR 0005): the source node's choice is its own,
+    // and a restore that reached back into it would change what every *other*
+    // node wired to that source consumes.
+    expect(fixtureNode(project, ATLAS_STYLE_NODE).pinnedInputId).toBe(
+      'gen-src-1'
+    )
+    expect(fixtureNode(project, ATLAS_SOURCE_NODE).pick).toBe('gen-src-2')
+    expect(fixtureDraft(project, ATLAS_STYLE_NODE).presetId).toBe(
+      'brutalist-monochrome'
+    )
+    // And the fan-out collapses to the model that actually made this picture.
+    expect(fixtureDraft(project, ATLAS_STYLE_NODE).modelIds).toEqual([
+      'fal-ai/flux/dev/image-to-image',
+    ])
   })
 })
 
@@ -297,17 +427,21 @@ describe('preset provenance', () => {
   it('starts a freshly chosen preset unmodified', () => {
     const state = apply(fixtureEditorState(), choose('glass-caustics'))
 
-    expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).presetModified
+    ).toBe(false)
   })
 
   it('records an edit to a seeded field', () => {
     const state = apply(fixtureEditorState(), choose('glass-caustics'), {
       type: 'setPrompt',
-      stage: 'style',
+      nodeId: ATLAS_STYLE_NODE,
       prompt: 'my own words',
     })
 
-    expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).presetModified
+    ).toBe(true)
   })
 
   it('records a move of a seeded parameter as an edit too', () => {
@@ -315,12 +449,14 @@ describe('preset provenance', () => {
     // at 0.8 than at 0.7.
     const state = apply(fixtureEditorState(), choose('glass-caustics'), {
       type: 'setParam',
-      stage: 'style',
+      nodeId: ATLAS_STYLE_NODE,
       key: 'strength',
       value: 0.8,
     })
 
-    expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).presetModified
+    ).toBe(true)
   })
 
   it('records a move of the negative, where the model has one to seed', () => {
@@ -328,20 +464,22 @@ describe('preset provenance', () => {
       fixtureEditorState(),
       // Qwen is the one model with a `negative_prompt` to seed.
       {
-        type: 'chooseModel',
-        stage: 'style',
-        modelId: 'fal-ai/qwen-image-2/edit',
+        type: 'setModels',
+        nodeId: ATLAS_STYLE_NODE,
+        modelIds: ['fal-ai/qwen-image-2/edit'],
       },
       choose('glass-caustics'),
       {
         type: 'setParam',
-        stage: 'style',
+        nodeId: ATLAS_STYLE_NODE,
         key: 'negative_prompt',
         value: 'no gradients',
       }
     )
 
-    expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).presetModified
+    ).toBe(true)
   })
 
   it('ignores a parameter the preset never seeded', () => {
@@ -350,12 +488,14 @@ describe('preset provenance', () => {
     // about whether the recipe is still the preset's.
     const state = apply(fixtureEditorState(), choose('glass-caustics'), {
       type: 'setParam',
-      stage: 'style',
+      nodeId: ATLAS_STYLE_NODE,
       key: 'num_inference_steps',
       value: 40,
     })
 
-    expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).presetModified
+    ).toBe(false)
   })
 
   it('keeps the flag once a seeded field has moved, whatever is edited next', () => {
@@ -364,26 +504,35 @@ describe('preset provenance', () => {
     const state = apply(
       fixtureEditorState(),
       choose('glass-caustics'),
-      { type: 'setPrompt', stage: 'style', prompt: 'my own words' },
+      { type: 'setPrompt', nodeId: ATLAS_STYLE_NODE, prompt: 'my own words' },
       {
         type: 'setParam',
-        stage: 'style',
+        nodeId: ATLAS_STYLE_NODE,
         key: 'num_inference_steps',
         value: 40,
       }
     )
 
-    expect(openProjectOf(state).drafts.style.presetModified).toBe(true)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).presetModified
+    ).toBe(true)
   })
 
   it('claims no modification when there was no preset to modify', () => {
     const state = apply(
       fixtureEditorState(),
-      { type: 'choosePreset', stage: 'style', presetId: null, preset: null },
-      { type: 'setPrompt', stage: 'style', prompt: 'from scratch' }
+      {
+        type: 'choosePreset',
+        nodeId: ATLAS_STYLE_NODE,
+        presetId: null,
+        preset: null,
+      },
+      { type: 'setPrompt', nodeId: ATLAS_STYLE_NODE, prompt: 'from scratch' }
     )
 
-    expect(openProjectOf(state).drafts.style.presetModified).toBe(false)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).presetModified
+    ).toBe(false)
   })
 
   it('records an edited source prompt as having moved from its scene', () => {
@@ -398,25 +547,44 @@ describe('preset provenance', () => {
       fixtureEditorState(),
       {
         type: 'choosePreset',
-        stage: 'source',
+        nodeId: ATLAS_SOURCE_NODE,
         presetId: scene.id,
         preset: scene,
       },
-      { type: 'setPrompt', stage: 'source', prompt: 'a different subject' }
+      {
+        type: 'setPrompt',
+        nodeId: ATLAS_SOURCE_NODE,
+        prompt: 'a different subject',
+      }
     )
 
-    expect(openProjectOf(state).drafts.source.presetId).toBe(scene.id)
-    expect(openProjectOf(state).drafts.source.presetModified).toBe(true)
+    expect(fixtureDraft(openProjectOf(state), ATLAS_SOURCE_NODE).presetId).toBe(
+      scene.id
+    )
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_SOURCE_NODE).presetModified
+    ).toBe(true)
   })
 
   it('claims nothing on a source draft with no scene selected', () => {
     const state = apply(
       fixtureEditorState(),
-      { type: 'choosePreset', stage: 'source', presetId: null, preset: null },
-      { type: 'setPrompt', stage: 'source', prompt: 'a different subject' }
+      {
+        type: 'choosePreset',
+        nodeId: ATLAS_SOURCE_NODE,
+        presetId: null,
+        preset: null,
+      },
+      {
+        type: 'setPrompt',
+        nodeId: ATLAS_SOURCE_NODE,
+        prompt: 'a different subject',
+      }
     )
 
-    expect(openProjectOf(state).drafts.source.presetModified).toBe(false)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_SOURCE_NODE).presetModified
+    ).toBe(false)
   })
 
   it('records an edited motion prompt as having moved from its preset', () => {
@@ -425,11 +593,13 @@ describe('preset provenance', () => {
     // prompt has been rewritten.
     const state = apply(fixtureEditorState(), chooseMotion('drifting-clouds'), {
       type: 'setPrompt',
-      stage: 'animate',
+      nodeId: ATLAS_ANIMATE_NODE,
       prompt: 'clouds, but faster',
     })
 
-    expect(openProjectOf(state).drafts.animate.presetModified).toBe(true)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_ANIMATE_NODE).presetModified
+    ).toBe(true)
   })
 
   it('does not count a video model’s negative prompt, which motion never seeds', () => {
@@ -438,17 +608,19 @@ describe('preset provenance', () => {
     // started from, unlike the style stage where the same field *is* seeded.
     const state = apply(
       fixtureEditorState(),
-      { type: 'chooseModel', stage: 'animate', modelId: VEO },
+      { type: 'setModels', nodeId: ATLAS_ANIMATE_NODE, modelIds: [VEO] },
       chooseMotion('drifting-clouds'),
       {
         type: 'setParam',
-        stage: 'animate',
+        nodeId: ATLAS_ANIMATE_NODE,
         key: 'negative_prompt',
         value: 'blurry',
       }
     )
 
-    expect(openProjectOf(state).drafts.animate.presetModified).toBe(false)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_ANIMATE_NODE).presetModified
+    ).toBe(false)
   })
 })
 
@@ -465,7 +637,7 @@ describe('seeding the form from a motion preset', () => {
 
   it('puts the whole motion prompt in the box, which is what gets sent', () => {
     const state = apply(fixtureEditorState(), chooseMotion(DRIFT.id))
-    const draft = openProjectOf(state).drafts.animate
+    const draft = fixtureDraft(openProjectOf(state), ATLAS_ANIMATE_NODE)
 
     expect(draft.prompt).toBe(DRIFT.prompt)
     expect(draft.presetId).toBe(DRIFT.id)
@@ -475,9 +647,12 @@ describe('seeding the form from a motion preset', () => {
   it('leaves duration, resolution and the rest exactly as they were', () => {
     // Movement and length are different decisions, and a preset that reset the
     // duration would silently change what the next click costs.
-    const before = openProjectOf(fixtureEditorState()).drafts.animate
+    const before = fixtureDraft(
+      openProjectOf(fixtureEditorState()),
+      ATLAS_ANIMATE_NODE
+    )
     const state = apply(fixtureEditorState(), chooseMotion(DRIFT.id))
-    const after = openProjectOf(state).drafts.animate
+    const after = fixtureDraft(openProjectOf(state), ATLAS_ANIMATE_NODE)
 
     expect(after.params).toEqual(before.params)
     expect(after.options).toEqual(before.options)
@@ -487,22 +662,25 @@ describe('seeding the form from a motion preset', () => {
   it('never writes a negative, even on the one video model that has the field', () => {
     const state = apply(
       fixtureEditorState(),
-      { type: 'chooseModel', stage: 'animate', modelId: VEO },
+      { type: 'setModels', nodeId: ATLAS_ANIMATE_NODE, modelIds: [VEO] },
       chooseMotion(DRIFT.id)
     )
 
     // Whatever the model's own default says, seeding did not touch it.
-    expect(openProjectOf(state).drafts.animate.params.negative_prompt).toBe('')
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_ANIMATE_NODE).params
+        .negative_prompt
+    ).toBe('')
   })
 
   it('keeps the text and drops only the pointer when nothing is selected', () => {
     const state = apply(fixtureEditorState(), chooseMotion(DRIFT.id), {
       type: 'choosePreset',
-      stage: 'animate',
+      nodeId: ATLAS_ANIMATE_NODE,
       presetId: null,
       preset: null,
     })
-    const draft = openProjectOf(state).drafts.animate
+    const draft = fixtureDraft(openProjectOf(state), ATLAS_ANIMATE_NODE)
 
     expect(draft.presetId).toBeNull()
     expect(draft.prompt).toBe(DRIFT.prompt)
@@ -525,16 +703,16 @@ describe('seeding the form from a preset', () => {
   const QWEN = modelById(MODEL_REGISTRY, 'fal-ai/qwen-image-2/edit')
 
   const onQwen: EditorAction = {
-    type: 'chooseModel',
-    stage: 'style',
-    modelId: QWEN.id,
+    type: 'setModels',
+    nodeId: ATLAS_STYLE_NODE,
+    modelIds: [QWEN.id],
   }
 
   it('pre-fills the box with the fully composed prompt', () => {
     // Not a fragment assembled later: what is in the box is what is sent, so
     // the preserve block has to be visible to the person about to pay for it.
     const state = apply(fixtureEditorState(), choose('glass-caustics'))
-    const draft = openProjectOf(state).drafts.style
+    const draft = fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE)
 
     expect(draft.prompt).toBe(
       composePreset(presetOf('glass-caustics'), FLUX_I2I, DEFAULT_PALETTE)
@@ -548,7 +726,9 @@ describe('seeding the form from a preset', () => {
     const state = apply(fixtureEditorState(), choose('topographic-contour'))
 
     // The preset's own opinion, clamped to the measured window by `composePreset`.
-    expect(openProjectOf(state).drafts.style.params.strength).toBe(0.78)
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).params.strength
+    ).toBe(0.78)
   })
 
   it('leaves a model with no strength field without one', () => {
@@ -557,7 +737,7 @@ describe('seeding the form from a preset', () => {
       onQwen,
       choose('topographic-contour')
     )
-    const params = openProjectOf(state).drafts.style.params
+    const params = fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).params
 
     expect(params.strength).toBeUndefined()
     expect(
@@ -568,7 +748,7 @@ describe('seeding the form from a preset', () => {
 
   it('routes the negative to the field the model names, never into the prompt', () => {
     const state = apply(fixtureEditorState(), onQwen, choose('glass-caustics'))
-    const draft = openProjectOf(state).drafts.style
+    const draft = fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE)
     const negative = presetOf('glass-caustics').variants.tags?.negative ?? ''
 
     expect(draft.params.negative_prompt).toBe(negative)
@@ -581,7 +761,8 @@ describe('seeding the form from a preset', () => {
 
     expect(FLUX_I2I.negativePromptParam).toBeNull()
     expect(
-      openProjectOf(state).drafts.style.params.negative_prompt
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).params
+        .negative_prompt
     ).toBeUndefined()
   })
 
@@ -605,13 +786,16 @@ describe('seeding the form from a preset', () => {
       choose('glass-caustics'),
       {
         type: 'choosePreset',
-        stage: 'style',
+        nodeId: ATLAS_STYLE_NODE,
         presetId: nothingToSubtract.id,
         preset: nothingToSubtract,
       }
     )
 
-    expect(openProjectOf(state).drafts.style.params.negative_prompt).toBe('')
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).params
+        .negative_prompt
+    ).toBe('')
   })
 
   it('seeds nothing when the preset does not speak the model’s idiom', () => {
@@ -631,27 +815,34 @@ describe('seeding the form from a preset', () => {
       levelPlacement: null,
     })
 
-    const before = openProjectOf(fixtureEditorState()).drafts.style.prompt
+    const before = fixtureDraft(
+      openProjectOf(fixtureEditorState()),
+      ATLAS_STYLE_NODE
+    ).prompt
     const state = apply(fixtureEditorState(), {
       type: 'choosePreset',
-      stage: 'style',
+      nodeId: ATLAS_STYLE_NODE,
       presetId: tagsOnly.id,
       preset: tagsOnly,
     })
 
-    expect(openProjectOf(state).drafts.style.prompt).toBe(before)
+    expect(fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).prompt).toBe(
+      before
+    )
     // Still recorded: the recipe says what was selected either way.
-    expect(openProjectOf(state).drafts.style.presetId).toBe('tags-only')
+    expect(fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).presetId).toBe(
+      'tags-only'
+    )
   })
 
   it('keeps the user’s own words when the model changes', () => {
     const state = apply(
       fixtureEditorState(),
       choose('glass-caustics'),
-      { type: 'setPrompt', stage: 'style', prompt: 'my own words' },
+      { type: 'setPrompt', nodeId: ATLAS_STYLE_NODE, prompt: 'my own words' },
       onQwen
     )
-    const draft = openProjectOf(state).drafts.style
+    const draft = fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE)
 
     expect(draft.prompt).toBe('my own words')
     expect(draft.presetId).toBe('glass-caustics')
@@ -664,11 +855,11 @@ describe('seeding the form from a preset', () => {
     const state = apply(
       fixtureEditorState(),
       choose('glass-caustics'),
-      { type: 'setPrompt', stage: 'style', prompt: 'my own words' },
+      { type: 'setPrompt', nodeId: ATLAS_STYLE_NODE, prompt: 'my own words' },
       onQwen,
       choose('glass-caustics')
     )
-    const draft = openProjectOf(state).drafts.style
+    const draft = fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE)
 
     expect(draft.prompt).toBe(
       composePreset(presetOf('glass-caustics'), QWEN, DEFAULT_PALETTE)?.prompt
@@ -681,11 +872,11 @@ describe('seeding the form from a preset', () => {
     // there. Only the provenance pointer goes.
     const state = apply(fixtureEditorState(), choose('glass-caustics'), {
       type: 'choosePreset',
-      stage: 'style',
+      nodeId: ATLAS_STYLE_NODE,
       presetId: null,
       preset: null,
     })
-    const draft = openProjectOf(state).drafts.style
+    const draft = fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE)
 
     expect(draft.presetId).toBeNull()
     expect(draft.prompt).toBe(
@@ -698,13 +889,13 @@ describe('seeding the form from a preset', () => {
 describe('changing model (PRD §5, §6.3)', () => {
   it('replaces parameters the new model does not understand with our defaults', () => {
     const state = apply(fixtureEditorState(), {
-      type: 'chooseModel',
-      stage: 'style',
-      modelId: 'fal-ai/qwen-image-2/edit',
+      type: 'setModels',
+      nodeId: ATLAS_STYLE_NODE,
+      modelIds: ['fal-ai/qwen-image-2/edit'],
     })
 
     // The draft was on FLUX.1 dev, whose `strength` Qwen has never heard of.
-    const params = openProjectOf(state).drafts.style.params
+    const params = fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).params
     expect(params.strength).toBeUndefined()
     expect(params.negative_prompt).toBe('')
   })
@@ -713,26 +904,27 @@ describe('changing model (PRD §5, §6.3)', () => {
     const state = apply(
       fixtureEditorState(),
       {
-        type: 'chooseModel',
-        stage: 'style',
-        modelId: 'fal-ai/qwen-image-2/edit',
+        type: 'setModels',
+        nodeId: ATLAS_STYLE_NODE,
+        modelIds: ['fal-ai/qwen-image-2/edit'],
       },
       {
         type: 'setParam',
-        stage: 'style',
+        nodeId: ATLAS_STYLE_NODE,
         key: 'negative_prompt',
         value: 'blurry',
       },
       {
-        type: 'chooseModel',
-        stage: 'style',
-        modelId: 'fal-ai/qwen-image-2/pro/edit',
+        type: 'setModels',
+        nodeId: ATLAS_STYLE_NODE,
+        modelIds: ['fal-ai/qwen-image-2/pro/edit'],
       }
     )
 
-    expect(openProjectOf(state).drafts.style.params.negative_prompt).toBe(
-      'blurry'
-    )
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).params
+        .negative_prompt
+    ).toBe('blurry')
   })
 
   it('never changes the model because a control was touched', () => {
@@ -740,25 +932,43 @@ describe('changing model (PRD §5, §6.3)', () => {
     // control. Helpfulness that spends money is not helpful." Every control the
     // panel offers goes through one of these actions.
     const before = fixtureEditorState()
-    const chosen = openProjectOf(before).drafts.animate.modelId
+    const chosen = fixtureDraft(openProjectOf(before), ATLAS_ANIMATE_NODE)
+      .modelIds[0]
 
     const after = apply(
       before,
-      { type: 'setParam', stage: 'animate', key: 'duration', value: '10' },
-      { type: 'setOption', stage: 'animate', key: 'loop', value: true },
-      { type: 'setOption', stage: 'animate', key: 'rewind', value: true },
-      { type: 'setPrompt', stage: 'animate', prompt: 'a slow drift' },
+      {
+        type: 'setParam',
+        nodeId: ATLAS_ANIMATE_NODE,
+        key: 'duration',
+        value: '10',
+      },
+      {
+        type: 'setOption',
+        nodeId: ATLAS_ANIMATE_NODE,
+        key: 'loop',
+        value: true,
+      },
+      {
+        type: 'setOption',
+        nodeId: ATLAS_ANIMATE_NODE,
+        key: 'rewind',
+        value: true,
+      },
+      { type: 'setPrompt', nodeId: ATLAS_ANIMATE_NODE, prompt: 'a slow drift' },
       {
         type: 'choosePreset',
-        stage: 'animate',
+        nodeId: ATLAS_ANIMATE_NODE,
         presetId: 'locked-camera-drift',
         preset: null,
       },
-      { type: 'pinSeed', stage: 'animate', value: 7 },
-      { type: 'unpinSeed', stage: 'animate' }
+      { type: 'pinSeed', nodeId: ATLAS_ANIMATE_NODE, value: 7 },
+      { type: 'unpinSeed', nodeId: ATLAS_ANIMATE_NODE }
     )
 
-    expect(openProjectOf(after).drafts.animate.modelId).toBe(chosen)
+    expect(
+      fixtureDraft(openProjectOf(after), ATLAS_ANIMATE_NODE).modelIds[0]
+    ).toBe(chosen)
   })
 })
 
@@ -780,24 +990,38 @@ describe('opening projects off disk (#23)', () => {
     expect(state.directory).toBe('/projects/atlas')
   })
 
-  it('opens on the furthest stage the project has reached', () => {
-    // Opening Ledger — which has only a source — on the animate tab would show
-    // a stage that cannot run, for a project the user has just opened.
+  it('opens on the node that produced the most recent candidate', () => {
+    // "As far as this project has got", not "where you were last time" — which
+    // node you had selected is session state and deliberately not in the
+    // manifest. On a canvas there is no stage order to walk backwards through,
+    // so the answer comes from the append-only history instead.
     expect(
       apply(emptyEditorState(), {
         type: 'openProject',
         project: LEDGER,
         directory: '/projects/ledger',
-      }).activeStage
-    ).toBe('source')
+      }).selectedNodeId
+    ).toBe(LEDGER_SOURCE_NODE)
 
     expect(
       apply(emptyEditorState(), {
         type: 'openProject',
         project: ATLAS,
         directory: '/projects/atlas',
-      }).activeStage
-    ).toBe('animate')
+      }).selectedNodeId
+    ).toBe(ATLAS_ANIMATE_NODE)
+  })
+
+  it('opens on the first node when nothing has been run at all', () => {
+    const untouched = { ...LEDGER, generations: [] }
+
+    expect(
+      apply(emptyEditorState(), {
+        type: 'openProject',
+        project: untouched,
+        directory: '/projects/ledger',
+      }).selectedNodeId
+    ).toBe(LEDGER_SOURCE_NODE)
   })
 
   it('closes back to nothing, rather than to a stale project', () => {
@@ -809,7 +1033,7 @@ describe('opening projects off disk (#23)', () => {
   it('holds each project to its own variable fields, and drops a deleted one', () => {
     const typed = apply(fixtureEditorState(), {
       type: 'setPresetVariables',
-      stage: 'source',
+      nodeId: ATLAS_SOURCE_NODE,
       values: { subject: 'a brushed steel kettle' },
     })
 
@@ -820,8 +1044,10 @@ describe('opening projects off disk (#23)', () => {
       project: LEDGER,
       directory: '/projects/ledger',
     })
-    expect(presetVariablesFor(elsewhere, LEDGER.id, 'source')).toEqual({})
-    expect(presetVariablesFor(elsewhere, ATLAS.id, 'source')).toEqual({
+    expect(presetVariablesFor(elsewhere, LEDGER.id, ATLAS_SOURCE_NODE)).toEqual(
+      {}
+    )
+    expect(presetVariablesFor(elsewhere, ATLAS.id, ATLAS_SOURCE_NODE)).toEqual({
       subject: 'a brushed steel kettle',
     })
 
@@ -834,13 +1060,13 @@ describe('opening projects off disk (#23)', () => {
       }),
       { type: 'closeProject' }
     )
-    expect(presetVariablesFor(deleted, ATLAS.id, 'source')).toEqual({})
+    expect(presetVariablesFor(deleted, ATLAS.id, ATLAS_SOURCE_NODE)).toEqual({})
   })
 
   it('ignores an edit that arrives with nothing open', () => {
     const state = apply(emptyEditorState(), {
       type: 'setPrompt',
-      stage: 'source',
+      nodeId: ATLAS_SOURCE_NODE,
       prompt: 'into the void',
     })
     expect(activeProject(state)).toBeNull()
@@ -860,30 +1086,46 @@ describe('opening projects off disk (#23)', () => {
 describe('a generation records the file it produced (#23)', () => {
   it('carries the asset the model call actually wrote', () => {
     const state = apply(fixtureEditorState(), {
-      type: 'runStage',
-      stage: 'source',
-      runs: [{ id: 'run-real', seed: 5, asset: 'run-real.jpeg', runId: null }],
+      type: 'runNode',
+      nodeId: ATLAS_SOURCE_NODE,
+      runs: [
+        {
+          id: 'run-real',
+          modelId: SOURCE_MODEL,
+          seed: 5,
+          asset: 'run-real.jpeg',
+          runId: null,
+        },
+      ],
       at: 1,
     })
 
-    const created = generationsForStage(openProjectOf(state), 'source').at(-1)
+    const created = generationsForNode(
+      openProjectOf(state),
+      ATLAS_SOURCE_NODE
+    ).at(-1)
     expect(created?.asset).toBe('run-real.jpeg')
   })
 
   it('leaves the asset null for a stage with no model call behind it yet', () => {
-    const state = apply(fixtureEditorState(), runOf('style', 3))
+    const state = apply(fixtureEditorState(), runOf(ATLAS, ATLAS_STYLE_NODE, 3))
     expect(
-      generationsForStage(openProjectOf(state), 'style').at(-1)?.asset
+      generationsForNode(openProjectOf(state), ATLAS_STYLE_NODE).at(-1)?.asset
     ).toBeNull()
   })
 })
 
 describe('selection', () => {
-  it('selects the first candidate of a fresh run so the preview is never blank', () => {
-    const state = apply(fixtureEditorState(), runOf('style', 77))
-    expect(selectedGeneration(openProjectOf(state), 'style')?.id).toBe(
-      'run-style-77'
+  it('picks the first candidate of a fresh run so the node is never blank', () => {
+    const state = apply(
+      fixtureEditorState(),
+      runOf(ATLAS, ATLAS_STYLE_NODE, 77)
     )
+    const project = openProjectOf(state)
+
+    expect(
+      pickedGeneration(project, fixtureNode(project, ATLAS_STYLE_NODE))?.id
+    ).toBe(`run-${ATLAS_STYLE_NODE}-77`)
   })
 })
 
@@ -900,6 +1142,8 @@ describe('collecting a job that outlived its click (#24)', () => {
           id,
           stage: 'source',
           recipe: {
+            nodeId: ATLAS_SOURCE_NODE,
+            inputGenerationId: null,
             modelId: 'fal-ai/flux-pro/v1.1',
             prompt: 'the prompt as it was when this was submitted',
             presetId: null,
@@ -907,7 +1151,6 @@ describe('collecting a job that outlived its click (#24)', () => {
             seed: { mode: 'roll' },
             params: {},
             options: {},
-            inputGenerationId: null,
             ...recipe,
           },
           seed: 4242,
@@ -927,11 +1170,18 @@ describe('collecting a job that outlived its click (#24)', () => {
     // current draft would describe the wrong image (PRD §1).
     const state = apply(
       fixtureEditorState(),
-      { type: 'setPrompt', stage: 'source', prompt: 'something else entirely' },
+      {
+        type: 'setPrompt',
+        nodeId: ATLAS_SOURCE_NODE,
+        prompt: 'something else entirely',
+      },
       collected('job-1')
     )
 
-    const created = generationsForStage(openProjectOf(state), 'source').at(-1)
+    const created = generationsForNode(
+      openProjectOf(state),
+      ATLAS_SOURCE_NODE
+    ).at(-1)
     expect(created?.recipe.prompt).toBe(
       'the prompt as it was when this was submitted'
     )
@@ -945,27 +1195,35 @@ describe('collecting a job that outlived its click (#24)', () => {
     const once = apply(fixtureEditorState(), collected('job-1'))
     const twice = apply(once, collected('job-1'))
 
-    expect(generationsForStage(openProjectOf(twice), 'source')).toHaveLength(
-      generationsForStage(openProjectOf(once), 'source').length
+    expect(
+      generationsForNode(openProjectOf(twice), ATLAS_SOURCE_NODE)
+    ).toHaveLength(
+      generationsForNode(openProjectOf(once), ATLAS_SOURCE_NODE).length
     )
     expect(openProjectOf(twice)).toBe(openProjectOf(once))
   })
 
   it('numbers a collected candidate after the ones already in the stage', () => {
-    const before = generationsForStage(
+    const before = generationsForNode(
       openProjectOf(fixtureEditorState()),
-      'source'
+      ATLAS_SOURCE_NODE
     )
     const state = apply(fixtureEditorState(), collected('job-1'))
 
     expect(
-      generationsForStage(openProjectOf(state), 'source').at(-1)?.ordinal
+      generationsForNode(openProjectOf(state), ATLAS_SOURCE_NODE).at(-1)
+        ?.ordinal
     ).toBe(before.length + 1)
   })
 
   it('selects what arrived, because it is what the user was waiting for', () => {
     const state = apply(fixtureEditorState(), collected('job-1'))
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-1')
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('job-1')
   })
 
   it('records nothing at all when the batch has already been collected', () => {
@@ -984,6 +1242,7 @@ describe('an image the user brought in (#27)', () => {
     return {
       type: 'recordUpload',
       generationId: id,
+      nodeId: ATLAS_SOURCE_NODE,
       asset: `${id}.png`,
       fileName: 'hero-plate.png',
       at: 7,
@@ -991,12 +1250,12 @@ describe('an image the user brought in (#27)', () => {
   }
 
   it('records the upload as an ordinary source candidate', () => {
-    const before = generationsForStage(
+    const before = generationsForNode(
       openProjectOf(fixtureEditorState()),
-      'source'
+      ATLAS_SOURCE_NODE
     )
     const project = openProjectOf(apply(fixtureEditorState(), uploaded()))
-    const sources = generationsForStage(project, 'source')
+    const sources = generationsForNode(project, ATLAS_SOURCE_NODE)
 
     expect(sources).toHaveLength(before.length + 1)
 
@@ -1014,21 +1273,31 @@ describe('an image the user brought in (#27)', () => {
     // whether the pixels were generated.
     const project = openProjectOf(apply(fixtureEditorState(), uploaded()))
 
-    expect(selectedGeneration(project, 'source')?.id).toBe('upload-1')
-    expect(visibleGenerations(project, 'source', false).at(-1)?.id).toBe(
-      'upload-1'
-    )
+    expect(
+      pickedGeneration(project, fixtureNode(project, ATLAS_SOURCE_NODE))?.id
+    ).toBe('upload-1')
+    expect(
+      visibleGenerations(
+        project,
+        fixtureNode(project, ATLAS_SOURCE_NODE),
+        false
+      ).at(-1)?.id
+    ).toBe('upload-1')
 
     const styled = openProjectOf(
-      apply(fixtureEditorState(), uploaded(), runOf('style', 42))
+      apply(
+        fixtureEditorState(),
+        uploaded(),
+        runOf(ATLAS, ATLAS_STYLE_NODE, 42)
+      )
     )
-    const style = generationsForStage(styled, 'style').at(-1)
+    const style = generationsForNode(styled, ATLAS_STYLE_NODE).at(-1)
     expect(style?.recipe.inputGenerationId).toBe('upload-1')
   })
 
   it('marks itself as an upload rather than claiming a model made it', () => {
     const project = openProjectOf(apply(fixtureEditorState(), uploaded()))
-    const upload = generationsForStage(project, 'source').at(-1)
+    const upload = generationsForNode(project, ATLAS_SOURCE_NODE).at(-1)
 
     if (upload === undefined) throw new Error('the upload was not recorded')
 
@@ -1043,14 +1312,16 @@ describe('an image the user brought in (#27)', () => {
     // The draft is what a re-run would submit, and `modelById` throws on an id
     // with no registry entry — a restored upload would break the panel.
     const state = apply(fixtureEditorState(), uploaded())
-    const before = openProjectOf(state).drafts.source
+    const before = fixtureDraft(openProjectOf(state), ATLAS_SOURCE_NODE)
 
     const after = apply(state, {
       type: 'restoreRecipe',
       generationId: 'upload-1',
     })
 
-    expect(openProjectOf(after).drafts.source).toEqual(before)
+    expect(fixtureDraft(openProjectOf(after), ATLAS_SOURCE_NODE)).toEqual(
+      before
+    )
   })
 
   it('records the same upload once, however many times it arrives', () => {
@@ -1073,10 +1344,11 @@ describe('a run of several candidates (#26)', () => {
   /** One click's worth of candidates, as the fixture stages mint them. */
   function runOfFour(runId: string): EditorAction {
     return {
-      type: 'runStage',
-      stage: 'source',
+      type: 'runNode',
+      nodeId: ATLAS_SOURCE_NODE,
       runs: Array.from({ length: 4 }, (_, index) => ({
         id: `${runId}-${String(index)}`,
+        modelId: SOURCE_MODEL,
         seed: 100 + index,
         asset: null,
         runId,
@@ -1090,7 +1362,7 @@ describe('a run of several candidates (#26)', () => {
     return {
       id,
       stage: 'source',
-      recipe: ATLAS.drafts.source,
+      recipe: frozenSource(),
       seed: 7,
       costUsd: 0,
       requestId: null,
@@ -1112,7 +1384,7 @@ describe('a run of several candidates (#26)', () => {
     const project = openProjectOf(
       apply(fixtureEditorState(), runOfFour('run-1'))
     )
-    const created = generationsForStage(project, 'source').slice(-4)
+    const created = generationsForNode(project, ATLAS_SOURCE_NODE).slice(-4)
 
     expect(created).toHaveLength(4)
     expect(new Set(created.map(g => g.runId))).toEqual(new Set(['run-1']))
@@ -1124,7 +1396,11 @@ describe('a run of several candidates (#26)', () => {
     const project = openProjectOf(
       apply(fixtureEditorState(), runOfFour('run-1'))
     )
-    const groups = runGroups(project, 'source', true)
+    const groups = runGroups(
+      project,
+      fixtureNode(project, ATLAS_SOURCE_NODE),
+      true
+    )
 
     // The fixture's own run, then this one — never merged, never reordered.
     expect(groups).toHaveLength(2)
@@ -1138,7 +1414,11 @@ describe('a run of several candidates (#26)', () => {
       ...ATLAS,
       generations: ATLAS.generations.map(g => ({ ...g, runId: null })),
     }
-    const groups = runGroups(ungrouped, 'source', true)
+    const groups = runGroups(
+      ungrouped,
+      fixtureNode(ungrouped, ATLAS_SOURCE_NODE),
+      true
+    )
 
     expect(groups).toHaveLength(1)
     expect(groups[0]?.runId).toBeNull()
@@ -1158,7 +1438,11 @@ describe('a run of several candidates (#26)', () => {
     })
 
     const project = openProjectOf(rejected)
-    const shown = runGroups(project, 'source', false).at(-1)
+    const shown = runGroups(
+      project,
+      fixtureNode(project, ATLAS_SOURCE_NODE),
+      false
+    ).at(-1)
 
     expect(shown?.number).toBe(2)
     expect(shown?.generations).toHaveLength(3)
@@ -1170,7 +1454,7 @@ describe('a run of several candidates (#26)', () => {
       type: 'beginRun',
       runId,
       projectId: ATLAS.id,
-      stage: 'source',
+      nodeId: ATLAS_SOURCE_NODE,
       generationIds: ids,
       at: 4,
     }
@@ -1178,7 +1462,12 @@ describe('a run of several candidates (#26)', () => {
 
   it('selects the first candidate to arrive, so the next stage has an input', () => {
     const state = apply(fixtureEditorState(), arrival('job-a', 'run-1'))
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('job-a')
   })
 
   it('does not let later arrivals steal the selection from their own run', () => {
@@ -1190,7 +1479,12 @@ describe('a run of several candidates (#26)', () => {
       arrival('job-c', 'run-1')
     )
 
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('job-a')
   })
 
   it('does not let them steal it when the run is not known either', () => {
@@ -1203,7 +1497,12 @@ describe('a run of several candidates (#26)', () => {
       arrival('job-c', null)
     )
 
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('job-a')
   })
 
   it('never overrides a candidate the user picked during the run', () => {
@@ -1220,7 +1519,12 @@ describe('a run of several candidates (#26)', () => {
       arrival('job-d', 'run-1')
     )
 
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-b')
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('job-b')
   })
 
   it('never overrides it from a second run queued behind the first', () => {
@@ -1243,7 +1547,12 @@ describe('a run of several candidates (#26)', () => {
       }
     )
 
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-a')
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('job-a')
   })
 
   it('never overrides a candidate the user picked from the strip', () => {
@@ -1257,9 +1566,12 @@ describe('a run of several candidates (#26)', () => {
       arrival('job-b', 'run-1')
     )
 
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
-      'gen-src-1'
-    )
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('gen-src-1')
   })
 
   it('claims the selection again for a run started after the choice', () => {
@@ -1274,16 +1586,24 @@ describe('a run of several candidates (#26)', () => {
       arrival('job-b', 'run-2')
     )
 
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe('job-b')
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('job-b')
   })
 
   it('still selects an arrival whose run this session never knew', () => {
     // A job submitted before the last quit comes back with no run at all, and
     // it is exactly the image the user has been waiting for.
     const state = apply(fixtureEditorState(), arrival('job-resumed', null))
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
-      'job-resumed'
-    )
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('job-resumed')
   })
 
   it('an upload is selected even after the user has chosen something', () => {
@@ -1295,15 +1615,19 @@ describe('a run of several candidates (#26)', () => {
       {
         type: 'recordUpload',
         generationId: 'upload-9',
+        nodeId: ATLAS_SOURCE_NODE,
         asset: 'upload-9.png',
         fileName: 'plate.png',
         at: 8,
       }
     )
 
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
-      'upload-9'
-    )
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('upload-9')
   })
 })
 
@@ -1312,60 +1636,60 @@ describe('batch size (#26)', () => {
   it('produces four images and one video by default', () => {
     const project = openProjectOf(fixtureEditorState())
 
-    expect(batchSizeFor(project, 'source')).toBe(4)
-    expect(batchSizeFor(project, 'animate')).toBe(1)
+    expect(batchSizeFor(fixtureNode(project, ATLAS_SOURCE_NODE))).toBe(4)
+    expect(batchSizeFor(fixtureNode(project, ATLAS_ANIMATE_NODE))).toBe(1)
     // Style is an image stage too — the fixture's style draft pins a seed, so
     // what it would submit right now is the collapse rather than the setting.
-    expect(configuredBatchSize(project, 'style')).toBe(4)
-    expect(batchSizeFor(project, 'style')).toBe(1)
+    expect(fixtureNode(project, ATLAS_STYLE_NODE).batchSize).toBe(4)
+    expect(batchSizeFor(fixtureNode(project, ATLAS_STYLE_NODE))).toBe(1)
   })
 
   it('reads what the project was set to, not a constant', () => {
     const state = apply(fixtureEditorState(), {
       type: 'setBatchSize',
-      stage: 'source',
+      nodeId: ATLAS_SOURCE_NODE,
       size: 2,
     })
 
     const project = openProjectOf(state)
-    expect(project.batchSizes.source).toBe(2)
-    expect(batchSizeFor(project, 'source')).toBe(2)
+    expect(fixtureNode(project, ATLAS_SOURCE_NODE).batchSize).toBe(2)
+    expect(batchSizeFor(fixtureNode(project, ATLAS_SOURCE_NODE))).toBe(2)
     // Per stage, so setting one leaves the others exactly as they were.
-    expect(configuredBatchSize(project, 'style')).toBe(4)
-    expect(batchSizeFor(project, 'animate')).toBe(1)
+    expect(fixtureNode(project, ATLAS_STYLE_NODE).batchSize).toBe(4)
+    expect(batchSizeFor(fixtureNode(project, ATLAS_ANIMATE_NODE))).toBe(1)
   })
 
   it('sets the video batch from the animate stage alone', () => {
     const project = openProjectOf(
       apply(fixtureEditorState(), {
         type: 'setBatchSize',
-        stage: 'animate',
+        nodeId: ATLAS_ANIMATE_NODE,
         size: 3,
       })
     )
 
-    expect(project.batchSizes.animate).toBe(3)
-    expect(project.batchSizes.source).toBe(4)
+    expect(fixtureNode(project, ATLAS_ANIMATE_NODE).batchSize).toBe(3)
+    expect(fixtureNode(project, ATLAS_SOURCE_NODE).batchSize).toBe(4)
   })
 
   it('refuses a size we would not actually submit', () => {
     const huge = openProjectOf(
       apply(fixtureEditorState(), {
         type: 'setBatchSize',
-        stage: 'source',
+        nodeId: ATLAS_SOURCE_NODE,
         size: 40,
       })
     )
     const none = openProjectOf(
       apply(fixtureEditorState(), {
         type: 'setBatchSize',
-        stage: 'source',
+        nodeId: ATLAS_SOURCE_NODE,
         size: 0,
       })
     )
 
-    expect(huge.batchSizes.source).toBe(4)
-    expect(none.batchSizes.source).toBe(1)
+    expect(fixtureNode(huge, ATLAS_SOURCE_NODE).batchSize).toBe(4)
+    expect(fixtureNode(none, ATLAS_SOURCE_NODE).batchSize).toBe(1)
   })
 
   it('collapses to one candidate while the seed is pinned', () => {
@@ -1373,18 +1697,22 @@ describe('batch size (#26)', () => {
     // says — and the estimate above the button has to agree with the button.
     const state = apply(fixtureEditorState(), {
       type: 'pinSeed',
-      stage: 'source',
+      nodeId: ATLAS_SOURCE_NODE,
       value: 12_345,
     })
 
     const project = openProjectOf(state)
-    expect(batchSizeFor(project, 'source')).toBe(1)
+    expect(batchSizeFor(fixtureNode(project, ATLAS_SOURCE_NODE))).toBe(1)
     // The setting itself is untouched: unpinning restores the four.
-    expect(configuredBatchSize(project, 'source')).toBe(4)
+    expect(fixtureNode(project, ATLAS_SOURCE_NODE).batchSize).toBe(4)
     expect(
       batchSizeFor(
-        openProjectOf(apply(state, { type: 'unpinSeed', stage: 'source' })),
-        'source'
+        fixtureNode(
+          openProjectOf(
+            apply(state, { type: 'unpinSeed', nodeId: ATLAS_SOURCE_NODE })
+          ),
+          ATLAS_SOURCE_NODE
+        )
       )
     ).toBe(4)
   })
@@ -1403,7 +1731,7 @@ describe('a run outlives the view of it (#26)', () => {
       type: 'beginRun',
       runId,
       projectId: ATLAS.id,
-      stage: 'source',
+      nodeId: ATLAS_SOURCE_NODE,
       generationIds: ids,
       at: 4,
     }
@@ -1416,7 +1744,7 @@ describe('a run outlives the view of it (#26)', () => {
         {
           id,
           stage: 'source',
-          recipe: ATLAS.drafts.source,
+          recipe: frozenSource(),
           seed: 7,
           costUsd: 0,
           requestId: null,
@@ -1446,9 +1774,12 @@ describe('a run outlives the view of it (#26)', () => {
       arrival('job-b', 'run-1')
     )
 
-    expect(selectedGeneration(openProjectOf(returned), 'source')?.id).toBe(
-      'job-a'
-    )
+    expect(
+      pickedGeneration(
+        openProjectOf(returned),
+        fixtureNode(openProjectOf(returned), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('job-a')
   })
 
   it('puts the grid away when an image is brought in instead (#27)', () => {
@@ -1459,16 +1790,20 @@ describe('a run outlives the view of it (#26)', () => {
       {
         type: 'recordUpload',
         generationId: 'upload-1',
+        nodeId: ATLAS_SOURCE_NODE,
         asset: 'upload-1.png',
         fileName: 'plate.png',
         at: 8,
       }
     )
 
-    expect(activeRunFor(state, ATLAS.id, 'source')).toBeNull()
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
-      'upload-1'
-    )
+    expect(activeRunFor(state, ATLAS.id, ATLAS_SOURCE_NODE)).toBeNull()
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('upload-1')
   })
 
   it('forgets old answered runs but never one still being waited on', () => {
@@ -1500,11 +1835,14 @@ describe('a run outlives the view of it (#26)', () => {
       arrival('stray-b', null)
     )
 
-    expect(selectedGeneration(openProjectOf(state), 'source')?.id).toBe(
-      'stray-a'
-    )
+    expect(
+      pickedGeneration(
+        openProjectOf(state),
+        fixtureNode(openProjectOf(state), ATLAS_SOURCE_NODE)
+      )?.id
+    ).toBe('stray-a')
     // And no grid for a question that was never asked.
-    expect(activeRunFor(state, ATLAS.id, 'source')).toBeNull()
+    expect(activeRunFor(state, ATLAS.id, ATLAS_SOURCE_NODE)).toBeNull()
   })
 })
 
@@ -1520,17 +1858,20 @@ describe('a run outlives the view of it (#26)', () => {
 describe('the frozen recipe records the loop that will happen (#30)', () => {
   /** Atlas, whose style stage has a still selected, on the named model. */
   function animatingWith(modelId: string, options: StageParams): Project {
-    return {
-      ...ATLAS,
-      drafts: {
-        ...ATLAS.drafts,
-        animate: { ...ATLAS.drafts.animate, modelId, options },
-      },
-    }
+    return withFixtureDraft(ATLAS, ATLAS_ANIMATE_NODE, {
+      modelIds: [modelId],
+      options,
+    })
   }
 
   function frozenAnimate(project: Project): StageRecipe {
-    const recipe = freezeRecipe(MODEL_REGISTRY, project, 'animate')
+    const node = fixtureNode(project, ATLAS_ANIMATE_NODE)
+    const recipe = freezeDraft(
+      MODEL_REGISTRY,
+      project,
+      node,
+      node.draft.modelIds[0] ?? ''
+    )
     if (recipe === null) throw new Error('there is no still to animate')
     return recipe
   }
@@ -1544,7 +1885,9 @@ describe('the frozen recipe records the loop that will happen (#30)', () => {
     expect(frozenAnimate(project).options.loop).toBe(true)
     // And the draft keeps the user's own answer, untouched: switching back to
     // a model that offers the choice has to bring it with them.
-    expect(project.drafts.animate.options).toEqual({ rewind: false })
+    expect(fixtureDraft(project, ATLAS_ANIMATE_NODE).options).toEqual({
+      rewind: false,
+    })
   })
 
   it('records no loop on a model with nowhere to put an end frame', () => {
@@ -1557,7 +1900,7 @@ describe('the frozen recipe records the loop that will happen (#30)', () => {
     })
 
     expect(frozenAnimate(project).options.loop).toBe(false)
-    expect(project.drafts.animate.options).toEqual({
+    expect(fixtureDraft(project, ATLAS_ANIMATE_NODE).options).toEqual({
       rewind: false,
       loop: true,
     })
@@ -1593,7 +1936,7 @@ describe('the palette (#46)', () => {
     if (preset === null) throw new Error(`no source preset "${id}"`)
     return {
       type: 'choosePreset',
-      stage: 'source',
+      nodeId: ATLAS_SOURCE_NODE,
       presetId: id,
       preset,
       values,
@@ -1605,7 +1948,7 @@ describe('the palette (#46)', () => {
       fixtureEditorState(),
       chooseScene('gn-monolith', { subject: 'a brushed steel kettle' })
     )
-    const draft = openProjectOf(state).drafts.source
+    const draft = fixtureDraft(openProjectOf(state), ATLAS_SOURCE_NODE)
 
     expect(draft.prompt).toContain('a brushed steel kettle')
     expect(draft.prompt).toContain(colourNameOf(ATLAS.palette.roles.primary))
@@ -1630,13 +1973,17 @@ describe('the palette (#46)', () => {
       chooseScene('gn-monolith')
     )
 
-    expect(openProjectOf(state).drafts.source.prompt).toContain('House orange')
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_SOURCE_NODE).prompt
+    ).toContain('House orange')
   })
 
   it('leaves a hole it cannot fill visible in the box', () => {
     const state = apply(fixtureEditorState(), chooseScene('gn-monolith'))
 
-    expect(openProjectOf(state).drafts.source.prompt).toContain('{{subject}}')
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_SOURCE_NODE).prompt
+    ).toContain('{{subject}}')
   })
 
   it('changes what the next pick seeds, and nothing already generated', () => {
@@ -1656,14 +2003,16 @@ describe('the palette (#46)', () => {
 
     // The draft seeded before the edit is untouched — it is prose now, not a
     // reference to a palette.
-    expect(openProjectOf(after).drafts.source.prompt).toBe(
-      openProjectOf(before).drafts.source.prompt
+    expect(fixtureDraft(openProjectOf(after), ATLAS_SOURCE_NODE).prompt).toBe(
+      fixtureDraft(openProjectOf(before), ATLAS_SOURCE_NODE).prompt
     )
     expect(openProjectOf(after).generations).toBe(generations)
 
     // The next pick says the new colour.
     const reseeded = apply(after, chooseScene('gn-monolith'))
-    expect(openProjectOf(reseeded).drafts.source.prompt).toContain('turquoise')
+    expect(
+      fixtureDraft(openProjectOf(reseeded), ATLAS_SOURCE_NODE).prompt
+    ).toContain('turquoise')
   })
 })
 
@@ -1693,18 +2042,18 @@ describe('the effects tab (#36)', () => {
     const opened = apply(fixtureEditorState(), { type: 'openEffects' })
 
     expect(opened.effectsOpen).toBe(true)
-    expect(opened.activeStage).toBe(fixtureEditorState().activeStage)
+    expect(opened.selectedNodeId).toBe(fixtureEditorState().selectedNodeId)
   })
 
   it('closes when another tab is picked', () => {
     const state = apply(
       fixtureEditorState(),
       { type: 'openEffects' },
-      { type: 'selectStage', stage: 'animate' }
+      { type: 'selectNode', nodeId: ATLAS_ANIMATE_NODE }
     )
 
     expect(state.effectsOpen).toBe(false)
-    expect(state.activeStage).toBe('animate')
+    expect(state.selectedNodeId).toBe(ATLAS_ANIMATE_NODE)
   })
 
   it('pins a candidate, and the pin outlives a tab change', () => {
@@ -1715,7 +2064,7 @@ describe('the effects tab (#36)', () => {
     const pinned = apply(
       state,
       { type: 'pinTreatment', generationId: id },
-      { type: 'selectStage', stage: 'style' }
+      { type: 'selectNode', nodeId: ATLAS_STYLE_NODE }
     )
 
     expect(pinned.treatmentTarget).toBe(id)
@@ -1854,9 +2203,17 @@ describe('the effects tab (#36)', () => {
   it('arrives untreated on a candidate a run just produced', () => {
     const state = fixtureEditorState()
     const after = apply(state, {
-      type: 'runStage',
-      stage: 'source',
-      runs: [{ id: 'gen-new', seed: 7, asset: null, runId: 'run-new' }],
+      type: 'runNode',
+      nodeId: ATLAS_SOURCE_NODE,
+      runs: [
+        {
+          id: 'gen-new',
+          modelId: SOURCE_MODEL,
+          seed: 7,
+          asset: null,
+          runId: 'run-new',
+        },
+      ],
       at: 1,
     })
 
@@ -1941,5 +2298,210 @@ describe("fal's charges replace the estimates (#56, ADR 0003)", () => {
     })
 
     expect(after.project?.generations[0]?.actualCostUsd).toBe(0.037)
+  })
+})
+
+/**
+ * The fan-out (ADR 0005) — one click, several models, one run.
+ *
+ * The claim the whole change exists for, so it is asserted about the reducer
+ * rather than only about the button: a run of N models produces N candidates
+ * that share a `runId`, each recording the model that actually made it, each
+ * with its own parameter bag reconciled for that model.
+ */
+describe('one prompt across several models', () => {
+  const TWO_MODELS = [
+    'fal-ai/flux/dev/image-to-image',
+    'fal-ai/qwen-image-2/edit',
+  ]
+
+  function fannedOut(): EditorState {
+    const state = apply(fixtureEditorState(), {
+      type: 'setModels',
+      nodeId: ATLAS_STYLE_NODE,
+      modelIds: TWO_MODELS,
+    })
+    return apply(state, fanOutOf(openProjectOf(state), ATLAS_STYLE_NODE, 500))
+  }
+
+  it('produces one candidate per model, all in the same run', () => {
+    const project = openProjectOf(fannedOut())
+    const made = generationsForNode(project, ATLAS_STYLE_NODE).slice(-2)
+
+    expect(made.map(g => g.recipe.modelId)).toEqual(TWO_MODELS)
+    expect(new Set(made.map(g => g.runId)).size).toBe(1)
+  })
+
+  it('gives each candidate its own model, not the primary one twice', () => {
+    // The failure this pins is the cheap implementation: freeze once, submit N
+    // times. Every candidate would then claim it came from the first model, and
+    // the comparison the fan-out exists to make would be unreadable afterwards.
+    const project = openProjectOf(fannedOut())
+    const made = generationsForNode(project, ATLAS_STYLE_NODE).slice(-2)
+
+    expect(new Set(made.map(g => g.recipe.modelId)).size).toBe(2)
+  })
+
+  it('records each candidate against the node that produced it', () => {
+    const project = openProjectOf(fannedOut())
+    const made = generationsForNode(project, ATLAS_STYLE_NODE).slice(-2)
+
+    expect(made.every(g => g.recipe.nodeId === ATLAS_STYLE_NODE)).toBe(true)
+  })
+
+  it('picks the first arrival so anything downstream has an input', () => {
+    const project = openProjectOf(fannedOut())
+    const made = generationsForNode(project, ATLAS_STYLE_NODE).slice(-2)
+
+    expect(fixtureNode(project, ATLAS_STYLE_NODE).pick).toBe(made[0]?.id)
+  })
+
+  it('drops a pinned seed no model in the fan-out could honour', () => {
+    // A pin is a claim about what is being held still, and it cannot be half
+    // true across a comparison — so adding a seedless model unpins rather than
+    // letting one half of the pair claim a reproducibility the other lacks.
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'pinSeed', nodeId: ATLAS_ANIMATE_NODE, value: 12 },
+      {
+        type: 'setModels',
+        nodeId: ATLAS_ANIMATE_NODE,
+        modelIds: ['fal-ai/kling-video/o1/image-to-video'],
+      }
+    )
+
+    expect(fixtureDraft(openProjectOf(state), ATLAS_ANIMATE_NODE).seed).toEqual(
+      {
+        mode: 'roll',
+      }
+    )
+  })
+
+  it('never lets the fan-out empty out', () => {
+    const state = apply(fixtureEditorState(), {
+      type: 'setModels',
+      nodeId: ATLAS_STYLE_NODE,
+      modelIds: [],
+    })
+
+    // An empty list is a run button that submits nothing; the reducer holds it
+    // to at least one, whatever the caller asked for.
+    expect(
+      fixtureDraft(openProjectOf(state), ATLAS_STYLE_NODE).modelIds.length
+    ).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * The graph between drafts — the thing that did not exist before ADR 0005.
+ */
+describe('wiring the canvas', () => {
+  it('adds a node wired to the one it was added from', () => {
+    const state = apply(fixtureEditorState(), {
+      type: 'addNode',
+      nodeId: 'node-new',
+      kind: 'style',
+      position: { x: 10, y: 20 },
+      fromNodeId: ATLAS_SOURCE_NODE,
+    })
+
+    const added = fixtureNode(openProjectOf(state), 'node-new')
+    expect(added.inputNodeId).toBe(ATLAS_SOURCE_NODE)
+    // Selected on arrival, because adding a node is the first half of filling
+    // it in and the sidebar is where that happens.
+    expect(state.selectedNodeId).toBe('node-new')
+  })
+
+  it('refuses an edge that would close a cycle, leaving the old one alone', () => {
+    const state = apply(fixtureEditorState(), {
+      type: 'connectNodes',
+      sourceNodeId: ATLAS_ANIMATE_NODE,
+      targetNodeId: ATLAS_STYLE_NODE,
+    })
+
+    expect(
+      fixtureNode(openProjectOf(state), ATLAS_STYLE_NODE).inputNodeId
+    ).toBe(ATLAS_SOURCE_NODE)
+  })
+
+  it('clears the pin when a node is rewired', () => {
+    // The old pin names a candidate of the *previous* input, so it cannot
+    // survive — and leaving it would make `resolvedInputId` fall through in
+    // silence rather than following the edge the user just drew.
+    const state = apply(
+      fixtureEditorState(),
+      {
+        type: 'pinNodeInput',
+        nodeId: ATLAS_STYLE_NODE,
+        generationId: 'gen-src-1',
+      },
+      {
+        type: 'connectNodes',
+        sourceNodeId: ATLAS_ANIMATE_NODE,
+        targetNodeId: 'node-nowhere',
+      }
+    )
+
+    // Refused above, so the pin stands. Now a real rewire.
+    const rewired = apply(state, {
+      type: 'connectNodes',
+      sourceNodeId: ATLAS_STYLE_NODE,
+      targetNodeId: ATLAS_ANIMATE_NODE,
+    })
+
+    expect(
+      fixtureNode(openProjectOf(rewired), ATLAS_ANIMATE_NODE).pinnedInputId
+    ).toBeNull()
+  })
+
+  it("takes a deleted node's candidates with it and detaches what followed", () => {
+    // A node is the only place a candidate can live on the canvas, so keeping
+    // the pictures would leave them with no home on the one surface there is
+    // (ADR 0005). The *files* stay on disk for the deliberate cleanup pass.
+    const state = apply(fixtureEditorState(), {
+      type: 'deleteNode',
+      nodeId: ATLAS_STYLE_NODE,
+    })
+
+    const project = openProjectOf(state)
+    expect(project.nodes.map(node => node.id)).not.toContain(ATLAS_STYLE_NODE)
+    expect(
+      project.generations.some(g => g.recipe.nodeId === ATLAS_STYLE_NODE)
+    ).toBe(false)
+    // Losing one step of a chain must not cost the rest of the chain.
+    expect(fixtureNode(project, ATLAS_ANIMATE_NODE).inputNodeId).toBeNull()
+    expect(fixtureNode(project, ATLAS_ANIMATE_NODE).draft.prompt).toBe('motion')
+  })
+
+  it('drops an arrival whose node has been deleted', () => {
+    // There is nowhere truthful to put the picture, and inventing a home for it
+    // would be the ghost surface this design exists to remove.
+    const state = apply(
+      fixtureEditorState(),
+      { type: 'deleteNode', nodeId: ATLAS_STYLE_NODE },
+      {
+        type: 'recordGenerations',
+        at: 9,
+        entries: [
+          {
+            id: 'gen-orphan',
+            stage: 'style',
+            recipe: {
+              ...frozenSource(),
+              nodeId: ATLAS_STYLE_NODE,
+            },
+            seed: 1,
+            asset: 'gen-orphan.jpeg',
+            runId: null,
+            costUsd: 0,
+            requestId: null,
+          },
+        ],
+      }
+    )
+
+    expect(
+      openProjectOf(state).generations.some(g => g.id === 'gen-orphan')
+    ).toBe(false)
   })
 })

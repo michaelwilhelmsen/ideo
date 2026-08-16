@@ -159,13 +159,13 @@ post-process, so changing one's mind costs an encode rather than a generation.
 
 That override is **per candidate, and says so** — it is stored as
 `{generationId, rewind}`, not as a bare boolean. The panel is never remounted when the
-stage tab or the project changes, so a bare boolean would follow the user onto the next
-clip and export it rewound against what its own recipe says. Naming the candidate makes the
+selected node or the project changes, so a bare boolean would follow the user onto the
+next clip and export it rewound against what its own recipe says. Naming the candidate makes the
 override expire by construction, with no effect to keep in step. The destination
 deliberately does **not** expire the same way: a folder is app-wide (PRD §11), a candidate
 is not.
 
-Note the split this leaves: the animate-stage switch records the _intent_ into the recipe,
+Note the split this leaves: the animate node's switch records the _intent_ into the recipe,
 and the export-panel switch decides what _this_ encode does. Only the first is persisted.
 
 ## Stills export too

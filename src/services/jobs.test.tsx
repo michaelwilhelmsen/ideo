@@ -7,22 +7,24 @@
  * there. Both are checked against the document actually handed to Rust.
  */
 
-import { render, screen, waitFor, within } from '@/test/test-utils'
+import { render, screen, waitFor } from '@/test/test-utils'
 import { act } from 'react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
-import {
-  ATLAS,
-  LEDGER,
-  readManifest,
-  summaryOf,
-  writeManifest,
-} from '@/lib/recipe'
+import { readManifest, writeManifest } from '@/lib/recipe'
 import { commands, type Job, type JsonValue } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { useUIStore } from '@/store/ui-store'
 import { collectFinished } from './jobs'
+import {
+  ATLAS,
+  ATLAS_SOURCE_NODE,
+  LEDGER,
+  LEDGER_SOURCE_NODE,
+  fixtureFrozen,
+  summaryOf,
+} from '../lib/recipe/fixtures'
 
 /** A job the store was holding when the app started. */
 function finishedJob(overrides: Partial<Job> = {}): Job {
@@ -31,7 +33,7 @@ function finishedJob(overrides: Partial<Job> = {}): Job {
     projectId: ATLAS.id,
     generationId: 'gen-from-last-time',
     stage: 'source',
-    recipe: ATLAS.drafts.source as unknown as JsonValue,
+    recipe: fixtureFrozen(ATLAS, ATLAS_SOURCE_NODE) as unknown as JsonValue,
     status: 'completed',
     modelId: 'fal-ai/flux-pro/v1.1',
     seed: 1234,
@@ -68,16 +70,17 @@ async function openAtlas() {
 }
 
 /**
- * Opening a project lands on the stage it has got furthest with, and the
- * source jobs below live in that stage's own panel.
+ * Put the source node's panel on screen.
  *
- * Scoped to the tab bar, because "Source 2" is now also the name of a card in
- * the input row every later stage carries — a bare `/^Source/` matches the tab
- * and the ingredient alike.
+ * A click on its card, since the tab bar is gone (ADR 0005). Scoped to the
+ * canvas rather than the whole document, because "Source 2" is also the name of
+ * a card in the input row every downstream node carries — a bare `/^Source/`
+ * would match the step and the ingredient alike.
  */
 async function showSourceParameters() {
-  const tabs = within(await screen.findByRole('navigation', { name: 'Stages' }))
-  await userEvent.click(tabs.getByRole('button', { name: /^Source/ }))
+  await userEvent.click(
+    await screen.findByRole('heading', { name: /^Source$/ })
+  )
 }
 
 describe('collecting work that survived a quit', () => {
@@ -181,7 +184,10 @@ describe('collecting work that survived a quit', () => {
           ? [
               finishedJob({
                 projectId: LEDGER.id,
-                recipe: LEDGER.drafts.source as unknown as JsonValue,
+                recipe: fixtureFrozen(
+                  LEDGER,
+                  LEDGER_SOURCE_NODE
+                ) as unknown as JsonValue,
               }),
             ]
           : [],
@@ -280,7 +286,7 @@ describe('a collected candidate remembers its run', () => {
         type: 'beginRun',
         runId: 'run-this-session',
         projectId: ATLAS.id,
-        stage: 'source',
+        nodeId: ATLAS_SOURCE_NODE,
         generationIds: ['gen-from-last-time'],
         at: 1,
       })
@@ -315,7 +321,7 @@ describe('a collected candidate remembers its run', () => {
       const runs = useEditorStore.getState().state.runs
       expect(runs).toHaveLength(1)
       expect(runs[0]?.generationIds).toEqual(['gen-1', 'gen-2'])
-      expect(runs[0]?.stage).toBe('source')
+      expect(runs[0]?.nodeId).toBe(ATLAS_SOURCE_NODE)
     })
 
     // Adopted once, however many times the list is polled.

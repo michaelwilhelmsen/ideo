@@ -26,6 +26,7 @@ function recipe(
     params: overrides.params ?? {},
     options: {},
     inputGenerationId: null,
+    nodeId: 'node-under-test',
   }
 }
 

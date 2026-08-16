@@ -13,29 +13,30 @@ Technical documentation for building and extending this app. These docs describe
 
 ## Core Systems
 
-| Document                                      | Description                                          |
-| --------------------------------------------- | ---------------------------------------------------- |
-| [Command System](./command-system.md)         | Unified action dispatch, command registration        |
-| [Keyboard Shortcuts](./keyboard-shortcuts.md) | Global shortcut handling, platform modifiers         |
-| [Menus](./menus.md)                           | Native menu building with i18n                       |
-| [Quick Panes](./quick-panes.md)               | Multi-window quick entry pattern                     |
-| [Tauri Commands](./tauri-commands.md)         | Type-safe Rust-TypeScript bridge (tauri-specta)      |
-| [Tauri Plugins](./tauri-plugins.md)           | Plugin usage and configuration                       |
-| [Model Registry](./model-registry.md)         | Model capabilities, aspect idioms, validation        |
-| [Composing Presets](./composing-presets.md)   | Source and style — seeding the form, idioms, forks   |
-| [Motion Presets](./motion-presets.md)         | The second library — movement, kept apart from look  |
-| [Project Palette](./palette.md)               | Six colour roles, colour naming, template variables  |
-| [Export](./export.md)                         | ffmpeg detection, web-ready encodes, ping-pong loop  |
-| [Effects](./effects.md)                       | The fourth tab — shader looks, treatments, dithering |
+| Document                                      | Description                                         |
+| --------------------------------------------- | --------------------------------------------------- |
+| [Command System](./command-system.md)         | Unified action dispatch, command registration       |
+| [Keyboard Shortcuts](./keyboard-shortcuts.md) | Global shortcut handling, platform modifiers        |
+| [Menus](./menus.md)                           | Native menu building with i18n                      |
+| [Quick Panes](./quick-panes.md)               | Multi-window quick entry pattern                    |
+| [Tauri Commands](./tauri-commands.md)         | Type-safe Rust-TypeScript bridge (tauri-specta)     |
+| [Tauri Plugins](./tauri-plugins.md)           | Plugin usage and configuration                      |
+| [Model Registry](./model-registry.md)         | Model capabilities, aspect idioms, validation       |
+| [Composing Presets](./composing-presets.md)   | Source and style — seeding the form, idioms, forks  |
+| [Motion Presets](./motion-presets.md)         | The second library — movement, kept apart from look |
+| [Project Palette](./palette.md)               | Six colour roles, colour naming, template variables |
+| [Export](./export.md)                         | ffmpeg detection, web-ready encodes, ping-pong loop |
+| [Effects](./effects.md)                       | Shader looks, treatments, dithering                 |
 
 ## UI & UX
 
-| Document                                   | Description                                   |
-| ------------------------------------------ | --------------------------------------------- |
-| [UI Patterns](./ui-patterns.md)            | CSS architecture, shadcn/ui, onboarding steps |
-| [Internationalization](./i18n-patterns.md) | Translation system, RTL support               |
-| [Notifications](./notifications.md)        | Toast and native notifications                |
-| [Cross-Platform](./cross-platform.md)      | Platform detection, OS-specific adaptations   |
+| Document                                   | Description                                     |
+| ------------------------------------------ | ----------------------------------------------- |
+| [The Canvas](./canvas.md)                  | React Flow wiring, node types, edges (ADR 0005) |
+| [UI Patterns](./ui-patterns.md)            | CSS architecture, shadcn/ui, onboarding steps   |
+| [Internationalization](./i18n-patterns.md) | Translation system, RTL support                 |
+| [Notifications](./notifications.md)        | Toast and native notifications                  |
+| [Cross-Platform](./cross-platform.md)      | Platform detection, OS-specific adaptations     |
 
 ## Data & Storage
 

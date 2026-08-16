@@ -7,8 +7,8 @@ import { TitleBar } from '@/components/titlebar/TitleBar'
 import { RightSideBar } from './RightSideBar'
 import { MainWindowContent } from './MainWindowContent'
 import { Overview } from '@/components/overview/Overview'
-import { StageEditor } from '@/components/editor/StageEditor'
-import { ActiveStageParameters } from '@/components/editor/ActiveStageParameters'
+import { Canvas } from '@/components/editor/Canvas'
+import { NodeSidebar } from '@/components/editor/NodeSidebar'
 import { CommandPalette } from '@/components/command-palette/CommandPalette'
 import { PreferencesDialog } from '@/components/preferences/PreferencesDialog'
 import { OnboardingDialog } from '@/components/onboarding/OnboardingDialog'
@@ -69,7 +69,7 @@ export function MainWindow() {
               minSize={LAYOUT.main.min}
             >
               <MainWindowContent>
-                <StageEditor />
+                <Canvas />
               </MainWindowContent>
             </ResizablePanel>
 
@@ -82,7 +82,7 @@ export function MainWindow() {
               className={cn(!rightSidebarVisible && 'hidden')}
             >
               <RightSideBar className="overflow-y-auto">
-                <ActiveStageParameters />
+                <NodeSidebar />
               </RightSideBar>
             </ResizablePanel>
           </ResizablePanelGroup>

@@ -464,10 +464,11 @@ Not a compliance risk worth building into an internal tool.
 
 Uses the template's existing layout components rather than new chrome:
 
-- **Left sidebar** — project list. A persistent list supports the "swap the style on
-  this old hero" workflow better than a gallery you must navigate out of.
-- **Main** — the three-stage editor for the active project.
-- **Right sidebar** — parameters and presets for the selected stage.
+- **Overview** — the front door, a grid of project cards (#55, ADR 0001).
+- **Main** — the **canvas**: every step of the active project as a draft node, with the
+  edges between them (ADR 0005, superseding the three-stage tab editor this section
+  originally described).
+- **Right sidebar** — parameters and presets for the **selected node**.
 - **Command palette** — New project, Regenerate, Export.
 
 **Model selection is per generation**, not per project, and is recorded in the recipe.

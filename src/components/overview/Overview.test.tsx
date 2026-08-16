@@ -10,7 +10,7 @@ import { render, screen, waitFor } from '@/test/test-utils'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
-import { ATLAS, LEDGER, summaryOf, writeManifest } from '@/lib/recipe'
+import { writeManifest } from '@/lib/recipe'
 import {
   commands,
   type Job,
@@ -19,6 +19,13 @@ import {
 } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { useUIStore } from '@/store/ui-store'
+import {
+  ATLAS,
+  ATLAS_SOURCE_NODE,
+  LEDGER,
+  fixtureFrozen,
+  summaryOf,
+} from '../../lib/recipe/fixtures'
 
 function card(overrides: Partial<ProjectSummary>): ProjectSummary {
   return { ...summaryOf(ATLAS), ...overrides }
@@ -30,7 +37,7 @@ function runningJob(projectId: string, requestId: string): Job {
     projectId,
     generationId: `gen-${requestId}`,
     stage: 'source',
-    recipe: ATLAS.drafts.source as unknown as JsonValue,
+    recipe: fixtureFrozen(ATLAS, ATLAS_SOURCE_NODE) as unknown as JsonValue,
     status: 'running',
     modelId: 'fal-ai/flux-pro/v1.1',
     seed: null,

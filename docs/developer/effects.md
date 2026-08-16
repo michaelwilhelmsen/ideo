@@ -14,40 +14,41 @@ no verdicts — so "generate four and pick one" is the wrong interaction. Wideni
 `validateRegistry`, none of which a modelless tab can answer. Instead
 `EditorState` carries two extra fields:
 
-| Field             | Meaning                                                           |
-| ----------------- | ----------------------------------------------------------------- |
-| `effectsOpen`     | Whether the effects tab is the one on screen                      |
-| `treatmentTarget` | The candidate the tab is pinned to, or `null` to follow selection |
+| Field             | Meaning                                                       |
+| ----------------- | ------------------------------------------------------------- |
+| `effectsOpen`     | Whether the effects panel is the one on screen                |
+| `treatmentTarget` | The candidate it is pinned to, or `null` to follow the canvas |
 
-`activeStage` still means "which stage's form the sidebar edits", and stays a
-`StageKind`. The pin is sticky so a selection change elsewhere cannot move you
-onto a different generation's treatment mid-edit.
+`selectedNodeId` means "which node's form the sidebar edits" (ADR 0005). The pin
+is sticky so a selection change elsewhere cannot move you onto a different
+generation's treatment mid-edit.
 
 **The picture is in the main pane; the knobs are in the right sidebar.** That is
-the layout every other tab keeps, so which column to reach for never depends on
-which tab you are on. `EffectsParameters` replaces `StageParameters` while the
-tab is open — an effect has no model, no seed and no price, so a stage form
-under the knobs would be a form about something you are not looking at. The
-export panel stays put, because export is available from every tab and is what a
-treatment is for.
+the layout the canvas keeps, so which column to reach for never changes.
+`EffectsParameters` replaces `NodeParameters` while the panel is open — an effect
+has no model, no seed and no price, so a node's form under the knobs would be a
+form about something you are not looking at. The export panel stays put, because
+export is available whatever is selected and is what a treatment is for.
 
 Both panes are siblings in the layout rather than parent and child, so they
 share `useTreatmentTarget()` rather than passing the target down through a
 component that owns neither.
 
 **What it treats is chosen, not inherited.** `useTreatmentTarget` offers every
-stage's current selection as `choices`, and the header renders them as a switch —
+node's current `pick` as `choices`, and the header renders them as a switch —
 "halftone the still" and "halftone the clip" are different jobs done in the same
-place. Unpinned, it defaults to the **furthest** stage with a selection rather than
-`activeStage`'s: following the active stage meant opening Effects from the source tab
+place. Unpinned, it falls to the **selected node's** pick, then to the last node
+with anything to show. Following a _tab_ meant opening Effects from the source tab
 silently treated the source while a finished clip sat one tab away, and since a
 treatment is stored per generation, the knobs you turned landed on a candidate you
-were not looking at. This is not cosmetic — `valuesForMedium` substitutes blue noise
-for error diffusion on a clip, so the two targets do not offer the same knobs.
+were not looking at. The canvas makes "what you were looking at" answerable, which is
+why the selected node now sits second rather than last. This is not cosmetic —
+`valuesForMedium` substitutes blue noise for error diffusion on a clip, so the two
+targets do not offer the same knobs.
 
-"Treat this" survives for the case the switch cannot reach: the candidate strip can
-select a candidate that is not any stage's current selection, and the switch
-deliberately lists only selections.
+"Treat this" survives for the case the switch cannot reach: a candidate node can be
+double-clicked even when it is not its node's pick, and the switch deliberately lists
+only picks.
 
 ## A look
 

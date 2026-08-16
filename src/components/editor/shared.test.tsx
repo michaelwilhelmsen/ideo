@@ -10,17 +10,26 @@
 
 import { describe, expect, it, beforeEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { render, screen, within } from '@/test/test-utils'
+import { render, screen } from '@/test/test-utils'
 import {
-  ATLAS,
-  LEDGER,
   UPLOAD_MODEL_ID,
   uploadRecipe,
   type Generation,
   type Project,
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
-import { CandidateStrip, GenerationTile } from './shared'
+import { runGroups } from '@/lib/recipe'
+import { GenerationTile } from './shared'
+import {
+  ATLAS,
+  ATLAS_ANIMATE_NODE,
+  ATLAS_SOURCE_NODE,
+  ATLAS_STYLE_NODE,
+  LEDGER,
+  LEDGER_SOURCE_NODE,
+  fixtureDraft,
+  fixtureNode,
+} from '../../lib/recipe/fixtures'
 
 /** Opens a project so the tiles dispatch against something. */
 function open(project: Project): void {
@@ -58,7 +67,7 @@ describe('pinning a seed from the candidate that has it', () => {
       .setup()
       .click(screen.getByRole('button', { name: /pin this seed/i }))
 
-    expect(openProject().drafts.source.seed).toEqual({
+    expect(fixtureDraft(openProject(), LEDGER_SOURCE_NODE).seed).toEqual({
       mode: 'pinned',
       value: candidate.seed,
     })
@@ -86,7 +95,9 @@ describe('pinning a seed from the candidate that has it', () => {
     await user.click(screen.getByRole('button', { name: /pin this seed/i }))
     await user.click(screen.getByRole('button', { name: /pin this seed/i }))
 
-    expect(openProject().drafts.source.seed).toEqual({ mode: 'roll' })
+    expect(fixtureDraft(openProject(), LEDGER_SOURCE_NODE).seed).toEqual({
+      mode: 'roll',
+    })
   })
 
   it('is absent on a candidate with no seed to pin', () => {
@@ -95,7 +106,7 @@ describe('pinning a seed from the candidate that has it', () => {
     const upload: Generation = {
       id: 'upload-1',
       stage: 'source',
-      recipe: uploadRecipe('hero-plate.png'),
+      recipe: uploadRecipe('hero-plate.png', LEDGER_SOURCE_NODE),
       treatment: null,
       costUsd: 0,
       requestId: null,
@@ -127,7 +138,10 @@ describe('pinning a seed from the candidate that has it', () => {
       generations: [
         {
           ...(ATLAS.generations[0] as Generation),
-          stage: 'animate',
+          recipe: {
+            ...(ATLAS.generations[0] as Generation).recipe,
+            nodeId: ATLAS_ANIMATE_NODE,
+          },
           seed: 42,
         },
       ],
@@ -142,7 +156,7 @@ describe('pinning a seed from the candidate that has it', () => {
       />
     )
 
-    expect(project.drafts.animate.modelId).toBe(
+    expect(fixtureDraft(project, ATLAS_ANIMATE_NODE).modelIds[0]).toBe(
       'fal-ai/kling-video/o1/image-to-video'
     )
     expect(
@@ -157,7 +171,10 @@ describe('what a candidate’s preview renders (#29)', () => {
     return {
       id: 'gen-ani-9',
       stage: 'animate',
-      recipe: ATLAS.drafts.animate,
+      recipe: {
+        ...(ATLAS.generations.at(-1) as Generation).recipe,
+        nodeId: ATLAS_ANIMATE_NODE,
+      },
       treatment: null,
       costUsd: 0,
       requestId: null,
@@ -214,19 +231,26 @@ describe('what a candidate’s preview renders (#29)', () => {
   })
 })
 
-describe('the strip says which click produced which candidate', () => {
-  it('labels each run, and leaves earlier candidates unlabelled', () => {
-    open(ATLAS)
-    const { container } = render(
-      <CandidateStrip project={ATLAS} stage="source" />
-    )
+/**
+ * Which click produced which candidate (#26).
+ *
+ * Asserted against `runGroups` rather than against a component, because the
+ * strip that used to render it is gone: the canvas draws a node's candidates as
+ * child nodes (ADR 0005), and the grouping is what a node card labels them by.
+ * The claim is the same one, made where it is actually decided.
+ */
+describe('runs are grouped and numbered', () => {
+  it('groups one click together and leaves earlier candidates unnumbered', () => {
+    const groups = runGroups(ATLAS, fixtureNode(ATLAS, ATLAS_SOURCE_NODE), true)
 
-    // Atlas's three source candidates are one run; its style candidates were
-    // made before runs were recorded and carry no label.
-    expect(within(container).getByText('Run 1')).toBeInTheDocument()
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.number).toBe(1)
+    expect(groups[0]?.generations).toHaveLength(3)
 
-    const style = render(<CandidateStrip project={ATLAS} stage="style" />)
-    expect(within(style.container).queryByText(/^Run /)).toBeNull()
+    // Atlas's style candidates were made before runs were recorded, so they
+    // carry no run and no number rather than being refused.
+    const style = runGroups(ATLAS, fixtureNode(ATLAS, ATLAS_STYLE_NODE), true)
+    expect(style.every(group => group.number === null)).toBe(true)
   })
 
   it('numbers a second run separately from the first', () => {
@@ -243,10 +267,12 @@ describe('the strip says which click produced which candidate', () => {
       ],
     }
 
-    open(project)
-    render(<CandidateStrip project={project} stage="source" />)
+    const groups = runGroups(
+      project,
+      fixtureNode(project, ATLAS_SOURCE_NODE),
+      true
+    )
 
-    expect(screen.getByText('Run 1')).toBeInTheDocument()
-    expect(screen.getByText('Run 2')).toBeInTheDocument()
+    expect(groups.map(group => group.number)).toEqual([1, 2])
   })
 })

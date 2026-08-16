@@ -6,8 +6,23 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { ATLAS } from './fixtures'
-import { MANIFEST_VERSION, readManifest, writeManifest } from './manifest'
+import {
+  ATLAS,
+  ATLAS_ANIMATE_NODE,
+  ATLAS_SOURCE_NODE,
+  ATLAS_STYLE_NODE,
+  fixtureDraft,
+  fixtureNode,
+  withFixtureNode,
+} from './fixtures'
+import { MAX_MODELS_PER_NODE } from './graph'
+import {
+  IncompatibleManifestError,
+  MANIFEST_VERSION,
+  readManifest,
+  writeManifest,
+} from './manifest'
+import { resolvedInputId } from './selectors'
 import { UPLOAD_MODEL_ID, uploadRecipe } from './upload'
 import type { Generation, Project } from './types'
 
@@ -64,14 +79,74 @@ describe('a manifest that is not what we expect', () => {
     expect(project.generations).toHaveLength(ATLAS.generations.length)
   })
 
-  it('clears a selection pointing at a generation that is not there', () => {
+  it('clears a pick pointing at a generation that is not there', () => {
+    // A pointer to a candidate the file does not hold is worse than none: the
+    // node would claim a picture it cannot show, and everything wired to it
+    // would follow the claim.
+    const manifest = writeManifest(ATLAS, 1) as unknown as {
+      nodes: Record<string, unknown>[]
+    }
+    for (const node of manifest.nodes) node.pick = 'gone'
+
+    const project = readManifest(manifest)
+
+    expect(project.nodes.every(node => node.pick === null)).toBe(true)
+  })
+
+  it('drops an edge that names a node the file does not hold', () => {
+    const manifest = writeManifest(ATLAS, 1) as unknown as {
+      nodes: Record<string, unknown>[]
+    }
+    const second = manifest.nodes[1]
+    if (second !== undefined) second.inputNodeId = 'node-gone'
+
+    const project = readManifest(manifest)
+
+    expect(fixtureNode(project, ATLAS_STYLE_NODE).inputNodeId).toBeNull()
+  })
+
+  it('breaks a cycle a hand-edited manifest wrote', () => {
+    // `canConnect` makes one unreachable through the UI, but a file can say
+    // anything — and a cycle would make `resolvedInputId` recurse forever, which
+    // is a hung window rather than a bad picture (ADR 0005).
+    const manifest = writeManifest(ATLAS, 1) as unknown as {
+      nodes: Record<string, unknown>[]
+    }
+    const first = manifest.nodes[0]
+    if (first !== undefined) first.inputNodeId = ATLAS_ANIMATE_NODE
+
+    const project = readManifest(manifest)
+
+    // The source node could never hold an edge anyway — its kind consumes
+    // nothing — so the cycle is broken before it is even a question.
+    expect(fixtureNode(project, ATLAS_SOURCE_NODE).inputNodeId).toBeNull()
+    expect(
+      resolvedInputId(project, fixtureNode(project, ATLAS_ANIMATE_NODE))
+    ).not.toBeUndefined()
+  })
+
+  it('refuses a manifest from a build whose version is not ours', () => {
+    // No migration (ADR 0005). The throw is its own class so the caller can say
+    // "written by a different version" rather than "could not be opened", and
+    // the file is left exactly as it was.
+    const manifest = { ...writeManifest(ATLAS, 1), version: 1 }
+
+    expect(() => readManifest(manifest)).toThrow(IncompatibleManifestError)
+  })
+
+  it('drops a candidate naming a node the file does not hold', () => {
     const manifest = writeManifest(ATLAS, 1)
     const project = readManifest({
       ...manifest,
-      selection: { source: 'gone', style: null, animate: null },
+      generations: manifest.generations.map(generation => ({
+        ...generation,
+        recipe: { ...(generation.recipe as object), nodeId: 'node-gone' },
+      })),
     })
 
-    expect(project.selection.source).toBeNull()
+    // Nowhere to draw it, and the canvas is the only surface there is. The
+    // *file* in `assets/` stays either way.
+    expect(project.generations).toEqual([])
   })
 })
 
@@ -172,15 +247,18 @@ describe('runs and batch sizes (#26)', () => {
     expect(project.generations[0]?.runId).toBe('run-abc')
   })
 
-  it('carries the batch sizes the project was set to', () => {
+  it('carries the batch size each node was set to', () => {
+    // Per node since ADR 0005, not per stage: two style steps on one canvas can
+    // want different numbers, and a per-stage record could not hold that.
     const project = readManifest(
       writeManifest(
-        { ...ATLAS, batchSizes: { source: 2, style: 3, animate: 1 } },
+        withFixtureNode(ATLAS, ATLAS_STYLE_NODE, { batchSize: 3 }),
         1
       )
     )
 
-    expect(project.batchSizes).toEqual({ source: 2, style: 3, animate: 1 })
+    expect(fixtureNode(project, ATLAS_STYLE_NODE).batchSize).toBe(3)
+    expect(fixtureNode(project, ATLAS_ANIMATE_NODE).batchSize).toBe(1)
   })
 
   it('reads a manifest written before the slice, with neither field', () => {
@@ -197,8 +275,6 @@ describe('runs and batch sizes (#26)', () => {
         }
       ),
     }
-    delete older.batchSizes
-
     const project = readManifest(older)
 
     // Ungrouped, not unreadable: the candidates are all still there.
@@ -206,20 +282,47 @@ describe('runs and batch sizes (#26)', () => {
     expect(
       project.generations.every(generation => generation.runId === null)
     ).toBe(true)
-    // And the project produces what a project created today would.
-    expect(project.batchSizes).toEqual({ source: 4, style: 4, animate: 1 })
   })
 
   it('holds a hand-edited batch size to what we would actually submit', () => {
-    // Forty paid calls one click away is the failure this prevents. Clamped
-    // rather than refused: forty plainly means "as many as you can", and four
-    // is as many as we do.
-    const project = readManifest({
-      ...writeManifest(ATLAS, 1),
-      batchSizes: { source: 40, style: 0, animate: 'lots' },
+    // Forty paid calls one click away is the failure this prevents — and with
+    // fan-out, forty *per model*. Clamped rather than refused: forty plainly
+    // means "as many as you can", and four is as many as we do.
+    const manifest = writeManifest(ATLAS, 1) as unknown as {
+      nodes: Record<string, unknown>[]
+    }
+    const sizes = [40, 0, 'lots']
+    manifest.nodes.forEach((node, index) => {
+      node.batchSize = sizes[index]
     })
 
-    expect(project.batchSizes).toEqual({ source: 4, style: 1, animate: 1 })
+    const project = readManifest(manifest)
+
+    expect(project.nodes.map(node => node.batchSize)).toEqual([4, 1, 1])
+  })
+
+  it('holds a hand-edited fan-out to what one click may cost', () => {
+    // The other end of the same limit (ADR 0005). An empty list is a run button
+    // that submits nothing; an uncapped one is a click with no ceiling.
+    const manifest = writeManifest(ATLAS, 1) as unknown as {
+      nodes: Record<string, unknown>[]
+    }
+    const first = manifest.nodes[0]
+    if (first !== undefined) {
+      first.draft = {
+        ...(first.draft as object),
+        modelIds: Array.from({ length: 9 }, (_, i) => `model-${String(i)}`),
+      }
+    }
+    const second = manifest.nodes[1]
+    if (second !== undefined) {
+      second.draft = { ...(second.draft as object), modelIds: [] }
+    }
+
+    const project = readManifest(manifest)
+
+    expect(project.nodes[0]?.draft.modelIds).toHaveLength(MAX_MODELS_PER_NODE)
+    expect(project.nodes[1]?.draft.modelIds).toHaveLength(1)
   })
 })
 
@@ -253,12 +356,10 @@ describe('preset provenance (#28)', () => {
     const manifest = writeManifest(ATLAS, 1)
     const older = {
       ...manifest,
-      drafts: Object.fromEntries(
-        Object.entries(ATLAS.drafts).map(([stage, recipe]) => {
-          const { presetModified: _dropped, ...rest } = recipe
-          return [stage, rest]
-        })
-      ),
+      nodes: ATLAS.nodes.map(node => {
+        const { presetModified: _dropped, ...draft } = node.draft
+        return { ...node, draft }
+      }),
       generations: manifest.generations.map(generation => {
         const { presetModified: _dropped, ...recipe } =
           generation.recipe as Record<string, unknown>
@@ -272,7 +373,7 @@ describe('preset provenance (#28)', () => {
     expect(
       project.generations.every(g => g.recipe.presetModified === false)
     ).toBe(true)
-    expect(project.drafts.style.presetModified).toBe(false)
+    expect(fixtureDraft(project, ATLAS_STYLE_NODE).presetModified).toBe(false)
   })
 
   it('reads a hand-edited flag that is not a boolean as unmodified', () => {
@@ -293,7 +394,7 @@ describe('an upload survives the manifest (#27)', () => {
   const upload: Generation = {
     id: 'upload-1',
     stage: 'source',
-    recipe: uploadRecipe('hero-plate.png'),
+    recipe: uploadRecipe('hero-plate.png', ATLAS_SOURCE_NODE),
     treatment: null,
     costUsd: 0,
     requestId: null,
@@ -310,7 +411,7 @@ describe('an upload survives the manifest (#27)', () => {
     // The reserved model id is why the manifest version does not have to move:
     // `readRecipe` only ever asked that `modelId` is a string.
     const manifest = writeManifest(
-      { ...ATLAS, generations: [upload], selection: { ...ATLAS.selection } },
+      { ...ATLAS, generations: [upload] },
       1_700_000_000
     )
 
@@ -326,10 +427,7 @@ describe('an upload survives the manifest (#27)', () => {
 
   it('is read as a generation like any other, with no shape of its own', () => {
     const project = readManifest(
-      writeManifest(
-        { ...ATLAS, generations: [upload], selection: { ...ATLAS.selection } },
-        1_700_000_000
-      )
+      writeManifest({ ...ATLAS, generations: [upload] }, 1_700_000_000)
     )
 
     // The point of the reserved id: nothing in the reader branches on it.
@@ -413,7 +511,6 @@ describe('what fal charged survives the manifest (#56)', () => {
         {
           ...ATLAS,
           generations: [reconciled],
-          selection: { ...ATLAS.selection },
         },
         1
       )
@@ -431,7 +528,6 @@ describe('what fal charged survives the manifest (#56)', () => {
       {
         ...ATLAS,
         generations: [reconciled],
-        selection: { ...ATLAS.selection },
       },
       1
     ) as unknown as { generations: Record<string, unknown>[] }
@@ -450,7 +546,6 @@ describe('what fal charged survives the manifest (#56)', () => {
       {
         ...ATLAS,
         generations: [reconciled],
-        selection: { ...ATLAS.selection },
       },
       1
     ) as unknown as { generations: Record<string, unknown>[] }
@@ -469,7 +564,6 @@ describe('what fal charged survives the manifest (#56)', () => {
       {
         ...ATLAS,
         generations: [{ ...reconciled, actualCostUsd: 0 }],
-        selection: { ...ATLAS.selection },
       },
       1
     )

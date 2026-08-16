@@ -12,17 +12,20 @@ import { render, screen, waitFor } from '@/test/test-utils'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
-import {
-  ATLAS,
-  DEFAULT_PALETTE,
-  readManifest,
-  summaryOf,
-  writeManifest,
-} from '@/lib/recipe'
+import { DEFAULT_PALETTE, readManifest, writeManifest } from '@/lib/recipe'
 import { commands, type JsonValue } from '@/lib/tauri-bindings'
+import type { Project } from '@/lib/recipe'
 import { newProject } from '@/services/projects'
 import { useEditorStore } from '@/store/editor-store'
 import { useUIStore } from '@/store/ui-store'
+import {
+  ATLAS,
+  ATLAS_SOURCE_NODE,
+  ATLAS_STYLE_NODE,
+  fixtureDraft,
+  fixtureNode,
+  summaryOf,
+} from '../lib/recipe/fixtures'
 
 /** The most recent manifest handed to Rust, as a project again. */
 function lastSavedProject() {
@@ -56,12 +59,20 @@ describe('the open project and the disk', () => {
     vi.mocked(commands.saveProject).mockClear()
   })
 
+  /** The open project, or a failure — every test below has opened one. */
+  function openProject(): Project {
+    const project = useEditorStore.getState().state.project
+    if (project === null) throw new Error('nothing is open')
+    return project
+  }
+
   it('opens a project by reading its manifest, not by trusting the index', async () => {
     await openAtlas()
 
-    const project = useEditorStore.getState().state.project
-    expect(project?.drafts.style.presetId).toBe('soft-clay-render')
-    expect(project?.generations).toHaveLength(ATLAS.generations.length)
+    expect(fixtureDraft(openProject(), ATLAS_STYLE_NODE).presetId).toBe(
+      'soft-clay-render'
+    )
+    expect(openProject().generations).toHaveLength(ATLAS.generations.length)
   })
 
   it('writes an edited recipe back, so it survives a restart', async () => {
@@ -70,14 +81,14 @@ describe('the open project and the disk', () => {
     act(() => {
       useEditorStore.getState().dispatch({
         type: 'setPrompt',
-        stage: 'style',
+        nodeId: ATLAS_STYLE_NODE,
         prompt: 'a colder version of the same thing',
       })
     })
 
     await waitFor(
       () => {
-        expect(lastSavedProject().drafts.style.prompt).toBe(
+        expect(fixtureDraft(lastSavedProject(), ATLAS_STYLE_NODE).prompt).toBe(
           'a colder version of the same thing'
         )
       },
@@ -158,7 +169,13 @@ describe('runs and batch sizes reach the disk (#26)', () => {
   it('gives a new project the defaults, copied rather than referenced', () => {
     const project = newProject('Something new', '16:9')
 
-    expect(project.batchSizes).toEqual({ source: 4, style: 4, animate: 1 })
+    // One source node, and only one (ADR 0005). Three wired in a line would be
+    // the app drawing the wizard it just deleted — a shape that says "next,
+    // then next" before the user has decided there is a style step at all.
+    expect(project.nodes).toHaveLength(1)
+    expect(project.nodes[0]?.kind).toBe('source')
+    expect(project.nodes[0]?.inputNodeId).toBeNull()
+    expect(project.nodes[0]?.batchSize).toBe(4)
 
     // The palette too (#46, PRD §11). Copied deeply, so editing this project's
     // colours cannot reach the constant and through it every other project.
@@ -197,12 +214,16 @@ describe('runs and batch sizes reach the disk (#26)', () => {
     act(() => {
       useEditorStore
         .getState()
-        .dispatch({ type: 'setBatchSize', stage: 'source', size: 2 })
+        .dispatch({ type: 'setBatchSize', nodeId: ATLAS_SOURCE_NODE, size: 2 })
     })
 
-    await waitFor(() => expect(lastSavedProject().batchSizes.source).toBe(2), {
-      timeout: 3000,
-    })
+    await waitFor(
+      () =>
+        expect(
+          fixtureNode(lastSavedProject(), ATLAS_SOURCE_NODE).batchSize
+        ).toBe(2),
+      { timeout: 3000 }
+    )
   })
 
   it('writes back which run produced a candidate', async () => {
@@ -210,13 +231,25 @@ describe('runs and batch sizes reach the disk (#26)', () => {
 
     act(() => {
       useEditorStore.getState().dispatch({
-        type: 'runStage',
+        type: 'runNode',
         // The source draft rolls its seed; the style draft pins one, and a pin
         // collapses the batch to a single candidate.
-        stage: 'source',
+        nodeId: ATLAS_SOURCE_NODE,
         runs: [
-          { id: 'fresh-a', seed: 1, asset: null, runId: 'run-fresh' },
-          { id: 'fresh-b', seed: 2, asset: null, runId: 'run-fresh' },
+          {
+            id: 'fresh-a',
+            modelId: 'fal-ai/flux-pro/kontext/text-to-image',
+            seed: 1,
+            asset: null,
+            runId: 'run-fresh',
+          },
+          {
+            id: 'fresh-b',
+            modelId: 'fal-ai/flux-pro/kontext/text-to-image',
+            seed: 2,
+            asset: null,
+            runId: 'run-fresh',
+          },
         ],
         at: 2,
       })

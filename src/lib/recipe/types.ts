@@ -13,10 +13,24 @@
 import type { Palette } from './palette'
 import type { PresetVariableValues } from './presets'
 
-/** The three stages of PRD §1, in order. */
+/**
+ * What kind of step a node is (ADR 0005).
+ *
+ * Two jobs left, and no third. It picks the model pool (`modelsForStage`), and
+ * it says whether the node consumes a picture — `source` does not, the other
+ * two do. It no longer *orders* anything: the pipeline is whatever edges the
+ * canvas holds, and a style node feeding another style node is a restyle of a
+ * restyle rather than a rule violation.
+ */
 export type StageKind = 'source' | 'style' | 'animate'
 
+/** The order the "add node" menu offers kinds in, and nothing else now. */
 export const STAGE_ORDER = ['source', 'style', 'animate'] as const
+
+/** Whether a node of this kind consumes an upstream picture. */
+export function needsInput(kind: StageKind): boolean {
+  return kind !== 'source'
+}
 
 /**
  * PRD §4.4 — locked at project creation, inherited by every stage, and each
@@ -106,10 +120,23 @@ export interface Treatment {
 }
 
 /**
- * Everything needed to re-run one stage. This is the artefact PRD §1 calls
+ * Everything needed to re-run one step. This is the artefact PRD §1 calls
  * expensive — the thing worth persisting, restoring, and paying attention to.
+ *
+ * The **frozen** half of the pair since ADR 0005: a `StageRecipe` is only ever
+ * found on a {@link Generation}, and it is exactly {@link DraftRecipe} plus the
+ * three resolutions made at the moment of the run — which model of the fan-out
+ * (`modelId`), which candidate it consumed (`inputGenerationId`), and which
+ * draft it was frozen from (`nodeId`).
  */
 export interface StageRecipe {
+  /**
+   * The one model this call went to.
+   *
+   * Singular where the draft holds a list: a run of a three-model node produces
+   * three generations, and each records the model that actually made it. A
+   * frozen recipe naming three models would be a recipe for nothing.
+   */
   readonly modelId: string
   /** Subject prose (source), style fragment (style), motion fragment (animate). */
   readonly prompt: string
@@ -141,13 +168,121 @@ export interface StageRecipe {
    */
   readonly options: StageParams
   /**
-   * Which upstream generation this consumed — `null` for source.
+   * Which upstream generation this consumed — `null` on a source node.
    *
-   * This pointer is why the stages are not a wizard (PRD §4.1). A style
-   * generation names the source it was made from, so re-running source leaves
-   * every existing style generation intact and still meaningful.
+   * This pointer is why the steps are not a wizard (PRD §4.1). A style
+   * generation names the picture it was made from, so re-running the node that
+   * produced that picture leaves every existing style generation intact and
+   * still meaningful. It is also the older half of the DAG: edges *between
+   * results* have always been here, which is what ADR 0005 verified before
+   * adding edges between drafts.
    */
   readonly inputGenerationId: string | null
+  /**
+   * The draft node this was frozen from (ADR 0005).
+   *
+   * On the recipe rather than on {@link Generation} because the recipe is the
+   * only part of a candidate that survives the trip through the job store: Rust
+   * holds it as an opaque JSON blob and hands it back on arrival, so a node id
+   * recorded here needs no column, no schema change and no binding regeneration
+   * to come home. It is a resolution made at freeze time exactly like the two
+   * pointers above it, and it belongs in the same place they do.
+   *
+   * A candidate whose node has since been deleted is dropped rather than
+   * orphaned — see ADR 0005, "Deleting a node".
+   */
+  readonly nodeId: string
+}
+
+/**
+ * The editable form on one node — what a re-run would submit right now
+ * (ADR 0005).
+ *
+ * The **draft** half of the pair. Deliberately holds neither of
+ * {@link StageRecipe}'s pointers: `inputGenerationId` is resolved from the
+ * node's edge at freeze time (`resolvedInputId`), and `nodeId` is the node this
+ * lives on. Typing them here would be storing an answer that is already
+ * derivable, which is how two copies drift apart.
+ */
+export interface DraftRecipe {
+  /**
+   * Every model this node runs, in submission order — the fan-out axis, and
+   * the reason this type exists apart from {@link StageRecipe}.
+   *
+   * Never empty. One click submits `modelIds.length × batchSize` jobs sharing
+   * one `runId`, so the whole fan-out arrives as the one choice it is.
+   *
+   * The {@link StageRecipe.params} bag below is shared across all of them,
+   * keyed by each model's own field names (PRD §5), and every frozen copy runs
+   * it through `reconcileParams` for its own model. That is not a new
+   * mechanism — it is what swapping one model for another already did, applied
+   * once per model instead of once.
+   */
+  readonly modelIds: readonly string[]
+  readonly prompt: string
+  readonly presetId: string | null
+  /** See {@link StageRecipe.presetModified} — provenance, not a diff. */
+  readonly presetModified: boolean
+  readonly seed: SeedSetting
+  readonly params: StageParams
+  readonly options: StageParams
+}
+
+/** Where a node sits on the canvas. Persisted — the layout is the user's work. */
+export interface NodePosition {
+  readonly x: number
+  readonly y: number
+}
+
+/**
+ * One step on the canvas: a re-runnable draft (ADR 0005).
+ *
+ * A node is **not** a result. Running it appends candidates beside whatever it
+ * has already produced and leaves the form editable, which is the whole
+ * difference between this and a lineage view.
+ */
+export interface DraftNode {
+  readonly id: string
+  readonly kind: StageKind
+  /** The user's own name for this step, or `null` to be named after its kind. */
+  readonly title: string | null
+  readonly position: NodePosition
+  readonly draft: DraftRecipe
+  /**
+   * How many candidates this node produces **per model**, per PRD §4.2.
+   *
+   * Per node rather than per stage, because a node is what gets run. Held to
+   * `MIN_BATCH_SIZE`..`MAX_BATCH_SIZE` on the way in from disk for the reason
+   * it always was: a hand-edited `40` would be forty paid calls one click away.
+   */
+  readonly batchSize: number
+  /**
+   * The node this one consumes — the edge between **drafts**, and the thing
+   * that did not exist before ADR 0005.
+   *
+   * At most one, which is what makes the draft graph a forest and lets
+   * `canConnect` check for cycles by walking up rather than searching.
+   * `null` on a source node, and on any node whose input has been detached.
+   */
+  readonly inputNodeId: string | null
+  /**
+   * A specific candidate of {@link inputNodeId} to consume, or `null` to follow
+   * whatever that node currently offers.
+   *
+   * A refinement of the edge rather than a second edge: with a pin the canvas
+   * draws the line from that candidate, without one it draws from the node.
+   * A pin naming a candidate of some other node is ignored — see
+   * `resolvedInputId`.
+   */
+  readonly pinnedInputId: string | null
+  /**
+   * Which of **this** node's candidates is the one, or `null` while undecided.
+   *
+   * What `Project.selection[stage]` used to be, moved onto the thing it is
+   * about. Downstream nodes read it through `resolvedInputId`, so picking a
+   * candidate here is what feeds the rest of the graph.
+   */
+  readonly pick: string | null
 }
 
 /**
@@ -181,7 +316,7 @@ export interface Generation {
    */
   readonly runId: string | null
   /**
-   * Position within its stage, assigned once and never renumbered — "Style 3"
+   * Position within its **node**, assigned once and never renumbered — "Style 3"
    * has to keep meaning the same candidate after something is rejected, or
    * "the second one was better" (PRD §10.3) stops being sayable.
    * The visible name is `t()` over this; the record holds no English.
@@ -278,19 +413,6 @@ export interface Project {
   readonly aspect: AspectId
   readonly createdAt: number
   /**
-   * How many candidates one run of each stage produces, per PRD §4.2 — four
-   * images, one video.
-   *
-   * Keyed by stage like `drafts` and `selection` rather than named per medium,
-   * so nothing downstream has to keep asking which stages are images.
-   *
-   * Per project rather than per app, and *copied* from the defaults at
-   * creation (PRD §11): changing a default later must not quietly make an old
-   * project spend four times as much on its next click. Unlike the aspect
-   * ratio these stay editable, because nothing already made depends on them.
-   */
-  readonly batchSizes: Readonly<Record<StageKind, number>>
-  /**
    * The six colour roles this project's prompts speak in, plus extras (#46).
    *
    * Prompt data, not chrome — nothing here styles the app. A preset variable
@@ -302,12 +424,23 @@ export interface Project {
    * (PRD §11).
    */
   readonly palette: Palette
-  /** The editable form per stage — what a re-run would submit right now. */
-  readonly drafts: Readonly<Record<StageKind, StageRecipe>>
-  /** Flat and append-only. Stage membership is a field, not a bucket. */
+  /**
+   * The canvas: every draft, and the edges between them (ADR 0005).
+   *
+   * This replaced three things at once — `drafts`, `selection` and
+   * `batchSizes`, all of them `Record<StageKind, …>`, all of them addressed by
+   * a string literal because there were exactly three of everything. Each is
+   * now a field on the node it was always about.
+   *
+   * Ordered for the file rather than for the graph: a node's place in this
+   * array means nothing, its `position` and its `inputNodeId` mean everything.
+   */
+  readonly nodes: readonly DraftNode[]
+  /**
+   * Flat and append-only. Which node made a candidate is a field on its
+   * recipe, not a bucket — the same shape `stage` always had.
+   */
   readonly generations: readonly Generation[]
-  /** Which generation each stage is currently working from. */
-  readonly selection: Readonly<Record<StageKind, string | null>>
 }
 
 /**
@@ -343,17 +476,27 @@ export interface EditorState {
   readonly project: Project | null
   /** Where the open project's manifest lives — assets hang off it. */
   readonly directory: string | null
-  readonly activeStage: StageKind
   /**
-   * Whether the effects tab is the one on screen (#36).
+   * The node the right sidebar is editing, or `null` for none (ADR 0005).
    *
-   * A flag beside `activeStage` rather than a fourth value *in* it, because the
-   * two answer different questions and both still have to be answered while the
-   * tab is open: `activeStage` says which stage's form the right sidebar edits
-   * and which stage's selection the export panel would send, and an effect is
-   * not a stage — it has no model, no seed and no price. Widening `StageKind`
-   * instead would reach `readDrafts`, `modelById`, `DEFAULT_MODEL_IDS` and
-   * `validateRegistry`, none of which a modelless tab can answer.
+   * What `activeStage` was, except that it is genuinely nullable now: with the
+   * tab bar gone there is no "current stage" that always exists, and clicking
+   * empty canvas is a real state rather than an impossible one. The sidebar
+   * shows the project's own panel there.
+   *
+   * Session state, not the project's: which node you had selected is not a fact
+   * about the recipe, and a manifest that recorded it would make opening a
+   * project on another machine a different experience.
+   */
+  readonly selectedNodeId: string | null
+  /**
+   * Whether the effects panel is the one on screen (#36).
+   *
+   * A flag beside `selectedNodeId` rather than a node kind, because an effect
+   * is not a step: it has no model, no seed and no price, and it is chosen
+   * while looking at a result rather than submitted. Widening `StageKind`
+   * instead would reach `modelsForStage`, `modelById`, `DEFAULT_MODEL_IDS` and
+   * `validateRegistry`, none of which a modelless kind can answer.
    */
   readonly effectsOpen: boolean
   /**
@@ -369,16 +512,16 @@ export interface EditorState {
   /** PRD §10.3 — rejected candidates stay reachable behind one toggle. */
   readonly showRejected: boolean
   /**
-   * What the preset picker's variable fields say — by project, then by stage
-   * (#46).
+   * What the preset picker's variable fields say — by project, then by **node**
+   * (#46, re-keyed by ADR 0005).
    *
    * Session state and never persisted: only the *expanded* prose reaches a
    * recipe, so keeping these in the manifest would be a second copy of
    * something the prompt already contains. But session-*wide* rather than
    * per-mount, which is the part that had to move. The right sidebar swaps the
-   * whole stage form out when you change tab or open the effects tab, so values
-   * held in the control's own `useState` went with it — while the prompt box
-   * kept the old expansion, which reads as a hand edit and made
+   * whole form out when you select another node or open the effects panel, so
+   * values held in the control's own `useState` went with it — while the prompt
+   * box kept the old expansion, which reads as a hand edit and made
    * `presetSeedState` refuse every later variable change in silence, until a
    * paid run went out on the previous value.
    *
@@ -387,14 +530,18 @@ export interface EditorState {
    * subject you were working on. Only deleting one drops its entry, since there
    * is nothing left to come back to.
    *
-   * By **variable name** within a stage, not by preset: `{{subject}}` is the
+   * By **variable name** within a node, not by preset: `{{subject}}` is the
    * same question in 21 of the 22 scenes, and trying the next scene for the same
    * subject is what the library is for. A key the newly picked preset does not
    * have is neither shown nor expanded — it simply waits, in case you come back
    * to a preset that asks for it.
+   *
+   * Keyed by node rather than by kind since ADR 0005, because two style nodes
+   * on one canvas are two different questions and sharing their answers would
+   * be the same silent overwrite this field was created to stop.
    */
   readonly presetVariables: Readonly<
-    Record<string, Readonly<Record<StageKind, PresetVariableValues>>>
+    Record<string, Readonly<Record<string, PresetVariableValues>>>
   >
   /**
    * The runs this session is watching (#26).
@@ -423,7 +570,12 @@ export interface EditorState {
 export interface RunRecord {
   readonly id: string
   readonly projectId: string
-  readonly stage: StageKind
+  /**
+   * The node that was run (ADR 0005). Was `stage`, and the swap is the whole
+   * point: two style nodes running at once are two runs with two grids, where
+   * one stage could only ever have had one.
+   */
+  readonly nodeId: string
   readonly startedAt: number
   /** Every candidate the run asked for, in submission order. */
   readonly generationIds: readonly string[]
@@ -435,16 +587,16 @@ export interface RunRecord {
   readonly abandonedIds: readonly string[]
   /**
    * The question has been answered: the user picked a candidate, dismissed the
-   * grid, or chose something else for this stage while the run was open. The
-   * grid steps aside, and no arrival of this run may move the selection again.
+   * grid, or chose something else on this node while the run was open. The
+   * grid steps aside, and no arrival of this run may move the pick again.
    */
   readonly answered: boolean
   /**
-   * One of this run's candidates has already taken the stage's selection.
+   * One of this run's candidates has already taken the node's `pick`.
    *
-   * The first arrival claims an undecided stage, so the stage after it always
-   * has an input — and the second, third and fourth do not, or a four-up would
-   * end on whichever job happened to finish last.
+   * The first arrival claims an undecided node, so anything downstream always
+   * has an input — and the rest of the batch does not, or a four-up would end
+   * on whichever job happened to finish last.
    */
   readonly claimed: boolean
 }

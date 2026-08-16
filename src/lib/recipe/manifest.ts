@@ -20,11 +20,16 @@
 
 import { readTreatment, writeTreatment } from '@/lib/effects/treatment'
 import { isAspectId } from './aspects'
+import { heldModelIds } from './graph'
 import { isRecord } from './json'
+import { DEFAULT_MODEL_IDS } from './models'
 import { readPalette, type Palette } from './palette'
 import { clampBatchSize, DEFAULT_BATCH_SIZES } from './selectors'
 import type {
+  DraftNode,
+  DraftRecipe,
   Generation,
+  NodePosition,
   ParamValue,
   PixelSize,
   Project,
@@ -34,10 +39,23 @@ import type {
   StageRecipe,
   Verdict,
 } from './types'
-import { STAGE_ORDER } from './types'
+import { needsInput, STAGE_ORDER } from './types'
 
-/** Bumped when a manifest written today would be misread by an older build. */
-export const MANIFEST_VERSION = 1
+/**
+ * Bumped when a manifest written today would be misread by an older build.
+ *
+ * **2** is the canvas (ADR 0005), and there is deliberately no upgrade path
+ * from 1. A v1 manifest holds three drafts keyed by stage, a selection per
+ * stage and no node positions; turning that into a graph would mean inventing
+ * coordinates, guessing which of three forms deserved to become a node, and
+ * deciding what a per-stage selection meant — three guesses, all wrong for
+ * anything but an empty project, in service of files that do not exist yet.
+ *
+ * So a v1 file is **refused**, not migrated. See {@link readManifest}: the
+ * version check is the second statement in the function, before any field is
+ * touched, and the project stays on disk exactly as it was.
+ */
+export const MANIFEST_VERSION = 2
 
 /**
  * An asset is a bare file name inside the project's `assets/` folder. Anything
@@ -76,15 +94,15 @@ export interface ProjectManifest {
   readonly createdAt: number
   /** When this file was last written — the index sorts on it. */
   readonly updatedAt: number
-  readonly drafts: unknown
-  readonly selection: unknown
-  readonly generations: readonly ManifestGeneration[]
   /**
-   * #26, keyed by stage. Absent in older manifests, which read as the
-   * defaults — the same numbers a project created today would be given, so
-   * nothing about an existing project changes by being opened.
+   * The canvas (ADR 0005) — every draft, its position, and its input edge.
+   *
+   * This one field replaced `drafts`, `selection` and `batchSizes`, all three of
+   * which were `Record<StageKind, …>` and none of which could hold two style
+   * steps.
    */
-  readonly batchSizes: Readonly<Record<string, number>>
+  readonly nodes: readonly unknown[]
+  readonly generations: readonly ManifestGeneration[]
   /**
    * #46. **Required**, and reading throws without it — the one field here with
    * no tolerant fallback.
@@ -110,10 +128,8 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
     aspect: project.aspect,
     createdAt: project.createdAt,
     updatedAt: now,
-    batchSizes: project.batchSizes,
     palette: project.palette,
-    drafts: project.drafts,
-    selection: project.selection,
+    nodes: project.nodes,
     generations: project.generations.map(generation => ({
       id: generation.id,
       stage: generation.stage,
@@ -136,6 +152,22 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
 }
 
 /**
+ * A manifest this build will not open because of its *version*.
+ *
+ * Its own class rather than a plain `Error` so the caller can tell it apart
+ * from "this file is corrupt" without matching on a message. They deserve
+ * different sentences: a v1 project is intact and simply not readable here
+ * (ADR 0005 — no migration), and telling somebody their work is damaged when it
+ * is not would be the worse of the two mistakes.
+ */
+export class IncompatibleManifestError extends Error {
+  constructor(readonly found: number) {
+    super(`Manifest version ${found} is not version ${MANIFEST_VERSION}`)
+    this.name = 'IncompatibleManifestError'
+  }
+}
+
+/**
  * The bytes from disk, as a project — or a throw naming what was wrong with
  * them. Throwing is the point: the caller has to decide out loud what to show
  * for a project it cannot open, and a silently half-loaded recipe would be
@@ -144,11 +176,11 @@ export function writeManifest(project: Project, now: number): ProjectManifest {
 export function readManifest(document: unknown): Project {
   const manifest = asRecord(document, 'manifest')
 
+  // Before anything else is touched, so a v1 file is refused whole rather than
+  // half-read (ADR 0005 — "No migration").
   const version = asNumber(manifest.version, 'version')
   if (version !== MANIFEST_VERSION) {
-    throw new Error(
-      `Manifest version ${version} is not version ${MANIFEST_VERSION}`
-    )
+    throw new IncompatibleManifestError(version)
   }
 
   const aspect = manifest.aspect
@@ -156,23 +188,34 @@ export function readManifest(document: unknown): Project {
     throw new Error(`Manifest names an aspect ratio we do not offer: ${aspect}`)
   }
 
+  const nodes = readNodes(manifest.nodes)
+  const known = new Set(nodes.map(node => node.id))
+
   const generations = asArray(manifest.generations, 'generations')
     .map(readGeneration)
     .filter((generation): generation is Generation => generation !== null)
+    // A candidate naming a node this file does not hold has nowhere to be
+    // drawn, and the canvas is the only surface there is. Dropped for the
+    // reason an unreadable one is: the rest of the project is still worth
+    // showing, and the *file* stays in `assets/` either way.
+    .filter(generation => known.has(generation.recipe.nodeId))
 
-  const known = new Set(generations.map(generation => generation.id))
+  const candidates = new Set(generations.map(generation => generation.id))
 
   return {
     id: asString(manifest.id, 'id'),
     name: asString(manifest.name, 'name'),
     aspect,
     createdAt: asNumber(manifest.createdAt, 'createdAt'),
-    batchSizes: readBatchSizes(manifest.batchSizes),
     // Throws, and takes the project with it — see `ProjectManifest.palette`.
     palette: readPalette(manifest.palette),
-    drafts: readDrafts(manifest.drafts),
+    // Second pass, now that the candidates are known: a pointer at a candidate
+    // that is not there is worse than none, because the node would claim a
+    // picture it cannot show. Edges are checked here too — a `inputNodeId`
+    // naming a missing node, or one that closes a cycle, is dropped rather than
+    // taking the project with it.
+    nodes: nodes.map(node => resolvePointers(node, known, candidates, nodes)),
     generations,
-    selection: readSelection(manifest.selection, known),
   }
 }
 
@@ -235,27 +278,188 @@ function readGeneration(document: unknown): Generation | null {
 }
 
 /**
- * How many candidates each stage produces, held to what we would submit.
+ * The canvas, or a throw. A project with no readable node has nothing to edit.
  *
- * Missing is the normal case for a manifest written before #26 and takes the
- * default. A number that is there but outside the range is a hand-edit, and is
- * *clamped* rather than replaced: `40` plainly means "as many as you can", and
- * four is as many as we do — refusing the project over a preference would be
- * the wrong trade when the recipe is what is expensive (PRD §1).
+ * Individual nodes are dropped where they cannot be read — a kind this build
+ * does not know is a node from a newer build, and that is a reason to show the
+ * rest of the canvas rather than none of it. An *empty* canvas is different: it
+ * means the file said nothing about what the project is, and there would be no
+ * surface to put in front of the user.
+ *
+ * Duplicated ids are dropped down to the first, because every pointer in the
+ * file — `inputNodeId`, `pinnedInputId`, every generation's `nodeId` — resolves
+ * by id, and two nodes answering to one id is a graph with no single meaning.
  */
-function readBatchSizes(value: unknown): Project['batchSizes'] {
-  const record = isRecord(value) ? value : {}
-  const sizes: Partial<Record<StageKind, number>> = {}
+function readNodes(value: unknown): readonly DraftNode[] {
+  const entries = asArray(value, 'nodes')
+  const seen = new Set<string>()
+  const nodes: DraftNode[] = []
 
-  for (const stage of STAGE_ORDER) {
-    const size = record[stage]
-    sizes[stage] =
-      typeof size === 'number' && Number.isFinite(size)
-        ? clampBatchSize(size)
-        : DEFAULT_BATCH_SIZES[stage]
+  for (const entry of entries) {
+    const node = readNode(entry)
+    if (node === null || seen.has(node.id)) continue
+    seen.add(node.id)
+    nodes.push(node)
   }
 
-  return sizes as Project['batchSizes']
+  if (nodes.length === 0) throw new Error('Manifest has no readable nodes')
+  return nodes
+}
+
+/** One node, or `null` if this build cannot make sense of it. */
+function readNode(document: unknown): DraftNode | null {
+  if (!isRecord(document)) return null
+  if (typeof document.id !== 'string' || document.id === '') return null
+
+  const kind = document.kind
+  if (!isStageKind(kind)) return null
+
+  const draft = readDraft(document.draft, kind)
+  if (draft === null) return null
+
+  return {
+    id: document.id,
+    kind,
+    title: typeof document.title === 'string' ? document.title : null,
+    position: readPosition(document.position),
+    draft,
+    // Clamped rather than replaced, for the reason it always was: `40` plainly
+    // means "as many as you can", and four is as many as we do — refusing the
+    // project over a preference would be the wrong trade when the recipe is
+    // what is expensive (PRD §1).
+    batchSize:
+      typeof document.batchSize === 'number' &&
+      Number.isFinite(document.batchSize)
+        ? clampBatchSize(document.batchSize)
+        : DEFAULT_BATCH_SIZES[kind],
+    // Both pointers are read as *claims* here and settled in `resolvePointers`
+    // once every node and candidate in the file is known. A source node can
+    // hold neither, whatever the file says: its models declare no image field,
+    // so an edge into one could never be sent.
+    inputNodeId:
+      needsInput(kind) && typeof document.inputNodeId === 'string'
+        ? document.inputNodeId
+        : null,
+    pinnedInputId:
+      needsInput(kind) && typeof document.pinnedInputId === 'string'
+        ? document.pinnedInputId
+        : null,
+    pick: typeof document.pick === 'string' ? document.pick : null,
+  }
+}
+
+/**
+ * A node's coordinates, or the origin.
+ *
+ * The origin rather than a throw, and rather than a random scatter: a position
+ * is the least expensive thing in the file to lose, and a node stacked on
+ * another is one drag from being right. A `NaN` from a hand-edit reads the same
+ * as a missing one — React Flow would render a node at no coordinates at all.
+ */
+function readPosition(value: unknown): NodePosition {
+  if (!isRecord(value)) return { x: 0, y: 0 }
+  const { x, y } = value
+  return {
+    x: typeof x === 'number' && Number.isFinite(x) ? x : 0,
+    y: typeof y === 'number' && Number.isFinite(y) ? y : 0,
+  }
+}
+
+/**
+ * The editable form on a node, or `null` if this build cannot read it.
+ *
+ * Unlike a candidate's frozen recipe there is a sensible default for a missing
+ * model — the one a new node of this kind would start on — because a draft is a
+ * form rather than a record of something that happened. A frozen recipe with no
+ * model is a lie about a call that was made; a draft with no model is a form
+ * nobody has filled in.
+ */
+function readDraft(document: unknown, kind: StageKind): DraftRecipe | null {
+  if (!isRecord(document)) return null
+
+  const seed = readSeed(document.seed)
+  if (seed === null) return null
+
+  const declared = Array.isArray(document.modelIds)
+    ? document.modelIds.filter((id): id is string => typeof id === 'string')
+    : []
+
+  return {
+    // Never empty and never over `MAX_MODELS_PER_NODE`: an empty list is a run
+    // button that submits nothing, and an uncapped one is a click that spends
+    // without a ceiling. Both are one hand-edit away.
+    modelIds: heldModelIds(declared, DEFAULT_MODEL_IDS[kind]),
+    prompt: typeof document.prompt === 'string' ? document.prompt : '',
+    presetId: typeof document.presetId === 'string' ? document.presetId : null,
+    presetModified: document.presetModified === true,
+    seed,
+    params: readParams(document.params),
+    options: readParams(document.options),
+  }
+}
+
+/**
+ * A node's three pointers, settled against what the file actually holds.
+ *
+ * Deliberately a second pass rather than part of {@link readNode}: an edge can
+ * name a node that appears later in the array, and a pin can name a candidate
+ * read after every node. Checking them one at a time would make the answer
+ * depend on the order the file happened to be written in.
+ *
+ * A refused pointer becomes `null` rather than taking the node with it. Each
+ * has a live fallback — `resolvedInputId` climbs its ladder, a node with no
+ * pick shows no hero — so the cost of dropping one is a click, where the cost
+ * of refusing the project is the recipe (PRD §1).
+ */
+function resolvePointers(
+  node: DraftNode,
+  nodes: ReadonlySet<string>,
+  candidates: ReadonlySet<string>,
+  all: readonly DraftNode[]
+): DraftNode {
+  const inputNodeId =
+    node.inputNodeId !== null &&
+    nodes.has(node.inputNodeId) &&
+    !closesCycle(node, all)
+      ? node.inputNodeId
+      : null
+
+  return {
+    ...node,
+    inputNodeId,
+    // A pin only means anything while there is an edge for it to refine, so it
+    // goes with a dropped edge. Whether it names a candidate of *that* node is
+    // settled live by `isEligibleInput`, which is the one place that rule lives.
+    pinnedInputId:
+      inputNodeId !== null &&
+      node.pinnedInputId !== null &&
+      candidates.has(node.pinnedInputId)
+        ? node.pinnedInputId
+        : null,
+    pick: node.pick !== null && candidates.has(node.pick) ? node.pick : null,
+  }
+}
+
+/**
+ * Whether following this node's edges comes back to itself.
+ *
+ * `canConnect` makes a cycle unreachable through the UI, but the manifest is
+ * untrusted input (PRD §3.2) and a hand-edited one can write any pair of ids it
+ * likes. A cycle here would make `resolvedInputId` recurse forever, which is a
+ * hung window rather than a bad picture — so it is checked on the way in and
+ * broken at the node that closes it.
+ */
+function closesCycle(node: DraftNode, all: readonly DraftNode[]): boolean {
+  const seen = new Set<string>([node.id])
+  let current = node.inputNodeId
+
+  while (current !== null) {
+    if (seen.has(current)) return true
+    seen.add(current)
+    current = all.find(entry => entry.id === current)?.inputNodeId ?? null
+  }
+
+  return false
 }
 
 /**
@@ -278,12 +482,17 @@ function readAsset(value: unknown): string | null {
 export function readRecipe(document: unknown): StageRecipe | null {
   if (!isRecord(document)) return null
   if (typeof document.modelId !== 'string') return null
+  // ADR 0005. Required and unrecoverable, unlike every other field here: a
+  // candidate that does not say which node made it cannot be drawn on the one
+  // surface there is, and picking a node for it would be inventing provenance.
+  if (typeof document.nodeId !== 'string' || document.nodeId === '') return null
 
   const seed = readSeed(document.seed)
   if (seed === null) return null
 
   return {
     modelId: document.modelId,
+    nodeId: document.nodeId,
     prompt: typeof document.prompt === 'string' ? document.prompt : '',
     presetId: typeof document.presetId === 'string' ? document.presetId : null,
     // #28. Absent in every manifest written before the slice, and `false` is the
@@ -343,45 +552,6 @@ function readPixelSize(value: unknown): PixelSize | null {
   const { width, height } = value
   if (typeof width !== 'number' || typeof height !== 'number') return null
   return { width, height }
-}
-
-/**
- * Drafts are the form you would re-run from, so all three have to be there.
- * Unlike a candidate, a missing draft is not something the rest of the project
- * survives — there would be nothing to put in the panel.
- */
-function readDrafts(document: unknown): Project['drafts'] {
-  const record = asRecord(document, 'drafts')
-  const drafts: Partial<Record<StageKind, StageRecipe>> = {}
-
-  for (const stage of STAGE_ORDER) {
-    const recipe = readRecipe(record[stage])
-    if (recipe === null) {
-      throw new Error(`Manifest has no readable ${stage} draft`)
-    }
-    drafts[stage] = recipe
-  }
-
-  return drafts as Project['drafts']
-}
-
-/**
- * A selection is a pointer, and a pointer to a candidate that is no longer
- * there is worse than none — the stage would claim an input it cannot show.
- */
-function readSelection(
-  document: unknown,
-  known: ReadonlySet<string>
-): Project['selection'] {
-  const record = isRecord(document) ? document : {}
-  const selection: Partial<Record<StageKind, string | null>> = {}
-
-  for (const stage of STAGE_ORDER) {
-    const id = record[stage]
-    selection[stage] = typeof id === 'string' && known.has(id) ? id : null
-  }
-
-  return selection as Project['selection']
 }
 
 export function isStageKind(value: unknown): value is StageKind {

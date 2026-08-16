@@ -15,6 +15,7 @@ import { LEDGER } from '@/lib/recipe'
 import { commands } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { useImportSourceImage, baseName } from './import-source'
+import { LEDGER_SOURCE_NODE, fixtureNode } from '../../lib/recipe/fixtures'
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -33,7 +34,9 @@ beforeEach(() => {
 
 /** LEDGER is a 16:9 project, so 1920×1080 is the shape it locked. */
 function importing() {
-  return renderHook(() => useImportSourceImage(LEDGER)).result
+  return renderHook(() =>
+    useImportSourceImage(LEDGER, fixtureNode(LEDGER, LEDGER_SOURCE_NODE))
+  ).result
 }
 
 describe('bringing in an image the user already has (#27)', () => {

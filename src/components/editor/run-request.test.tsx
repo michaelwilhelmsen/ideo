@@ -16,11 +16,24 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import { render, screen, waitFor } from '@/test/test-utils'
-import { ATLAS, LEDGER, type Project, type StageRecipe } from '@/lib/recipe'
+import type { Project, DraftRecipe, StageRecipe } from '@/lib/recipe'
 import { commands, type ImageInput, type Job } from '@/lib/tauri-bindings'
 import { useUIStore } from '@/store/ui-store'
 import { useEditorStore } from '@/store/editor-store'
-import { useRunStage } from './run-request'
+import { useRunNode } from './run-request'
+import {
+  ATLAS,
+  ATLAS_ANIMATE_NODE,
+  ATLAS_SOURCE_NODE,
+  ATLAS_STYLE_NODE,
+  LEDGER,
+  LEDGER_SOURCE_NODE,
+  fixtureDraft,
+  fixtureFrozen,
+  fixtureNode,
+  withFixtureDraft,
+  withFixtureNode,
+} from '../../lib/recipe/fixtures'
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -30,7 +43,7 @@ const mockCommands = vi.mocked(commands)
 
 /** The run button, without the rest of the parameter panel around it. */
 function RunProbe() {
-  const { run } = useRunStage(LEDGER, 'source', 1)
+  const { run } = useRunNode(LEDGER, fixtureNode(LEDGER, LEDGER_SOURCE_NODE), 1)
   return <button onClick={run}>run</button>
 }
 
@@ -92,7 +105,11 @@ describe('the first generate requires a key', () => {
  * responsibility and nobody else's.
  */
 function BatchProbe({ batch }: { batch: number }) {
-  const { run, isRunning } = useRunStage(LEDGER, 'source', batch)
+  const { run, isRunning } = useRunNode(
+    LEDGER,
+    fixtureNode(LEDGER, LEDGER_SOURCE_NODE),
+    batch
+  )
   return (
     <button onClick={run} disabled={isRunning}>
       run
@@ -177,19 +194,16 @@ describe('one click, several candidates', () => {
    */
   it('records the geometry and the seed that actually went to fal', async () => {
     // Ledger's source model takes explicit pixels, and this run pins its seed.
-    const pinned: Project = {
-      ...LEDGER,
-      drafts: {
-        ...LEDGER.drafts,
-        source: {
-          ...LEDGER.drafts.source,
-          seed: { mode: 'pinned', value: 4242 },
-        },
-      },
-    }
+    const pinned: Project = withFixtureDraft(LEDGER, LEDGER_SOURCE_NODE, {
+      seed: { mode: 'pinned', value: 4242 },
+    })
 
     function PinnedProbe() {
-      const { run } = useRunStage(pinned, 'source', 1)
+      const { run } = useRunNode(
+        pinned,
+        fixtureNode(pinned, LEDGER_SOURCE_NODE),
+        1
+      )
       return <button onClick={run}>run</button>
     }
 
@@ -210,7 +224,9 @@ describe('one click, several candidates', () => {
       height: expect.any(Number),
     })
     // The draft the form is still showing is untouched — it never held either.
-    expect(LEDGER.drafts.source.params.image_size).toBeUndefined()
+    expect(
+      fixtureDraft(LEDGER, LEDGER_SOURCE_NODE).params.image_size
+    ).toBeUndefined()
   })
 
   it('mints a fresh run for the next click', async () => {
@@ -374,18 +390,16 @@ describe('restyling the source', () => {
   }
 
   /** The same project, with a different style draft. */
-  function styling(project: Project, draft: Partial<StageRecipe>): Project {
-    return {
-      ...project,
-      drafts: {
-        ...project.drafts,
-        style: { ...project.drafts.style, ...draft },
-      },
-    }
+  function styling(project: Project, draft: Partial<DraftRecipe>): Project {
+    return withFixtureDraft(project, ATLAS_STYLE_NODE, draft)
   }
 
   function StyleProbe({ project }: { project: Project }) {
-    const { run } = useRunStage(project, 'style', 1)
+    const { run } = useRunNode(
+      project,
+      fixtureNode(project, ATLAS_STYLE_NODE),
+      1
+    )
     return <button onClick={run}>run</button>
   }
 
@@ -403,7 +417,7 @@ describe('restyling the source', () => {
     expect(request?.modelId).toBe('fal-ai/flux/dev/image-to-image')
     // The prompt and the parameters as the form has them — seeding a preset
     // into those fields happened earlier and elsewhere.
-    expect(request?.prompt).toBe(ATLAS.drafts.style.prompt)
+    expect(request?.prompt).toBe(fixtureDraft(ATLAS, ATLAS_STYLE_NODE).prompt)
     expect(request?.params.strength).toBe(0.7)
   })
 
@@ -414,7 +428,7 @@ describe('restyling the source', () => {
     expect(submitted()[0]?.imageInputs).toEqual([
       {
         // The project's current source, whether it was generated or uploaded.
-        generationId: ATLAS.selection.source,
+        generationId: fixtureNode(ATLAS, ATLAS_SOURCE_NODE).pick,
         param: 'image_url',
         shape: 'url',
       },
@@ -427,7 +441,7 @@ describe('restyling the source', () => {
     // A string where Qwen requires an array is a 422 at the paid step, with
     // nothing on screen to say the shape rather than the prompt was wrong.
     await clickRun(
-      styling(ATLAS, { modelId: 'fal-ai/qwen-image-2/edit', params: {} })
+      styling(ATLAS, { modelIds: ['fal-ai/qwen-image-2/edit'], params: {} })
     )
 
     await waitFor(() => expect(submitted()).toHaveLength(1))
@@ -438,7 +452,7 @@ describe('restyling the source', () => {
   it('sends a negative only where the model has a field for it', async () => {
     await clickRun(
       styling(ATLAS, {
-        modelId: 'fal-ai/qwen-image-2/edit',
+        modelIds: ['fal-ai/qwen-image-2/edit'],
         params: { negative_prompt: 'no gradients' },
       })
     )
@@ -452,7 +466,7 @@ describe('restyling the source', () => {
     // as a request for gradients.
     await clickRun(
       styling(ATLAS, {
-        modelId: 'fal-ai/flux-pro/kontext',
+        modelIds: ['fal-ai/flux-pro/kontext'],
         params: { negative_prompt: 'no gradients' },
       })
     )
@@ -465,7 +479,7 @@ describe('restyling the source', () => {
   it('sends a strength only on the one model that has one', async () => {
     await clickRun(
       styling(ATLAS, {
-        modelId: 'fal-ai/nano-banana-2/edit',
+        modelIds: ['fal-ai/nano-banana-2/edit'],
         params: { strength: 0.7 },
       })
     )
@@ -483,7 +497,7 @@ describe('restyling the source', () => {
     expect(submitted()[0]?.recipe.presetId).toBe('glass-caustics')
     expect(submitted()[0]?.recipe.presetModified).toBe(true)
     expect(submitted()[0]?.recipe.inputGenerationId).toBe(
-      ATLAS.selection.source
+      fixtureNode(ATLAS, ATLAS_SOURCE_NODE).pick
     )
   })
 
@@ -496,14 +510,17 @@ describe('restyling the source', () => {
     // is no longer the same thing as having nothing to work from — and it is
     // *nothing to work from* that this refusal is about.
     const styled = styling(ATLAS, {
-      modelId: 'fal-ai/nano-banana-2/edit',
+      modelIds: ['fal-ai/nano-banana-2/edit'],
       params: {},
     })
-    const sourceless: Project = {
-      ...styled,
-      generations: styled.generations.filter(g => g.stage !== 'source'),
-      selection: { ...ATLAS.selection, source: null },
-    }
+    const sourceless: Project = withFixtureNode(
+      {
+        ...styled,
+        generations: styled.generations.filter(g => g.stage !== 'source'),
+      },
+      ATLAS_SOURCE_NODE,
+      { pick: null }
+    )
 
     await clickRun(sourceless)
 
@@ -543,7 +560,11 @@ describe('restyling the source', () => {
   /** One submitted animate request's image fields, in the order they were named. */
   async function animateInputs(project: Project): Promise<ImageInput[]> {
     function AnimateProbe() {
-      const { run } = useRunStage(project, 'animate', 1)
+      const { run } = useRunNode(
+        project,
+        fixtureNode(project, ATLAS_ANIMATE_NODE),
+        1
+      )
       return <button onClick={run}>run</button>
     }
 
@@ -559,21 +580,15 @@ describe('restyling the source', () => {
   }
 
   /** The same project, with a different animate draft. */
-  function animating(project: Project, draft: Partial<StageRecipe>): Project {
-    return {
-      ...project,
-      drafts: {
-        ...project.drafts,
-        animate: { ...project.drafts.animate, ...draft },
-      },
-    }
+  function animating(project: Project, draft: Partial<DraftRecipe>): Project {
+    return withFixtureDraft(project, ATLAS_ANIMATE_NODE, draft)
   }
 
   it('submits animate against the styled still, under that model’s own field', async () => {
     // #29 — animate was the last fixture stage, and it now takes the same path
     // as the other two. The two things worth asserting are the two that cost
     // money if they are wrong: *which* image it animates (the style stage's
-    // selection, resolved by `freezeRecipe`) and what the endpoint calls the
+    // selection, resolved by `freezeDraft`) and what the endpoint calls the
     // field it goes in — `start_image_url` on Kling O1, `image_url` on most of
     // its neighbours.
     const inputs = await animateInputs(
@@ -589,7 +604,7 @@ describe('restyling the source', () => {
     expect(submitted.modelId).toBe('fal-ai/kling-video/o1/image-to-video')
     expect(inputs).toEqual([
       {
-        generationId: ATLAS.selection.style,
+        generationId: fixtureNode(ATLAS, ATLAS_STYLE_NODE).pick,
         param: 'start_image_url',
         shape: 'url',
       },
@@ -612,12 +627,12 @@ describe('restyling the source', () => {
 
       expect(inputs).toEqual([
         {
-          generationId: ATLAS.selection.style,
+          generationId: fixtureNode(ATLAS, ATLAS_STYLE_NODE).pick,
           param: 'start_image_url',
           shape: 'url',
         },
         {
-          generationId: ATLAS.selection.style,
+          generationId: fixtureNode(ATLAS, ATLAS_STYLE_NODE).pick,
           param: 'end_image_url',
           shape: 'url',
         },
@@ -633,7 +648,7 @@ describe('restyling the source', () => {
         animating(
           { ...ATLAS, aspect: '16:9' },
           {
-            modelId: 'fal-ai/veo3.1/first-last-frame-to-video',
+            modelIds: ['fal-ai/veo3.1/first-last-frame-to-video'],
             params: { duration: '6s' },
           }
         )
@@ -651,7 +666,7 @@ describe('restyling the source', () => {
       // switch — which is also why the switch is locked on.
       const inputs = await animateInputs(
         animating(ATLAS, {
-          modelId: 'blackforestlabs/flux-3/first-last-frame-to-video',
+          modelIds: ['blackforestlabs/flux-3/first-last-frame-to-video'],
           params: { duration: '5' },
           options: { loop: false, rewind: false },
         })
@@ -671,7 +686,7 @@ describe('restyling the source', () => {
         animating(
           { ...ATLAS, aspect: '16:9' },
           {
-            modelId: 'fal-ai/veo3.1/image-to-video',
+            modelIds: ['fal-ai/veo3.1/image-to-video'],
             params: { duration: '6s' },
             options: { loop: true, rewind: false },
           }
@@ -683,15 +698,15 @@ describe('restyling the source', () => {
     })
   })
 
-  it('animates the source itself when the style stage was skipped', async () => {
-    // The point of the whole input pointer: a source that came out right is
-    // animated directly, and the video model is handed *that* file — not a
-    // styled still it never had, and not a text-to-video charged at video
-    // prices because the image field was quietly left empty.
-    const skipped = animating(
-      { ...ATLAS, selection: { ...ATLAS.selection, style: null } },
-      { inputGenerationId: 'gen-src-2' }
-    )
+  it('animates the source itself when the node is wired straight to it', async () => {
+    // The point of the whole edge: a source that came out right is animated
+    // directly, and the video model is handed *that* file — not a styled still
+    // it never had, and not a text-to-video charged at video prices because the
+    // image field was quietly left empty.
+    const skipped = withFixtureNode(ATLAS, ATLAS_ANIMATE_NODE, {
+      inputNodeId: ATLAS_SOURCE_NODE,
+      pinnedInputId: 'gen-src-2',
+    })
 
     const inputs = await animateInputs(skipped)
 
@@ -709,14 +724,25 @@ describe('restyling the source', () => {
     // "Nothing" means both earlier stages, since animate consumes either. A
     // missing styled still on its own is now a skip rather than a refusal —
     // that is the case above this one.
-    const noStyle = {
-      ...ATLAS,
-      generations: ATLAS.generations.filter(g => g.stage === 'animate'),
-      selection: { ...ATLAS.selection, style: null, source: null },
-    }
+    const noStyle = withFixtureNode(
+      withFixtureNode(
+        {
+          ...ATLAS,
+          generations: ATLAS.generations.filter(g => g.stage === 'animate'),
+        },
+        ATLAS_SOURCE_NODE,
+        { pick: null }
+      ),
+      ATLAS_STYLE_NODE,
+      { pick: null }
+    )
 
     function AnimateProbe() {
-      const { run } = useRunStage(noStyle, 'animate', 1)
+      const { run } = useRunNode(
+        noStyle,
+        fixtureNode(noStyle, ATLAS_ANIMATE_NODE),
+        1
+      )
       return <button onClick={run}>run</button>
     }
 
@@ -735,9 +761,14 @@ function inFlightJob(): Job {
     projectId: LEDGER.id,
     generationId: 'gen-in-flight',
     stage: 'source',
-    recipe: LEDGER.drafts.source as unknown as Job['recipe'],
+    // The frozen shape a job actually carries — including the node id, which is
+    // how `useNodeJobs` tells two style steps' jobs apart (ADR 0005).
+    recipe: fixtureFrozen(
+      LEDGER,
+      LEDGER_SOURCE_NODE
+    ) as unknown as Job['recipe'],
     status: 'running' as Job['status'],
-    modelId: LEDGER.drafts.source.modelId,
+    modelId: fixtureDraft(LEDGER, LEDGER_SOURCE_NODE).modelIds[0] ?? '',
     seed: null,
     asset: null,
     submittedAt: Date.now(),

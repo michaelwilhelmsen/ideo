@@ -1,92 +1,88 @@
 /**
- * `blockedReasonKey` — the one place a stage says it cannot run, and why.
+ * What a node would run from, and whether it could run at all.
  *
- * Worth its own file because every answer here is a refusal that costs a
- * disabled button instead of a paid call. The animate cases are the expensive
- * ones: a ratio no video model accepts, a model that will not run without an end
- * frame nobody can supply yet, and a stage with no picture anywhere behind it.
+ * Rewritten rather than ported for ADR 0005, because the rules genuinely
+ * changed. The old suite pinned an inference — "when the style stage is empty,
+ * animate walks further upstream and finds a source" — that the canvas replaced
+ * with an edge you draw. Porting those assertions would have kept testing a
+ * behaviour that is now deliberately absent.
  *
- * That last one used to be "nothing selected upstream", and the difference is
- * the point: a stage consumes any earlier candidate now, so the only thing left
- * to refuse is a project with nothing in it at all.
- *
- * And the other half of the same question, at the end: a project that never runs
- * the animate stage at all, which is a finished project rather than a blocked
- * one.
+ * What survives unchanged is the part that was always about candidates rather
+ * than stages: the pick wins, then a verdict, then recency; a rejected candidate
+ * stays honoured while it is in use; a stale pointer falls through instead of
+ * blocking.
  */
 
 import { describe, expect, it } from 'vitest'
-import { ATLAS, LEDGER } from './fixtures'
+import {
+  ATLAS,
+  ATLAS_ANIMATE_NODE,
+  ATLAS_SOURCE_NODE,
+  ATLAS_STYLE_NODE,
+  LEDGER,
+  LEDGER_SOURCE_NODE,
+  fixtureNode,
+  withFixtureDraft,
+  withFixtureNode,
+} from './fixtures'
+import { canConnect, makeNode } from './graph'
 import {
   blockedReasonKey,
-  generationsForStage,
+  generationsForNode,
+  pickedGeneration,
   resolvedInputId,
-  selectedGeneration,
+  runSizeFor,
 } from './selectors'
-import type { Generation, Project, StageKind } from './types'
+import type { Generation, Project } from './types'
 
-/** The same project with one stage's model swapped. */
-function on(project: Project, stage: StageKind, modelId: string): Project {
-  return {
-    ...project,
-    drafts: {
-      ...project.drafts,
-      [stage]: { ...project.drafts[stage], modelId },
-    },
-  }
+/** The same project with one node's fan-out swapped for a single model. */
+function on(project: Project, nodeId: string, modelId: string): Project {
+  return withFixtureDraft(project, nodeId, { modelIds: [modelId] })
 }
 
 describe('blockedReasonKey', () => {
-  it('lets a stage run when its input is there and its model can serve it', () => {
-    expect(blockedReasonKey(ATLAS, 'source')).toBeNull()
-    expect(blockedReasonKey(ATLAS, 'style')).toBeNull()
-    expect(blockedReasonKey(ATLAS, 'animate')).toBeNull()
+  it('lets a node run when its input is there and its model can serve it', () => {
+    for (const nodeId of [
+      ATLAS_SOURCE_NODE,
+      ATLAS_STYLE_NODE,
+      ATLAS_ANIMATE_NODE,
+    ]) {
+      expect(blockedReasonKey(ATLAS, fixtureNode(ATLAS, nodeId))).toBeNull()
+    }
   })
 
-  it('lets a stage run off an earlier one, rather than demanding the one before it', () => {
-    // Ledger has a source and nothing else. Animate used to be blocked here —
-    // "pick a styled still first" — which made the style stage mandatory for
-    // anyone whose source came out right the first time. It now runs off the
-    // source, which is what makes a stage skippable at all.
-    expect(blockedReasonKey(LEDGER, 'style')).toBeNull()
-    expect(blockedReasonKey(LEDGER, 'animate')).toBeNull()
-    expect(resolvedInputId(LEDGER, 'animate')).toBe(LEDGER.selection.source)
-  })
-
-  it('falls back to the nearest stage with candidates, not the newest of any', () => {
-    // Atlas has sources *and* styled stills. With the style selection cleared
-    // and no pointer set, animate falls back — and the fallback must land on a
-    // styled still, because style is the nearer stage.
-    //
-    // The bug this pins ranked by arrival across a flattened list instead, which
-    // is the newest candidate of the *furthest* stage. It reads harmlessly and
-    // is not: the clip would come out of a raw source, skipping the style pass
-    // the user had already paid for, at video prices.
-    const noStyleSelection: Project = {
-      ...ATLAS,
-      drafts: {
-        ...ATLAS.drafts,
-        animate: { ...ATLAS.drafts.animate, inputGenerationId: null },
-      },
-      selection: { ...ATLAS.selection, style: null },
+  it('tells a node wired to nothing apart from one whose input is empty', () => {
+    // Two refusals with two different fixes, which is why they are two keys
+    // (ADR 0005). Collapsing them into "needs an input" sent half the users to
+    // the wrong control: one of them needs to draw an edge, the other needs to
+    // press Generate on the node they already drew one to.
+    const unwired = withFixtureNode(LEDGER, LEDGER_SOURCE_NODE, {})
+    const dangling: Project = {
+      ...unwired,
+      nodes: [
+        ...unwired.nodes,
+        makeNode('node-new-style', 'style', { x: 0, y: 0 }, null, 4),
+        makeNode('node-wired', 'style', { x: 0, y: 0 }, 'node-new-style', 4),
+      ],
     }
 
-    const fallback = resolvedInputId(noStyleSelection, 'animate')
-
     expect(
-      noStyleSelection.generations.find(g => g.id === fallback)?.stage
-    ).toBe('style')
+      blockedReasonKey(dangling, fixtureNode(dangling, 'node-new-style'))
+    ).toBe('editor.reason.noInputNode')
+
+    // Wired, but to a node that has produced nothing — so there *is* an edge
+    // and still no picture.
+    expect(
+      blockedReasonKey(dangling, fixtureNode(dangling, 'node-wired'))
+    ).toBe('editor.reason.needsInput')
   })
 
-  it('blocks a stage with no picture anywhere behind it', () => {
-    // The refusal that is left, and it names a picture rather than a stage:
-    // with nothing generated at all there is nothing to work from, whichever
-    // stage you are standing on.
+  it('never blocks a source node, which consumes nothing', () => {
     const empty: Project = { ...LEDGER, generations: [] }
 
-    expect(blockedReasonKey(empty, 'source')).toBeNull()
-    expect(blockedReasonKey(empty, 'style')).toBe('editor.reason.needsInput')
-    expect(blockedReasonKey(empty, 'animate')).toBe('editor.reason.needsInput')
+    expect(
+      blockedReasonKey(empty, fixtureNode(empty, LEDGER_SOURCE_NODE))
+    ).toBeNull()
   })
 
   it('lets animate run on a model that will not run without an end frame', () => {
@@ -99,22 +95,11 @@ describe('blockedReasonKey', () => {
       'blackforestlabs/flux-3/first-last-frame-to-video',
       'fal-ai/veo3.1/first-last-frame-to-video',
     ]) {
+      const project = on(ATLAS, ATLAS_ANIMATE_NODE, modelId)
       expect(
-        blockedReasonKey(on(ATLAS, 'animate', modelId), 'animate')
+        blockedReasonKey(project, fixtureNode(project, ATLAS_ANIMATE_NODE))
       ).toBeNull()
     }
-  })
-
-  it('says nothing about an end frame on a model that does not demand one', () => {
-    // Seedance has an `end_image_url` and does not require it, which is exactly
-    // the distinction `endFrameRequired` exists to draw.
-    const project = on(
-      ATLAS,
-      'animate',
-      'bytedance/seedance-2.5/image-to-video'
-    )
-
-    expect(blockedReasonKey(project, 'animate')).toBeNull()
   })
 
   it('does not blame the model when the ratio is the problem', () => {
@@ -124,59 +109,113 @@ describe('blockedReasonKey', () => {
     // the user round a loop with no way out.
     const project = on(
       { ...ATLAS, aspect: '3:2' },
-      'animate',
+      ATLAS_ANIMATE_NODE,
       'blackforestlabs/flux-3/first-last-frame-to-video'
     )
 
-    expect(blockedReasonKey(project, 'animate')).toBe(
-      'editor.reason.aspectNotAnimatable'
-    )
+    expect(
+      blockedReasonKey(project, fixtureNode(project, ATLAS_ANIMATE_NODE))
+    ).toBe('editor.reason.aspectNotAnimatable')
   })
 })
 
 /**
- * PRD §4.1 — the three stages are independent, so the third one is optional.
+ * PRD §4.1 — the steps are independent, so the last one is optional.
  *
  * A still is a finished thing on its own: plenty of projects want a poster and
- * nothing that moves, and #29 added a video stage rather than a requirement to
+ * nothing that moves, and #29 added a video step rather than a requirement to
  * use it. Pinned here because nothing else would notice if it stopped being
  * true — animating is a click that costs real money, and the way that regresses
  * is a project quietly reporting itself unfinished until someone pays for a clip
  * they never wanted.
  */
 describe('a project that stops at the still', () => {
-  /** Atlas with the animate stage never run. */
-  const stillOnly: Project = {
-    ...ATLAS,
-    selection: { ...ATLAS.selection, animate: null },
-    generations: ATLAS.generations.filter(g => g.stage !== 'animate'),
-  }
+  /** Atlas with the animate node never run. */
+  const stillOnly: Project = withFixtureNode(
+    {
+      ...ATLAS,
+      generations: ATLAS.generations.filter(g => g.stage !== 'animate'),
+    },
+    ATLAS_ANIMATE_NODE,
+    { pick: null }
+  )
 
   it('keeps its chosen still, with nothing at animate to explain', () => {
-    expect(selectedGeneration(stillOnly, 'style')?.id).toBe('gen-sty-2')
-    expect(generationsForStage(stillOnly, 'animate')).toEqual([])
-    expect(selectedGeneration(stillOnly, 'animate')).toBeNull()
+    expect(
+      pickedGeneration(stillOnly, fixtureNode(stillOnly, ATLAS_STYLE_NODE))?.id
+    ).toBe('gen-sty-2')
+    expect(generationsForNode(stillOnly, ATLAS_ANIMATE_NODE)).toEqual([])
+    expect(
+      pickedGeneration(stillOnly, fixtureNode(stillOnly, ATLAS_ANIMATE_NODE))
+    ).toBeNull()
   })
 
   it('offers animation rather than demanding it', () => {
     // Not blocked — the input is there and the model can serve it — which is
-    // the point: the stage is available and skipped, not unavailable.
-    expect(blockedReasonKey(stillOnly, 'animate')).toBeNull()
-    expect(blockedReasonKey(stillOnly, 'style')).toBeNull()
+    // the point: the step is available and skipped, not unavailable.
+    for (const nodeId of [ATLAS_ANIMATE_NODE, ATLAS_STYLE_NODE]) {
+      expect(
+        blockedReasonKey(stillOnly, fixtureNode(stillOnly, nodeId))
+      ).toBeNull()
+    }
   })
 })
 
-describe('what a skipped stage falls back to', () => {
-  /**
-   * Atlas with the style and animate candidates taken away, so animate has to
-   * skip past an empty style stage to reach the sources — the shape of a
-   * project whose source came out right the first time.
-   */
-  function sourcesOnly(
+/**
+ * Skipping a step is now an **edge**, not an inference (ADR 0005).
+ *
+ * The old ladder ended by walking upstream past an empty stage on the user's
+ * behalf, at video prices, guessing which picture they meant. This is the
+ * replacement, and it is one assertion rather than five: wire animate straight
+ * to source, and it consumes a source.
+ */
+describe('wiring past a step', () => {
+  it('consumes whatever the node it is wired to has settled on', () => {
+    const direct = withFixtureNode(ATLAS, ATLAS_ANIMATE_NODE, {
+      inputNodeId: ATLAS_SOURCE_NODE,
+      pinnedInputId: null,
+    })
+
+    expect(
+      resolvedInputId(direct, fixtureNode(direct, ATLAS_ANIMATE_NODE))
+    ).toBe(fixtureNode(direct, ATLAS_SOURCE_NODE).pick)
+  })
+
+  it('refuses an edge that would close a cycle', () => {
+    // The one rule left on which edges may exist. There is no ordering on kinds
+    // any more — a style node may feed another style node — so this is the whole
+    // check, and it has to hold transitively rather than just for self-edges.
+    expect(canConnect(ATLAS, ATLAS_SOURCE_NODE, ATLAS_ANIMATE_NODE)).toBe(true)
+    expect(canConnect(ATLAS, ATLAS_STYLE_NODE, ATLAS_STYLE_NODE)).toBe(false)
+    expect(canConnect(ATLAS, ATLAS_ANIMATE_NODE, ATLAS_STYLE_NODE)).toBe(false)
+    expect(canConnect(ATLAS, ATLAS_ANIMATE_NODE, ATLAS_SOURCE_NODE)).toBe(false)
+  })
+
+  it('lets a style step feed another style step', () => {
+    // A restyle of a restyle, which `upstreamStages` used to forbid for no
+    // reason anybody could state once the pipeline stopped being a wizard.
+    const project: Project = {
+      ...ATLAS,
+      nodes: [
+        ...ATLAS.nodes,
+        makeNode('node-second-style', 'style', { x: 0, y: 0 }, null, 4),
+      ],
+    }
+
+    expect(canConnect(project, ATLAS_STYLE_NODE, 'node-second-style')).toBe(
+      true
+    )
+  })
+})
+
+describe('which candidate of its input a node runs from', () => {
+  /** Atlas's animate node wired to source, with the sources' verdicts set. */
+  function offSources(
     verdicts: Partial<Record<string, Generation['verdict']>>,
-    selected: string | null
+    pick: string | null,
+    pinned: string | null = null
   ): Project {
-    return {
+    const base: Project = {
       ...ATLAS,
       generations: ATLAS.generations
         .filter(generation => generation.stage === 'source')
@@ -184,62 +223,125 @@ describe('what a skipped stage falls back to', () => {
           ...generation,
           verdict: verdicts[generation.id] ?? 'unrated',
         })),
-      drafts: {
-        ...ATLAS.drafts,
-        animate: { ...ATLAS.drafts.animate, inputGenerationId: null },
-      },
-      selection: { source: selected, style: null, animate: null },
     }
+
+    return withFixtureNode(
+      withFixtureNode(base, ATLAS_SOURCE_NODE, { pick }),
+      ATLAS_ANIMATE_NODE,
+      { inputNodeId: ATLAS_SOURCE_NODE, pinnedInputId: pinned, pick: null }
+    )
   }
 
-  it('uses what the earlier stage is working from, not its newest candidate', () => {
-    // The reported bug: twelve sources deep with the ninth selected and
-    // previewed one tab over, animate offered to spend video money on the
-    // twelfth. `selection` means "what this stage is working from" everywhere
-    // else in the app, and skipping a stage must not throw that away.
-    const project = sourcesOnly({}, 'gen-src-1')
+  it('takes the pin first, whatever the input node has settled on', () => {
+    const project = offSources({}, 'gen-src-2', 'gen-src-1')
 
-    expect(resolvedInputId(project, 'animate')).toBe('gen-src-1')
+    expect(
+      resolvedInputId(project, fixtureNode(project, ATLAS_ANIMATE_NODE))
+    ).toBe('gen-src-1')
   })
 
-  it('prefers the newest approved one when nothing is selected', () => {
-    // With no selection, a verdict is the only statement anyone has made about
-    // these pictures, and "approved" is the one that means keep.
-    const project = sourcesOnly({ 'gen-src-1': 'approved' }, null)
+  it('otherwise takes what the input node is working from', () => {
+    // `pick` means "the candidate this node has settled on" everywhere in the
+    // app, and following it is what makes choosing upstream feed everything
+    // downstream without a second click per edge.
+    const project = offSources({}, 'gen-src-1')
 
-    expect(resolvedInputId(project, 'animate')).toBe('gen-src-1')
+    expect(
+      resolvedInputId(project, fixtureNode(project, ATLAS_ANIMATE_NODE))
+    ).toBe('gen-src-1')
   })
 
-  it('takes the newest of the rest when nothing is selected or approved', () => {
-    // Where this started, and still right: an untriaged project animates the
-    // last thing it made rather than refusing to run.
-    const project = sourcesOnly({}, null)
-    const sources = generationsForStage(project, 'source').filter(
+  it('prefers the newest approved one when nothing is picked', () => {
+    // With no pick, a verdict is the only statement anyone has made about these
+    // pictures, and "approved" is the one that means keep.
+    const project = offSources({ 'gen-src-1': 'approved' }, null)
+
+    expect(
+      resolvedInputId(project, fixtureNode(project, ATLAS_ANIMATE_NODE))
+    ).toBe('gen-src-1')
+  })
+
+  it('takes the newest of the rest when nothing is picked or approved', () => {
+    // An untriaged project runs off the last thing it made rather than refusing.
+    const project = offSources({}, null)
+    const sources = generationsForNode(project, ATLAS_SOURCE_NODE).filter(
       generation => generation.verdict !== 'rejected'
     )
 
-    expect(resolvedInputId(project, 'animate')).toBe(sources.at(-1)?.id)
+    expect(
+      resolvedInputId(project, fixtureNode(project, ATLAS_ANIMATE_NODE))
+    ).toBe(sources.at(-1)?.id)
   })
 
-  it('keeps honouring a selection that has since been rejected', () => {
-    // Deliberately the same answer the *non*-skipped path gives: rejecting a
-    // candidate does not move the selection off it, the stage's own tab goes on
-    // previewing it (PRD §10.3 — a reject is a filter, not a tombstone), and
-    // the skipped path disagreeing would put a different picture behind each of
-    // two tabs. Choosing another one is a click in the working-from row.
-    const project = sourcesOnly(
+  it('keeps honouring a pick that has since been rejected', () => {
+    // A reject is a filter, not a tombstone (PRD §10.3): it takes a candidate
+    // out of the pickers, and it must not silently repoint a node that is
+    // already consuming it. Choosing another one is a click in the input row.
+    const project = offSources(
       { 'gen-src-1': 'rejected', 'gen-src-2': 'approved' },
       'gen-src-1'
     )
 
-    expect(resolvedInputId(project, 'animate')).toBe('gen-src-1')
+    expect(
+      resolvedInputId(project, fixtureNode(project, ATLAS_ANIMATE_NODE))
+    ).toBe('gen-src-1')
   })
 
-  it('falls past a selection the project no longer holds', () => {
+  it('falls past a pointer the project no longer holds', () => {
     // A hand-edited manifest, or a pointer left behind by an older build. A
-    // stale id must not block the ladder any more than it blocks the one above.
-    const project = sourcesOnly({ 'gen-src-2': 'approved' }, 'gen-src-gone')
+    // stale id must not block the ladder at either rung.
+    const stalePin = offSources({ 'gen-src-2': 'approved' }, null, 'gen-gone')
+    const stalePick = offSources({ 'gen-src-2': 'approved' }, 'gen-gone')
 
-    expect(resolvedInputId(project, 'animate')).toBe('gen-src-2')
+    for (const project of [stalePin, stalePick]) {
+      expect(
+        resolvedInputId(project, fixtureNode(project, ATLAS_ANIMATE_NODE))
+      ).toBe('gen-src-2')
+    }
+  })
+
+  it('names nothing at all when the node is wired to nothing', () => {
+    const unwired = withFixtureNode(ATLAS, ATLAS_ANIMATE_NODE, {
+      inputNodeId: null,
+      pinnedInputId: null,
+    })
+
+    expect(
+      resolvedInputId(unwired, fixtureNode(unwired, ATLAS_ANIMATE_NODE))
+    ).toBeNull()
+  })
+})
+
+/**
+ * What one click costs, which is the number the run button says out loud.
+ *
+ * The fan-out multiplies it, and the pinned seed collapses only the *batch* —
+ * not the fan-out. Three models on one seed are three different pictures, which
+ * is the comparison a pin exists to make.
+ */
+describe('runSizeFor', () => {
+  const two = 'fal-ai/flux/dev/image-to-image'
+  const three = 'fal-ai/qwen-image-2/edit'
+
+  it('multiplies the batch by the number of models', () => {
+    const project = withFixtureDraft(ATLAS, ATLAS_STYLE_NODE, {
+      modelIds: [two, three],
+      seed: { mode: 'roll' },
+    })
+
+    expect(
+      runSizeFor({ ...fixtureNode(project, ATLAS_STYLE_NODE), batchSize: 3 })
+    ).toBe(6)
+  })
+
+  it('collapses the batch on a pinned seed but keeps every model', () => {
+    const project = withFixtureDraft(ATLAS, ATLAS_STYLE_NODE, {
+      modelIds: [two, three],
+      seed: { mode: 'pinned', value: 7 },
+    })
+
+    expect(
+      runSizeFor({ ...fixtureNode(project, ATLAS_STYLE_NODE), batchSize: 4 })
+    ).toBe(2)
   })
 })

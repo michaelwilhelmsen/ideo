@@ -47,7 +47,8 @@ import {
   type KnobValue,
 } from '@/lib/effects'
 import {
-  selectedGeneration,
+  nodeById,
+  pickedGeneration,
   sourcePresetById,
   stylePresetById,
   type Generation,
@@ -65,7 +66,7 @@ export function EffectsTab() {
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
   const directory = useEditorStore(store => store.state.directory)
-  const activeStage = useEditorStore(store => store.state.activeStage)
+  const selectedNodeId = useEditorStore(store => store.state.selectedNodeId)
   const nameOf = useGenerationName()
   const target = useTreatmentTarget()
 
@@ -98,9 +99,13 @@ export function EffectsTab() {
 
   if (target === null) return null
 
-  // What the strip below is pointing at, which is not necessarily what this tab
-  // is treating — the whole reason "Treat this" still exists.
-  const selected = selectedGeneration(target.project, activeStage)
+  // What the canvas is pointing at, which is not necessarily what this panel is
+  // treating — the whole reason "Treat this" still exists.
+  const selectedNode = nodeById(target.project, selectedNodeId)
+  const selected =
+    selectedNode === null
+      ? null
+      : pickedGeneration(target.project, selectedNode)
 
   if (target.generation === null) {
     return (

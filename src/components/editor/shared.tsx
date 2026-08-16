@@ -24,20 +24,19 @@ import {
   isAspectId,
   isFromAnotherInput,
   isUploadRecipe,
+  needsInput,
   modelById,
   MODEL_REGISTRY,
   previewArt,
   recipeSummary,
   resolvedInputId,
-  runGroups,
   seedSibling,
-  upstreamOf,
-  visibleGenerations,
-  rejectedCount,
+  nodeById,
+  nodeIdOf,
   type AspectId,
   type Generation,
+  type DraftNode,
   type Project,
-  type StageKind,
 } from '@/lib/recipe'
 import { useEditorStore } from '@/store/editor-store'
 import { assetSource } from './assets'
@@ -363,10 +362,22 @@ export function PinSeedButton({
   const seed = generation.seed
   if (seed === null) return null
 
-  const draft = project.drafts[generation.stage]
-  const model = modelById(MODEL_REGISTRY, draft.modelId)
-  if (controlAvailability(model, 'seed').state !== 'available') return null
+  // The draft this candidate came from, which is its node's — not "the style
+  // stage's". Two style nodes have two drafts and pinning into the wrong one
+  // would hold still a composition nobody was looking at.
+  const node = nodeById(project, nodeIdOf(generation))
+  if (node === null) return null
 
+  // Every model in the fan-out, because that is what the reducer will refuse on:
+  // a pin only means something if the whole comparison honours it.
+  const seedable = node.draft.modelIds.every(
+    id =>
+      controlAvailability(modelById(MODEL_REGISTRY, id), 'seed').state ===
+      'available'
+  )
+  if (!seedable) return null
+
+  const draft = node.draft
   const pinned = draft.seed.mode === 'pinned' && draft.seed.value === seed
 
   return (
@@ -378,113 +389,13 @@ export function PinSeedButton({
       onClick={() =>
         dispatch(
           pinned
-            ? { type: 'unpinSeed', stage: generation.stage }
-            : { type: 'pinSeed', stage: generation.stage, value: seed }
+            ? { type: 'unpinSeed', nodeId: node.id }
+            : { type: 'pinSeed', nodeId: node.id, value: seed }
         )
       }
     >
       {t('editor.action.pinSeed')}
     </Button>
-  )
-}
-
-/**
- * Every candidate the stage has ever produced, minus the rejects — which are
- * one toggle away and never gone (PRD §10.3).
- */
-export function CandidateStrip({
-  project,
-  stage,
-  compact = false,
-  orientation = 'horizontal',
-}: {
-  project: Project
-  stage: StageKind
-  compact?: boolean
-  orientation?: 'horizontal' | 'vertical'
-}) {
-  const { t } = useTranslation()
-  const showRejected = useEditorStore(store => store.state.showRejected)
-  const dispatch = useEditorStore(store => store.dispatch)
-
-  const candidates = visibleGenerations(project, stage, showRejected)
-  const groups = runGroups(project, stage, showRejected)
-  const hidden = showRejected ? 0 : rejectedCount(project, stage)
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          {t('editor.candidates', { count: candidates.length })}
-        </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => dispatch({ type: 'toggleShowRejected' })}
-        >
-          {showRejected
-            ? t('editor.action.hideRejected')
-            : t('editor.action.showRejected', { count: hidden })}
-        </Button>
-      </div>
-
-      {candidates.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {t('editor.noCandidates')}
-        </p>
-      ) : (
-        <div
-          className={cn(
-            'flex gap-3',
-            orientation === 'horizontal'
-              ? 'overflow-x-auto pb-2'
-              : 'flex-col overflow-y-auto'
-          )}
-        >
-          {/* One click produced several candidates (#26), so the strip says
-              which — otherwise a four-up reads as four unrelated attempts and
-              "the second one of that run" stops being sayable. Candidates from
-              before runs were recorded carry no label and no divider. */}
-          {groups.map((group, index) => (
-            <div
-              key={group.runId ?? `ungrouped-${String(index)}`}
-              className={cn(
-                // The label sits above its run either way; only the divider
-                // between runs follows the strip's direction.
-                'flex shrink-0 flex-col gap-1',
-                index > 0 &&
-                  group.number !== null &&
-                  (orientation === 'horizontal'
-                    ? 'border-s border-border ps-3'
-                    : 'border-t border-border pt-3')
-              )}
-            >
-              {group.number !== null && (
-                <span className="text-xs text-muted-foreground">
-                  {t('editor.run.number', { number: group.number })}
-                </span>
-              )}
-              <div
-                className={cn(
-                  'flex gap-3',
-                  orientation === 'vertical' && 'flex-col'
-                )}
-              >
-                {group.generations.map(generation => (
-                  <GenerationTile
-                    key={generation.id}
-                    project={project}
-                    generation={generation}
-                    selected={project.selection[stage] === generation.id}
-                    compact={compact}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   )
 }
 
@@ -584,65 +495,76 @@ export function SeedComparison({
  */
 export function InputSummary({
   project,
-  stage,
+  node,
 }: {
   project: Project
-  stage: StageKind
+  node: DraftNode
 }) {
   const { t } = useTranslation()
   const nameOf = useGenerationName()
 
-  if (upstreamOf(stage) === null) return null
+  if (!needsInput(node.kind)) return null
 
-  const current = generationById(project, resolvedInputId(project, stage))
+  const current = generationById(project, resolvedInputId(project, node))
 
   return (
     <p className="text-xs text-muted-foreground">
       {current === null
-        ? t('editor.reason.needsInput')
+        ? t(
+            node.inputNodeId === null
+              ? 'editor.reason.noInputNode'
+              : 'editor.reason.needsInput'
+          )
         : t('editor.inputFrom', { name: nameOf(current) })}
     </p>
   )
 }
 
 /**
- * What this stage is working from — and, since stages became skippable, the
- * place to change it.
+ * What this node is working from — and the place to change it.
  *
  * It was a line of grey text naming the upstream selection, which was honest
  * while the pipeline was fixed: there was only ever one answer, so the only
- * thing to do with it was read it. Now that a stage may consume any earlier
- * candidate, the answer is a *choice*, and a choice belongs on the thing you
- * are choosing between — the pictures.
+ * thing to do with it was read it. Now that a node consumes whichever candidate
+ * of its input node you say, the answer is a *choice*, and a choice belongs on
+ * the thing you are choosing between — the pictures.
  *
  * The head of the row is what {@link resolvedInputId} settled on and is already
- * selected, so the common path is unchanged: open Animate, see the styled still
- * it would use, press Generate. Skipping is picking a different card, which is
- * why there is no "skip" control anywhere — a skipped stage is not a mode, it is
- * an input that came from further back.
+ * selected, so the common path is unchanged. Picking a different card writes a
+ * pin (ADR 0005), which is the same thing dragging an edge from that candidate
+ * would have done — two gestures, one state.
  *
- * Deliberately not the same tile as the candidate strip's: no verdict buttons,
- * no seed pin, no restore. Those act on a candidate as a *result*, and here it is
+ * Deliberately not the same tile as a candidate node: no verdict buttons, no
+ * seed pin, no restore. Those act on a candidate as a *result*, and here it is
  * an ingredient — the only question this row asks is which one.
  *
- * Main pane only. It renders thumbnails, and the one place it must not go is the
- * right sidebar, which is a column of form controls — see {@link InputSummary}.
+ * Two refusals rather than one, because they have two different fixes: a node
+ * wired to nothing needs an **edge**, and a node wired to an empty node needs
+ * that node **run**.
  */
 export function InputRow({
   project,
-  stage,
+  node,
 }: {
   project: Project
-  stage: StageKind
+  node: DraftNode
 }) {
   const { t } = useTranslation()
   const nameOf = useGenerationName()
   const dispatch = useEditorStore(store => store.dispatch)
 
-  if (upstreamOf(stage) === null) return null
+  if (!needsInput(node.kind)) return null
 
-  const inputs = eligibleInputs(project, stage)
-  const currentId = resolvedInputId(project, stage)
+  if (node.inputNodeId === null) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t('editor.reason.noInputNode')}
+      </p>
+    )
+  }
+
+  const inputs = eligibleInputs(project, node)
+  const currentId = resolvedInputId(project, node)
 
   if (inputs.length === 0) {
     return (
@@ -681,8 +603,8 @@ export function InputRow({
               aria-pressed={chosen}
               onClick={() =>
                 dispatch({
-                  type: 'setStageInput',
-                  stage,
+                  type: 'pinNodeInput',
+                  nodeId: node.id,
                   generationId: generation.id,
                 })
               }

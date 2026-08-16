@@ -33,8 +33,7 @@ import {
   readRecipe,
   runIdForGeneration,
   stampedCost,
-  STAGE_ORDER,
-  stagesWithoutSelection,
+  nodesWithoutPick,
   withCollectedGenerations,
   type AspectId,
   type CompletedRun,
@@ -248,17 +247,18 @@ export function useOverviewCollection(): void {
 }
 
 /**
- * The jobs one stage has in flight.
+ * The jobs one node has in flight.
  *
- * A stage's panel and its Run button both need exactly this, and deriving it
+ * A node's card and its Run button both need exactly this, and deriving it
  * twice is how the two end up disagreeing about whether anything is running.
+ *
+ * Filtered on the recipe's node id rather than on the job's `stage` column
+ * (ADR 0005): two style nodes running at once are two different sets of jobs,
+ * and a filter by stage would show each of them the other's.
  */
-export function useStageJobs(
-  projectId: string,
-  stage: StageKind
-): readonly Job[] {
+export function useNodeJobs(projectId: string, nodeId: string): readonly Job[] {
   const { data: jobs } = useActiveJobs(projectId)
-  return (jobs ?? []).filter(job => job.stage === stage)
+  return (jobs ?? []).filter(job => readRecipe(job.recipe)?.nodeId === nodeId)
 }
 
 /**
@@ -368,20 +368,33 @@ function adoptRuns(projectId: string, jobs: readonly Job[]): void {
   )
   if (orphaned.length === 0) return
 
-  // Grouped per stage, because a run belongs to a stage.
-  for (const stage of STAGE_ORDER) {
-    const forStage = orphaned.filter(job => job.stage === stage)
-    if (forStage.length === 0) continue
+  // Grouped per **node** (ADR 0005), because a run belongs to a node. Read off
+  // each job's stored recipe rather than off a column: the node id rides in the
+  // recipe blob Rust hands back untouched, which is why adopting resumed work
+  // needed no schema change.
+  //
+  // A job whose recipe this build cannot read, or whose node has since been
+  // deleted, is left unadopted — it will be dropped on arrival too, and a run
+  // for candidates that can never appear would leave a grid waiting forever.
+  const known = new Set((project?.nodes ?? []).map(node => node.id))
+  const byNode = new Map<string, Job[]>()
 
+  for (const job of orphaned) {
+    const nodeId = readRecipe(job.recipe)?.nodeId
+    if (nodeId === undefined || !known.has(nodeId)) continue
+    byNode.set(nodeId, [...(byNode.get(nodeId) ?? []), job])
+  }
+
+  for (const [nodeId, forNode] of byNode) {
     dispatch({
       type: 'beginRun',
       runId: mintRunId(),
-      generationIds: forStage.map(job => job.generationId),
+      generationIds: forNode.map(job => job.generationId),
       projectId,
-      stage,
+      nodeId,
       // The click happened in another session; the earliest submit is the
       // closest thing to when this run started.
-      at: Math.min(...forStage.map(job => job.submittedAt)),
+      at: Math.min(...forNode.map(job => job.submittedAt)),
     })
   }
 }
@@ -620,7 +633,7 @@ async function record(
     // Nobody is looking at this project, so there is no grid to choose from:
     // an arrival fills a stage that has no input yet and otherwise leaves the
     // last choice alone.
-    stagesWithoutSelection(project)
+    nodesWithoutPick(project)
   )
 
   // If the editor opened it while we were reading, the copy in memory does not

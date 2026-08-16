@@ -8,15 +8,16 @@
  * reducer action, so "picked" and "dropped" cannot drift apart in what they
  * accept or what they record.
  *
- * It only appears on the source stage. Style and animate take their input from
- * the stage above (PRD §4.1) rather than from disk, so an upload affordance
- * there would offer something the recipe model has nowhere to put.
+ * It only appears on a **source node**. Every other kind takes its input from an
+ * edge (PRD §4.1, ADR 0005) rather than from disk, so an upload affordance there
+ * would offer something the recipe model has nowhere to put — and the candidate
+ * it produced would belong to a node whose models cannot re-run it.
  *
  * Two things the OS gesture forces this component to do by hand:
  *
  * **Scoping.** Tauri reports a drag against the *window*, not against a DOM
  * node, so a listener that simply believed the event would swallow a file
- * dropped anywhere — over the candidate strip, the sidebar, another stage.
+ * dropped anywhere — over another card, the sidebar, the empty canvas.
  * The drop is therefore tested against this panel's own rectangle, and the
  * highlight follows the same test, so what lights up is what will accept.
  *
@@ -34,13 +35,23 @@ import { Button } from '@/components/ui/button'
 import i18n from '@/i18n/config'
 import { logger } from '@/lib/logger'
 import { cn } from '@/lib/utils'
-import type { Project } from '@/lib/recipe'
+import type { DraftNode, Project } from '@/lib/recipe'
 import { isWithinDropZone } from './drop-zone'
 import { useImportSourceImage } from './import-source'
 
-export function SourceUpload({ project }: { project: Project }) {
+export function SourceUpload({
+  project,
+  node,
+  compact = false,
+}: {
+  project: Project
+  /** The node the imported picture becomes a candidate of. */
+  node: DraftNode
+  /** Sized for a canvas card rather than a full pane. */
+  compact?: boolean
+}) {
   const { t } = useTranslation()
-  const importer = useImportSourceImage(project)
+  const importer = useImportSourceImage(project, node)
   const [isOver, setIsOver] = useState(false)
   const zone = useRef<HTMLElement>(null)
 
@@ -111,21 +122,37 @@ export function SourceUpload({ project }: { project: Project }) {
     }
   }, [importPath])
 
+  // Two sizes of the same panel rather than two components: the drop target,
+  // the arity refusal and the aspect check are the whole substance and none of
+  // them changes with the width. What changes is how much prose fits on a 360px
+  // card, which is a layout question.
   return (
     <section
       ref={zone}
+      // `nodrag` so a mousedown on the panel is not read as the start of a card
+      // drag — this sits inside a React Flow node when it is compact.
       className={cn(
-        'rounded-lg border border-dashed border-border p-4 transition-colors',
+        'nodrag rounded-lg border border-dashed border-border transition-colors',
+        compact ? 'p-2' : 'p-4',
         isOver && 'border-primary bg-primary/5'
       )}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="space-y-1">
-          <h2 className="text-sm font-medium">{t('editor.upload.title')}</h2>
-          <p className="max-w-md text-xs text-muted-foreground">
+          {!compact && (
+            <h2 className="text-sm font-medium">{t('editor.upload.title')}</h2>
+          )}
+          <p
+            className={cn(
+              'text-muted-foreground',
+              compact ? 'text-[11px]' : 'max-w-md text-xs'
+            )}
+          >
             {isOver
               ? t('editor.upload.dropHere')
-              : t('editor.upload.description')}
+              : compact
+                ? t('editor.upload.title')
+                : t('editor.upload.description')}
           </p>
         </div>
         <Button

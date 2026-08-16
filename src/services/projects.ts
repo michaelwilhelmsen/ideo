@@ -17,14 +17,14 @@ import { logger } from '@/lib/logger'
 import {
   copyPalette,
   DEFAULT_BATCH_SIZES,
-  DEFAULT_MODEL_IDS,
+  IncompatibleManifestError,
   DEFAULT_PALETTE,
+  makeNode,
   readManifest,
   writeManifest,
   type AspectId,
   type Project,
   type ProjectSummary,
-  type StageRecipe,
 } from '@/lib/recipe'
 import {
   commands,
@@ -271,6 +271,20 @@ export function useProjectLibrary(): void {
   }, [project, queryClient])
 }
 
+/**
+ * Which refusal to say out loud when a project will not open.
+ *
+ * A v1 manifest is intact and simply not readable by this build (ADR 0005 — no
+ * migration), and it stays on disk exactly as it was. Calling that "could not
+ * open" alongside a genuinely corrupt file would make an intact project look
+ * damaged, which is the more expensive of the two misunderstandings.
+ */
+function openErrorKey(error: unknown): string {
+  return error instanceof IncompatibleManifestError
+    ? 'editor.error.incompatibleManifest'
+    : 'editor.error.open'
+}
+
 /** Opens a project by id, replacing whatever is open. */
 export function useOpenProject() {
   const dispatch = useEditorStore(store => store.dispatch)
@@ -280,50 +294,46 @@ export function useOpenProject() {
       .then(({ project, directory }) => {
         dispatch({ type: 'openProject', project, directory })
       })
-      .catch((error: unknown) => report('editor.error.open', error))
+      .catch((error: unknown) => report(openErrorKey(error), error))
   }
 }
 
 /**
  * A project with nothing in it yet, ready to be saved.
  *
- * The starting drafts are *copied* in rather than referenced, per PRD §11:
- * changing a default later must not reach back into projects that already
- * exist.
+ * The starting canvas is **one source node**, and only one (ADR 0005). Three
+ * nodes wired in a line would be this app drawing the wizard it just deleted —
+ * a shape that says "next, then next" before the user has decided there is a
+ * style step at all. One node says the true thing instead: something has to be
+ * made before anything can be done to it, and what happens after that is drawn
+ * rather than assumed.
+ *
+ * Everything on it is *copied* rather than referenced, per PRD §11: changing a
+ * default later must not reach back into projects that already exist.
  */
 export function newProject(name: string, aspect: AspectId): Project {
-  const blank = (modelId: string): StageRecipe => ({
-    modelId,
-    prompt: '',
-    presetId: null,
-    presetModified: false,
-    seed: { mode: 'roll' },
-    params: {},
-    options: {},
-    inputGenerationId: null,
-  })
-
   return {
     id: crypto.randomUUID(),
     name,
     aspect,
     createdAt: Date.now(),
-    // Copied, not referenced (PRD §11): raising the default later must not
-    // make an existing project's next click cost four times as much.
-    batchSizes: { ...DEFAULT_BATCH_SIZES },
-    // Copied for the same reason, and it is the reason the palette is allowed
-    // to stay editable: nothing already generated references it, because every
-    // recipe persists its expanded prose (#46).
+    // Copied for the reason the batch size is, and it is the reason the palette
+    // is allowed to stay editable: nothing already generated references it,
+    // because every recipe persists its expanded prose (#46).
     palette: copyPalette(DEFAULT_PALETTE),
-    drafts: {
-      // From the registry (#25), not written out here: a draft naming a model
-      // with no capability entry is a recipe nothing can build a request for,
-      // and `modelById` would refuse it on the next render.
-      source: blank(DEFAULT_MODEL_IDS.source),
-      style: blank(DEFAULT_MODEL_IDS.style),
-      animate: blank(DEFAULT_MODEL_IDS.animate),
-    },
+    nodes: [
+      // The model comes from the registry (#25) rather than being written out
+      // here: a draft naming a model with no capability entry is a recipe
+      // nothing can build a request for, and `modelById` would refuse it on the
+      // next render.
+      makeNode(
+        crypto.randomUUID(),
+        'source',
+        { x: 0, y: 0 },
+        null,
+        DEFAULT_BATCH_SIZES.source
+      ),
+    ],
     generations: [],
-    selection: { source: null, style: null, animate: null },
   }
 }

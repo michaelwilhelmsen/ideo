@@ -1,5 +1,9 @@
 /**
- * The editor reducer — every transition the three-stage editor can make.
+ * The editor reducer — every transition the canvas can make.
+ *
+ * Addressed by **node** since ADR 0005. What was `stage: StageKind` on every
+ * draft-editing action is now `nodeId: string`, because a canvas can hold two
+ * style steps and a string literal could only ever name one of them.
  *
  * Pure by construction: no ids are minted and no seeds are rolled in here. The
  * caller passes them in on the action, which is what makes "same pinned seed,
@@ -28,15 +32,20 @@ import {
 } from './registry'
 import {
   clampBatchSize,
+  DEFAULT_BATCH_SIZES,
   isEligibleInput,
+  nodeIdOf,
   resolvedInputId,
-  upstreamOf,
 } from './selectors'
+import { canConnect, heldModelIds, makeNode, nodeById } from './graph'
 import { isUploadRecipe, uploadRecipe } from './upload'
-import { STAGE_ORDER } from './types'
+import { needsInput } from './types'
 import type {
+  DraftNode,
+  DraftRecipe,
   EditorState,
   Generation,
+  NodePosition,
   ParamValue,
   Project,
   ProjectSummary,
@@ -50,13 +59,21 @@ import type {
 /**
  * One model call the caller has already minted an id and a seed for.
  *
- * For a stage with a real model behind it the seed is the one fal *used* and
+ * For a node with a real model behind it the seed is the one fal *used* and
  * the asset is the file it produced — both are facts by the time this is
  * dispatched, which is why the generation is minted after the call rather than
- * before it. A stage still on fixtures passes a rolled seed and no asset.
+ * before it.
  */
 export interface PlannedRun {
   readonly id: string
+  /**
+   * Which model of the node's fan-out this call went to (ADR 0005).
+   *
+   * Per candidate rather than on the action, because that is what a fan-out is:
+   * one click, one run id, several models. The frozen recipe on each generation
+   * names this one and reconciles the shared parameter bag against it.
+   */
+  readonly modelId: string
   readonly seed: number
   readonly asset: string | null
   /**
@@ -79,6 +96,12 @@ export interface PlannedRun {
 export interface CompletedRun {
   readonly id: string
   readonly stage: StageKind
+  /**
+   * The frozen recipe, which is also where its node id is —
+   * {@link StageRecipe.nodeId}. Nothing on this interface names the node
+   * separately, because the recipe is the copy that made the round trip through
+   * the job store and a second field would be a second answer.
+   */
   readonly recipe: StageRecipe
   /** What the model used, or `null` when it has no seed to report. */
   readonly seed: number | null
@@ -108,7 +131,7 @@ export function emptyEditorState(): EditorState {
     summaries: [],
     project: null,
     directory: null,
-    activeStage: 'source',
+    selectedNodeId: null,
     effectsOpen: false,
     treatmentTarget: null,
     showRejected: false,
@@ -117,30 +140,24 @@ export function emptyEditorState(): EditorState {
   }
 }
 
-/** No variable typed into any of a project's stages — where each one starts. */
-const NO_STAGE_VARIABLES: Readonly<Record<StageKind, PresetVariableValues>> = {
-  source: NO_VARIABLE_VALUES,
-  style: NO_VARIABLE_VALUES,
-  animate: NO_VARIABLE_VALUES,
-}
-
 /**
- * What the open project's variable fields say for one stage.
+ * What the open project's variable fields say for one node.
  *
- * A project nobody has typed into has no entry at all, which is the same answer
- * as an empty one — so this is the read every caller wants, and the reason the
- * state holds no row for a project until there is something to put in it.
+ * A project nobody has typed into has no entry at all, and neither does a node
+ * — which is the same answer as an empty one. So this is the read every caller
+ * wants, and the reason the state holds no row until there is something to put
+ * in it.
  */
 export function presetVariablesFor(
   state: EditorState,
   projectId: string,
-  stage: StageKind
+  nodeId: string
 ): PresetVariableValues {
-  return state.presetVariables[projectId]?.[stage] ?? NO_VARIABLE_VALUES
+  return state.presetVariables[projectId]?.[nodeId] ?? NO_VARIABLE_VALUES
 }
 
 /**
- * One stage's variable fields, as they now read.
+ * One node's variable fields, as they now read.
  *
  * Written against the open project, because that is the only one whose picker
  * anybody is looking at. With nothing open there is no project to file them
@@ -148,7 +165,7 @@ export function presetVariablesFor(
  */
 function withVariables(
   state: EditorState,
-  stage: StageKind,
+  nodeId: string,
   values: PresetVariableValues
 ): EditorState {
   const projectId = state.project?.id
@@ -159,8 +176,8 @@ function withVariables(
     presetVariables: {
       ...state.presetVariables,
       [projectId]: {
-        ...(state.presetVariables[projectId] ?? NO_STAGE_VARIABLES),
-        [stage]: values,
+        ...(state.presetVariables[projectId] ?? {}),
+        [nodeId]: values,
       },
     },
   }
@@ -201,10 +218,75 @@ export type EditorAction =
     }
   /** The open project was deleted, or there was never one to open. */
   | { readonly type: 'closeProject' }
-  | { readonly type: 'selectStage'; readonly stage: StageKind }
+  /**
+   * The node the right sidebar edits — a click on the canvas (ADR 0005).
+   *
+   * `null` is a real value and not a gap: clicking empty canvas deselects, and
+   * the sidebar shows the project's own panel. That is why this replaced
+   * `selectStage` rather than being renamed from it — a tab bar always had a
+   * current tab, and a canvas does not.
+   */
+  | { readonly type: 'selectNode'; readonly nodeId: string | null }
+  /**
+   * A node was added to the canvas.
+   *
+   * The id and the position both ride on the action, for the reason nothing is
+   * minted in here: the reducer stays pure, and `placeNode` is what the caller
+   * uses to work out where a node dropped from a "+" on another node goes.
+   *
+   * `fromNodeId` is wired as the new node's input where its kind takes one, so
+   * "add a style node off this source" is one action rather than an add
+   * followed by a connect that could fail on its own.
+   */
+  | {
+      readonly type: 'addNode'
+      readonly nodeId: string
+      readonly kind: StageKind
+      readonly position: NodePosition
+      readonly fromNodeId: string | null
+    }
+  /**
+   * A node removed, and its candidates with it (ADR 0005).
+   *
+   * Destructive on purpose and confirmed in the UI: a node is the only place a
+   * candidate can live now, so keeping the pictures would leave them with no
+   * home on the one surface there is. The **files** stay on disk for the
+   * deliberate cleanup pass (PRD §10.3), so nothing is unrecoverable until the
+   * user asks for it to be.
+   *
+   * Anything downstream is detached rather than deleted with it — losing one
+   * step of a chain should not cost the rest of the chain.
+   */
+  | { readonly type: 'deleteNode'; readonly nodeId: string }
+  /** Dragged. Positions are the user's work, so they persist. */
+  | {
+      readonly type: 'moveNode'
+      readonly nodeId: string
+      readonly position: NodePosition
+    }
+  /**
+   * An edge drawn between two drafts — the gesture ADR 0005 exists for.
+   *
+   * Validated against `canConnect` in here rather than at the drag, because the
+   * action is reachable from a hand-edited manifest as well as from React Flow,
+   * and a cycle written by either is a graph nothing downstream would survive.
+   */
+  | {
+      readonly type: 'connectNodes'
+      readonly sourceNodeId: string
+      readonly targetNodeId: string
+    }
+  /** An edge removed. The node keeps its draft and stops being runnable. */
+  | { readonly type: 'disconnectNode'; readonly nodeId: string }
+  /** The user's own name for a step, or `null` to go back to its kind's. */
+  | {
+      readonly type: 'renameNode'
+      readonly nodeId: string
+      readonly title: string | null
+    }
   | {
       readonly type: 'setPrompt'
-      readonly stage: StageKind
+      readonly nodeId: string
       readonly prompt: string
     }
   /**
@@ -219,8 +301,14 @@ export type EditorAction =
    * already says what the preset says and only the pointer has to move.
    *
    * Two *shapes* can arrive here, from three libraries, and they are told apart
-   * by what they are rather than by the stage (`isMotionPreset`): the stage says
-   * which control you clicked, and what to seed is a question about the value.
+   * by what they are rather than by the node's kind (`isMotionPreset`): the kind
+   * says which control you clicked, and what to seed is a question about the
+   * value.
+   *
+   * Seeded against the node's **primary** model — `modelIds[0]` — and offered
+   * by the picker only where every model in the fan-out reads the same idiom
+   * (ADR 0005). One prompt box shared by three models cannot be prose for one of
+   * them and a keyword list for another.
    *
    * Re-seeding after a model switch is this same action with the same preset:
    * seeding is idempotent and always starts the provenance flag clean, which is
@@ -230,7 +318,7 @@ export type EditorAction =
    */
   | {
       readonly type: 'choosePreset'
-      readonly stage: StageKind
+      readonly nodeId: string
       readonly presetId: string | null
       readonly preset: Preset | MotionPreset | null
       /**
@@ -257,58 +345,72 @@ export type EditorAction =
    */
   | {
       readonly type: 'setPresetVariables'
-      readonly stage: StageKind
+      readonly nodeId: string
       readonly values: PresetVariableValues
     }
+  /**
+   * The models this node fans out to (ADR 0005) — the action that replaced
+   * `chooseModel`, and the one this whole change is for.
+   *
+   * A **set**, not a choice. Picking a second model is not a correction of the
+   * first: it is asking for both, on the same prompt, in one click. The old
+   * single-model action is the degenerate case of this one and needs no separate
+   * path.
+   *
+   * Held to `MAX_MODELS_PER_NODE` and to at least one entry (`heldModelIds`),
+   * because both ends are reachable from a hand-edited manifest and both are
+   * expensive in opposite directions.
+   */
   | {
-      readonly type: 'chooseModel'
-      readonly stage: StageKind
-      readonly modelId: string
+      readonly type: 'setModels'
+      readonly nodeId: string
+      readonly modelIds: readonly string[]
     }
   | {
       readonly type: 'setParam'
-      readonly stage: StageKind
+      readonly nodeId: string
       readonly key: string
       readonly value: ParamValue
     }
   | {
       readonly type: 'setOption'
-      readonly stage: StageKind
+      readonly nodeId: string
       readonly key: string
       readonly value: ParamValue
     }
   | {
       readonly type: 'pinSeed'
-      readonly stage: StageKind
+      readonly nodeId: string
       readonly value: number
     }
-  | { readonly type: 'unpinSeed'; readonly stage: StageKind }
+  | { readonly type: 'unpinSeed'; readonly nodeId: string }
   /**
-   * Which candidate this stage runs from — the input row's click.
+   * Which candidate of its input node this node runs from — the input row's
+   * click.
    *
-   * A draft edit rather than a selection change, and that distinction is the
-   * point: `project.selection[stage]` means "the candidate this stage has
-   * produced that I have settled on", and pointing animate at a source is not a
-   * claim about the style stage at all. Writing it to the draft also means it
-   * persists, restores and freezes with every other field of the recipe.
+   * A refinement of the edge rather than a second edge, and rather than a pick:
+   * `DraftNode.pick` means "the candidate *this* node has produced that I have
+   * settled on", and choosing which picture to consume is not a claim about the
+   * upstream node's own choice at all.
    *
-   * `null` hands the stage back to the default — the upstream selection, then
-   * the nearest eligible candidate (`resolvedInputId`) — rather than leaving it
-   * with nothing to work from.
+   * `null` hands the node back to the default — the input node's pick, then its
+   * newest approved candidate (`resolvedInputId`) — rather than leaving it with
+   * nothing to work from.
    */
   | {
-      readonly type: 'setStageInput'
-      readonly stage: StageKind
+      readonly type: 'pinNodeInput'
+      readonly nodeId: string
       readonly generationId: string | null
     }
   /**
-   * How many candidates this project's runs of that stage produce (PRD §4.2).
+   * How many candidates one run of this node produces **per model** (PRD §4.2).
    * Held to the range we would submit, because the action is one keystroke
-   * away from a number nobody meant to spend.
+   * away from a number nobody meant to spend — and with fan-out, one keystroke
+   * away from four times that.
    */
   | {
       readonly type: 'setBatchSize'
-      readonly stage: StageKind
+      readonly nodeId: string
       readonly size: number
     }
   /**
@@ -322,7 +424,7 @@ export type EditorAction =
       readonly type: 'beginRun'
       readonly runId: string
       readonly projectId: string
-      readonly stage: StageKind
+      readonly nodeId: string
       readonly generationIds: readonly string[]
       readonly at: number
     }
@@ -333,9 +435,16 @@ export type EditorAction =
     }
   /** Put the grid away without choosing — the run stays in the strip. */
   | { readonly type: 'dismissRun'; readonly runId: string }
+  /**
+   * A run of one node, as candidates that already exist.
+   *
+   * Every entry carries its own `modelId`, because one click on a three-model
+   * node is one run of three different recipes — the fan-out is expanded by the
+   * caller (`planRun`) and frozen per entry in here.
+   */
   | {
-      readonly type: 'runStage'
-      readonly stage: StageKind
+      readonly type: 'runNode'
+      readonly nodeId: string
       readonly runs: readonly PlannedRun[]
       readonly at: number
     }
@@ -371,12 +480,15 @@ export type EditorAction =
   | {
       readonly type: 'recordUpload'
       readonly generationId: string
+      /** The source node it lands on — an upload is a candidate of a node. */
+      readonly nodeId: string
       /** The bare file name Rust filed it under. */
       readonly asset: string
       /** The user's own name for the file, for the readout. */
       readonly fileName: string
       readonly at: number
     }
+  /** A candidate clicked — this becomes its node's `pick`. */
   | { readonly type: 'selectGeneration'; readonly generationId: string }
   | {
       readonly type: 'setVerdict'
@@ -386,8 +498,18 @@ export type EditorAction =
   | { readonly type: 'setPalette'; readonly palette: Palette }
   | { readonly type: 'restoreRecipe'; readonly generationId: string }
   | { readonly type: 'toggleShowRejected' }
-  /** The effects tab is the one on screen now (#36). */
+  /** The effects panel is the one on screen now (#36). */
   | { readonly type: 'openEffects' }
+  /**
+   * Back to the canvas.
+   *
+   * Its own action rather than leaning on `selectNode`'s side effect: closing
+   * the panel is not choosing a node, and a caller that had to re-select the
+   * node it was already on to get out would be describing the wrong intent.
+   * The treatment pin stays — it is about a candidate, not about what is on
+   * screen — so reopening lands back where you were.
+   */
+  | { readonly type: 'closeEffects' }
   /**
    * Treat this candidate, and keep treating it.
    *
@@ -452,9 +574,9 @@ export function createEditorReducer(
           ...state,
           project: action.project,
           directory: action.directory,
-          // Land on the stage the project has actually got to, so opening an
-          // untouched project does not start on a stage it cannot run.
-          activeStage: furthestStage(action.project),
+          // Land on the node the project has actually got to, so opening an
+          // untouched project does not start on a node it cannot run.
+          selectedNodeId: furthestNodeId(action.project),
           // A pin names a candidate of whichever project was open, so opening
           // another drops it rather than pointing it at nothing.
           treatmentTarget: null,
@@ -473,17 +595,82 @@ export function createEditorReducer(
           ...state,
           project: null,
           directory: null,
+          selectedNodeId: null,
           treatmentTarget: null,
           // Unlike opening another project, this one is *gone* — so its fields
           // go with it rather than waiting for a return that cannot happen.
           presetVariables: withoutVariables(state, state.project?.id),
         }
 
-      case 'selectStage':
-        // Picking a stage is picking a tab, and the effects tab is one of the
-        // four — so choosing another closes it. The pin stays: it is about a
-        // candidate, not about which tab is in front of you.
-        return { ...state, activeStage: action.stage, effectsOpen: false }
+      case 'selectNode':
+        // Selecting a node is asking the sidebar to edit it, and the effects
+        // panel is the sidebar's other mode — so this closes it. The treatment
+        // pin stays: it is about a candidate, not about what the sidebar shows.
+        return { ...state, selectedNodeId: action.nodeId, effectsOpen: false }
+
+      case 'addNode':
+        return {
+          // Selected on arrival, because adding a node is the first half of
+          // filling it in and the sidebar is where that happens.
+          ...editProject(state, project => ({
+            ...project,
+            nodes: [
+              ...project.nodes,
+              makeNode(
+                action.nodeId,
+                action.kind,
+                action.position,
+                // Wired only where it would be legal — `addNode` off a node of
+                // an incompatible kind adds an unwired node rather than
+                // refusing the whole action.
+                action.fromNodeId,
+                DEFAULT_BATCH_SIZES[action.kind]
+              ),
+            ],
+          })),
+          selectedNodeId: action.nodeId,
+          effectsOpen: false,
+        }
+
+      case 'deleteNode':
+        return withoutNode(state, action.nodeId)
+
+      case 'moveNode':
+        return editNode(state, action.nodeId, node => ({
+          ...node,
+          position: action.position,
+        }))
+
+      case 'connectNodes':
+        return editProject(state, project =>
+          canConnect(project, action.sourceNodeId, action.targetNodeId)
+            ? withNode(project, action.targetNodeId, node => ({
+                ...node,
+                inputNodeId: action.sourceNodeId,
+                // The old pin named a candidate of the *previous* input, so it
+                // cannot survive the rewire — and leaving it would make
+                // `resolvedInputId` fall through in silence rather than
+                // following the edge the user just drew.
+                pinnedInputId: null,
+              }))
+            : project
+        )
+
+      case 'disconnectNode':
+        return editNode(state, action.nodeId, node => ({
+          ...node,
+          inputNodeId: null,
+          pinnedInputId: null,
+        }))
+
+      case 'renameNode':
+        return editNode(state, action.nodeId, node => ({
+          ...node,
+          // An empty box means "no name", not a name that is empty — otherwise
+          // clearing the field would leave a node with no legible label at all.
+          title:
+            action.title === null || action.title === '' ? null : action.title,
+        }))
 
       case 'toggleShowRejected':
         return { ...state, showRejected: !state.showRejected }
@@ -493,7 +680,7 @@ export function createEditorReducer(
       // recorded rather than prevented. `presetModified` is what keeps the
       // recipe honest afterwards about how much of it came from the preset.
       case 'setPrompt':
-        return editDraft(state, action.stage, draft => ({
+        return editDraft(state, action.nodeId, draft => ({
           ...draft,
           prompt: action.prompt,
           // The prompt is seeded on every supported model, so this always counts.
@@ -502,7 +689,7 @@ export function createEditorReducer(
 
       // A fresh selection is a fresh seed, so nothing has been changed yet.
       case 'choosePreset': {
-        const seeded = editDraft(state, action.stage, (draft, project) =>
+        const seeded = editDraft(state, action.nodeId, (draft, project) =>
           seedFromPreset(
             registry,
             project.palette,
@@ -518,11 +705,11 @@ export function createEditorReducer(
         // fields, and clearing them would strand the prompt they expanded into.
         return action.values === undefined
           ? seeded
-          : withVariables(seeded, action.stage, action.values)
+          : withVariables(seeded, action.nodeId, action.values)
       }
 
       case 'setPresetVariables':
-        return withVariables(state, action.stage, action.values)
+        return withVariables(state, action.nodeId, action.values)
 
       // Prompt data, not chrome (#46) — and editable after creation precisely
       // because it cannot reach backwards: every recipe already persisted its
@@ -533,22 +720,37 @@ export function createEditorReducer(
           palette: action.palette,
         }))
 
-      case 'chooseModel':
-        return editDraft(state, action.stage, draft => {
-          if (draft.modelId === action.modelId) return draft
-          const model = modelById(registry, action.modelId)
+      // The fan-out (ADR 0005). One prompt, N models, and the shared parameter
+      // bag reconciled against the *primary* one so the sidebar has a coherent
+      // set of knobs to show; each frozen copy reconciles again for its own
+      // model at run time, so nothing here has to be right for all of them.
+      case 'setModels':
+        return editDraft(state, action.nodeId, draft => {
+          const modelIds = heldModelIds(
+            action.modelIds,
+            draft.modelIds[0] ?? ''
+          )
+          if (sameIds(modelIds, draft.modelIds)) return draft
+
+          const primary = modelById(registry, modelIds[0] ?? '')
+          const models = modelIds.map(id => modelById(registry, id))
+
           return {
             ...draft,
-            modelId: action.modelId,
-            // Our defaults fill whatever the new model does not inherit — never
-            // the API's, which are actively wrong for restyling (PRD §6.3).
-            params: reconcileParams(model, draft.params),
-            // A model with no seed field cannot honour a pin. Dropping it here
-            // keeps the draft from claiming a reproducibility it does not have.
-            seed: model.supportsSeed ? draft.seed : { mode: 'roll' },
+            modelIds,
+            // Our defaults fill whatever the new primary does not inherit —
+            // never the API's, which are actively wrong for restyling (PRD §6.3).
+            params: reconcileParams(primary, draft.params),
+            // A pin can only be honoured where *every* model in the fan-out has
+            // a seed field. Keeping it otherwise would let one half of a
+            // comparison claim a reproducibility the other half does not have,
+            // which is exactly the claim a pinned seed exists to make.
+            seed: models.every(model => model.supportsSeed)
+              ? draft.seed
+              : { mode: 'roll' },
             // The prompt is deliberately untouched, and so is `presetModified`:
-            // switching models keeps whatever the user has written, even when
-            // the new model reads a different idiom (#28). The re-seed is
+            // changing the fan-out keeps whatever the user has written, even
+            // when a new model reads a different idiom (#28). The re-seed is
             // *offered* instead — see `presetSeedState`.
           }
         })
@@ -558,52 +760,47 @@ export function createEditorReducer(
       // Every other field is the model's rather than the preset's, and moving
       // one says nothing about provenance.
       case 'setParam':
-        return editDraft(state, action.stage, draft => ({
+        return editDraft(state, action.nodeId, (draft, _project, node) => ({
           ...draft,
           params: { ...draft.params, [action.key]: action.value },
           presetModified: modifiedByEdit(
             draft,
-            isSeededParam(registry, action.stage, draft, action.key)
+            isSeededParam(registry, node.kind, draft, action.key)
           ),
         }))
 
       case 'setOption':
-        return editDraft(state, action.stage, draft => ({
+        return editDraft(state, action.nodeId, draft => ({
           ...draft,
           options: { ...draft.options, [action.key]: action.value },
         }))
 
       case 'pinSeed':
-        return editDraft(state, action.stage, draft =>
-          modelById(registry, draft.modelId).supportsSeed
+        return editDraft(state, action.nodeId, draft =>
+          // Every model in the fan-out, for the reason `setModels` drops a pin:
+          // a pinned seed is a claim about what is being held still, and it
+          // cannot be half true across a comparison.
+          draft.modelIds.every(id => modelById(registry, id).supportsSeed)
             ? { ...draft, seed: { mode: 'pinned', value: action.value } }
             : draft
         )
 
       case 'unpinSeed':
-        return editDraft(state, action.stage, draft => ({
+        return editDraft(state, action.nodeId, draft => ({
           ...draft,
           seed: { mode: 'roll' },
         }))
 
-      case 'setStageInput':
-        return editDraft(state, action.stage, (draft, project) => ({
-          ...draft,
-          inputGenerationId: pointableInput(
-            project,
-            action.stage,
-            draft,
-            action.generationId
-          ),
+      case 'pinNodeInput':
+        return editNode(state, action.nodeId, (node, project) => ({
+          ...node,
+          pinnedInputId: pointableInput(project, node, action.generationId),
         }))
 
       case 'setBatchSize':
-        return editProject(state, project => ({
-          ...project,
-          batchSizes: {
-            ...project.batchSizes,
-            [action.stage]: clampBatchSize(action.size),
-          },
+        return editNode(state, action.nodeId, node => ({
+          ...node,
+          batchSize: clampBatchSize(action.size),
         }))
 
       // A new run is a new question, so it starts unanswered and unclaimed
@@ -616,7 +813,7 @@ export function createEditorReducer(
             {
               id: action.runId,
               projectId: action.projectId,
-              stage: action.stage,
+              nodeId: action.nodeId,
               startedAt: action.at,
               generationIds: action.generationIds,
               abandonedIds: [],
@@ -649,13 +846,13 @@ export function createEditorReducer(
           ),
         }
 
-      case 'runStage':
+      case 'runNode':
         return {
-          ...editProject(state, project => runStage(registry, project, action)),
-          // A fixture stage mints its candidates and selects the first in one
-          // go, so its run has been claimed by an arrival before anything else
-          // can happen — but not *answered*: the grid still has to be shown,
-          // and the user still has to pick from it.
+          ...editProject(state, project => runNode(registry, project, action)),
+          // A run that mints its candidates and picks the first in one go has
+          // been claimed by an arrival before anything else can happen — but not
+          // *answered*: the grid still has to be shown, and the user still has
+          // to pick from it.
           runs: state.runs.map(run =>
             run.id === action.runs.at(0)?.runId
               ? { ...run, claimed: true }
@@ -680,7 +877,7 @@ export function createEditorReducer(
                 {
                   id: action.generationId,
                   stage: 'source',
-                  recipe: uploadRecipe(action.fileName),
+                  recipe: uploadRecipe(action.fileName, action.nodeId),
                   // No model, so no seed — the same honest `null` a seedless
                   // model gets, rather than a number implying a re-run.
                   seed: null,
@@ -697,14 +894,14 @@ export function createEditorReducer(
               ],
               action.at,
               // Unlike a job arriving, this happened because someone asked for
-              // it just now, so it takes the selection whatever else has.
-              new Set<StageKind>(['source'])
+              // it just now, so it takes the pick whatever else has.
+              new Set<string>([action.nodeId])
             )
           ),
           // Bringing an image in is choosing it (#27) — so it answers whatever
-          // run is open on the source stage, the same way clicking a candidate
-          // does, rather than leaving the grid sitting on top of it.
-          ...decidedByUser(state, 'source'),
+          // run is open on that node, the same way clicking a candidate does,
+          // rather than leaving the grid sitting on top of it.
+          ...decidedByUser(state, action.nodeId),
         }
 
       case 'selectGeneration':
@@ -714,15 +911,12 @@ export function createEditorReducer(
               candidate => candidate.id === action.generationId
             )
             if (generation === undefined) return project
-            return {
-              ...project,
-              selection: {
-                ...project.selection,
-                [generation.stage]: generation.id,
-              },
-            }
+            return withNode(project, nodeIdOf(generation), node => ({
+              ...node,
+              pick: generation.id,
+            }))
           }),
-          ...decidedByUser(state, stageOf(state, action.generationId)),
+          ...decidedByUser(state, nodeOf(state, action.generationId)),
         }
 
       case 'setVerdict':
@@ -744,6 +938,9 @@ export function createEditorReducer(
 
       case 'openEffects':
         return { ...state, effectsOpen: true }
+
+      case 'closeEffects':
+        return { ...state, effectsOpen: false }
 
       case 'pinTreatment':
         return {
@@ -835,17 +1032,23 @@ function editTreatment(
 function seedFromPreset(
   registry: readonly ModelCapabilities[],
   palette: Palette,
-  draft: StageRecipe,
+  draft: DraftRecipe,
   presetId: string | null,
   preset: Preset | MotionPreset | null,
   values: PresetVariableValues
-): StageRecipe {
-  const chosen: StageRecipe = { ...draft, presetId, presetModified: false }
+): DraftRecipe {
+  const chosen: DraftRecipe = { ...draft, presetId, presetModified: false }
   if (preset === null) return chosen
 
   if (isMotionPreset(preset)) return { ...chosen, prompt: preset.prompt }
 
-  const model = modelById(registry, draft.modelId)
+  // The **primary** model of the fan-out (ADR 0005). The picker only offers a
+  // preset every selected model reads, so the idiom is settled before this runs
+  // — what is left is `strengthParam` and `negativePromptParam`, which are
+  // per-model field *names*, and one bag cannot hold a value under two names.
+  // Seeding against the primary and letting `freezeDraft` reconcile the rest is
+  // the same trade the parameter panel makes.
+  const model = modelById(registry, draft.modelIds[0] ?? '')
   // Expanded here and nowhere later: what lands in the draft is the prose that
   // gets persisted, so no unresolved placeholder can be resolved against a
   // library that has since been edited (#46).
@@ -884,7 +1087,7 @@ function seedFromPreset(
  * Sticky, because it is a claim about the past: once a seeded field has moved,
  * editing something else does not unmove it.
  */
-function modifiedByEdit(draft: StageRecipe, seeded: boolean): boolean {
+function modifiedByEdit(draft: DraftRecipe, seeded: boolean): boolean {
   if (draft.presetId === null) return false
   return draft.presetModified || seeded
 }
@@ -892,21 +1095,24 @@ function modifiedByEdit(draft: StageRecipe, seeded: boolean): boolean {
 /**
  * Whether this parameter is one seeding would have written.
  *
- * Stage-aware because the libraries seed different things: a motion preset
- * writes the prompt and nothing else, so moving Veo's `negative_prompt` on the
- * animate stage says nothing at all about which motion preset this started from
- * — where on the two composing stages the same field is seeded and moving it
+ * Kind-aware because the libraries seed different things: a motion preset
+ * writes the prompt and nothing else, so moving Veo's `negative_prompt` on an
+ * animate node says nothing at all about which motion preset this started from
+ * — where on the two composing kinds the same field is seeded and moving it
  * does.
+ *
+ * Asked of the primary model, for the reason `seedFromPreset` seeds against it:
+ * that is the model whose field names the bag was filled under.
  */
 function isSeededParam(
   registry: readonly ModelCapabilities[],
-  stage: StageKind,
-  draft: StageRecipe,
+  kind: StageKind,
+  draft: DraftRecipe,
   key: string
 ): boolean {
-  if (stage === 'animate') return false
+  if (kind === 'animate') return false
 
-  const model = modelById(registry, draft.modelId)
+  const model = modelById(registry, draft.modelIds[0] ?? '')
   return key === model.strengthParam || key === model.negativePromptParam
 }
 
@@ -917,31 +1123,45 @@ function isSeededParam(
  * resolved. That copy is the whole point: the sidebar form keeps moving, and a
  * generation has to stay re-runnable regardless.
  */
-function runStage(
+function runNode(
   registry: readonly ModelCapabilities[],
   project: Project,
-  action: Extract<EditorAction, { type: 'runStage' }>
+  action: Extract<EditorAction, { type: 'runNode' }>
 ): Project {
-  const draft = project.drafts[action.stage]
-  const model = modelById(registry, draft.modelId)
+  const node = nodeById(project, action.nodeId)
+  if (node === null) return project
 
-  const frozen = freezeRecipe(registry, project, action.stage)
-  if (frozen === null) return project
+  const draft = node.draft
 
-  // A pinned seed makes every candidate in a batch identical, so a pin
-  // collapses the batch to one. Four copies of the same image is not a choice.
-  const runs =
-    draft.seed.mode === 'pinned' ? action.runs.slice(0, 1) : action.runs
+  // Frozen **per candidate**, because a fan-out is several recipes rather than
+  // one run of several calls: each entry names the model it went to, and its
+  // parameter bag is reconciled against that model. Anything the node could not
+  // freeze — no input to work from — takes the whole run with it, since the
+  // refusal is about the node and not about one of its models.
+  // A pinned seed makes every candidate *one model* produces identical, so it
+  // collapses that model's batch to one. Four copies of the same image is not a
+  // choice. It does **not** collapse the fan-out: three models on one seed are
+  // three different pictures, which is the comparison a pin exists to make.
+  const wanted =
+    draft.seed.mode === 'pinned' ? firstPerModel(action.runs) : action.runs
 
-  let ordinal = nextOrdinal(project, action.stage)
+  const planned = wanted.flatMap(run => {
+    const recipe = freezeDraft(registry, project, node, run.modelId)
+    return recipe === null ? [] : [{ run, recipe }]
+  })
 
-  const created = runs.map((run): Generation => {
+  if (planned.length !== wanted.length) return project
+
+  let ordinal = nextOrdinal(project, node.id)
+
+  const created = planned.map(({ run, recipe }): Generation => {
+    const model = modelById(registry, run.modelId)
     const seed = draft.seed.mode === 'pinned' ? draft.seed.value : run.seed
 
     return {
       id: run.id,
-      stage: action.stage,
-      recipe: frozen,
+      stage: node.kind,
+      recipe,
       // Recorded even when rolled — a result you like is worthless if you
       // cannot pin what produced it (PRD §4.3). Null only when the model has
       // no seed at all, which is the honest way to say "not reproducible".
@@ -952,14 +1172,14 @@ function runStage(
       asset: run.asset,
       runId: run.runId,
       // Stamped from the registry as it reads today (ADR 0003), the same way
-      // a collected job's is — a fixture-driven candidate and a paid one have
-      // to price identically, or the overview's total would depend on which
-      // path produced the work.
-      costUsd: stampedCost(registry, project.aspect, frozen),
-      // A fixture stage makes no call, so there is nothing to reconcile.
+      // a collected job's is — every path that mints a candidate has to price
+      // identically, or the overview's total would depend on which one produced
+      // the work.
+      costUsd: stampedCost(registry, project.aspect, recipe),
+      // Nothing was submitted on this path, so there is nothing to reconcile.
       requestId: null,
       actualCostUsd: null,
-      // Untreated until somebody opens the effects tab on it (#36).
+      // Untreated until somebody opens the effects panel on it (#36).
       treatment: null,
     }
   })
@@ -969,20 +1189,23 @@ function runStage(
   return {
     ...project,
     generations: [...project.generations, ...created],
-    // A fresh run selects its first candidate, so the preview is never blank
-    // after a click. Downstream stages keep pointing at what they already
-    // consumed — nothing further along is invalidated.
-    selection: { ...project.selection, [action.stage]: created[0]?.id ?? null },
+    // A fresh run picks its first candidate, so the node is never blank after a
+    // click. Downstream nodes keep pointing at what they already consumed —
+    // nothing further along is invalidated.
+    nodes: project.nodes.map(entry =>
+      entry.id === node.id
+        ? { ...entry, pick: created[0]?.id ?? entry.pick }
+        : entry
+    ),
   }
 }
 
-/** Which stage a generation belongs to, or `null` if it is not there. */
-function stageOf(state: EditorState, generationId: string): StageKind | null {
-  return (
-    state.project?.generations.find(
-      generation => generation.id === generationId
-    )?.stage ?? null
+/** Which node a generation belongs to, or `null` if it is not there. */
+function nodeOf(state: EditorState, generationId: string): string | null {
+  const generation = state.project?.generations.find(
+    entry => entry.id === generationId
   )
+  return generation === undefined ? null : nodeIdOf(generation)
 }
 
 /**
@@ -999,13 +1222,13 @@ function stageOf(state: EditorState, generationId: string): StageKind | null {
  */
 function decidedByUser(
   state: EditorState,
-  stage: StageKind | null
+  nodeId: string | null
 ): Pick<EditorState, 'runs'> {
-  if (stage === null) return { runs: state.runs }
+  if (nodeId === null) return { runs: state.runs }
 
   return {
     runs: state.runs.map(run =>
-      run.stage === stage && run.projectId === state.project?.id
+      run.nodeId === nodeId && run.projectId === state.project?.id
         ? { ...run, answered: true }
         : run
     ),
@@ -1036,7 +1259,8 @@ function withArrivals(
   if (before === null) return state
 
   const runs = [...state.runs]
-  const claimable = new Set<StageKind>()
+  const claimable = new Set<string>()
+  const nodes = new Set(before.nodes.map(node => node.id))
 
   for (const entry of entries) {
     // Already recorded: a settled event and the sweep can deliver the same job
@@ -1045,16 +1269,22 @@ function withArrivals(
       continue
     }
 
+    // Its node is gone, so the fold below will drop it too — recording a run
+    // for a candidate that is never going to appear would leave a grid waiting
+    // forever on a node that no longer exists.
+    const nodeId = entry.recipe.nodeId
+    if (!nodes.has(nodeId)) continue
+
     const owner = runs.findIndex(run => run.generationIds.includes(entry.id))
     const run = runs.at(owner)
 
     if (run === undefined) {
-      const strandedId = strandedRunId(before.id, entry.stage)
+      const strandedId = strandedRunId(before.id, nodeId)
       const stranded = runs.findIndex(record => record.id === strandedId)
       const joined = runs.at(stranded)
 
-      // A second stray of the same stage joins the first rather than claiming
-      // the selection all over again.
+      // A second stray from the same node joins the first rather than claiming
+      // the pick all over again.
       if (joined !== undefined) {
         runs[stranded] = {
           ...joined,
@@ -1063,16 +1293,16 @@ function withArrivals(
         continue
       }
 
-      if (claimable.has(entry.stage)) continue
-      claimable.add(entry.stage)
-      runs.push(strandedRun(strandedId, before.id, entry, at))
+      if (claimable.has(nodeId)) continue
+      claimable.add(nodeId)
+      runs.push(strandedRun(strandedId, before.id, nodeId, entry.id, at))
       continue
     }
 
     if (run.answered || run.claimed) continue
-    if (claimable.has(entry.stage)) continue
+    if (claimable.has(nodeId)) continue
 
-    claimable.add(entry.stage)
+    claimable.add(nodeId)
     runs[owner] = { ...run, claimed: true }
   }
 
@@ -1085,27 +1315,28 @@ function withArrivals(
 /**
  * A run nobody recorded, reconstructed from the candidate that turned up.
  *
- * Named after the stage rather than minted, because the reducer mints nothing
- * — and because that is exactly the identity wanted: the *next* stray of the
- * same stage joins this one instead of claiming the selection all over again.
+ * Named after the node rather than minted, because the reducer mints nothing —
+ * and because that is exactly the identity wanted: the *next* stray from the
+ * same node joins this one instead of claiming the pick all over again.
  * Born answered: there was never a grid to answer.
  */
-function strandedRunId(projectId: string, stage: StageKind): string {
-  return `stranded:${projectId}:${stage}`
+function strandedRunId(projectId: string, nodeId: string): string {
+  return `stranded:${projectId}:${nodeId}`
 }
 
 function strandedRun(
   id: string,
   projectId: string,
-  entry: CompletedRun,
+  nodeId: string,
+  generationId: string,
   at: number
 ): RunRecord {
   return {
     id,
     projectId,
-    stage: entry.stage,
+    nodeId,
     startedAt: at,
-    generationIds: [entry.id],
+    generationIds: [generationId],
     abandonedIds: [],
     answered: true,
     claimed: true,
@@ -1133,31 +1364,40 @@ function strandedRun(
  * change — but a snapshot of a run that says `loop: false` beside a clip that
  * loops is not a recipe anybody could read.
  */
-export function freezeRecipe(
+export function freezeDraft(
   registry: readonly ModelCapabilities[],
   project: Project,
-  stage: StageKind
+  node: DraftNode,
+  modelId: string
 ): StageRecipe | null {
-  const upstream = upstreamOf(stage)
-  const inputGenerationId = resolvedInputId(project, stage)
+  const inputGenerationId = resolvedInputId(project, node)
 
-  // Style and animate need something to work from. Source never does — which
-  // is exactly why re-running style leaves the source alone (PRD §4.1).
+  // A node whose kind consumes a picture needs one. A source never does — which
+  // is exactly why re-running a style node leaves its source alone (PRD §4.1).
   //
-  // *Something*, not specifically the previous stage's output: `resolvedInputId`
-  // honours the pointer the input row set, which is how a source gets animated
-  // without a style pass in between. What lands in the frozen copy is the id
-  // that was actually resolved, so a candidate always records the picture it was
-  // made from rather than the rule that found it.
-  if (upstream !== null && inputGenerationId === null) return null
+  // *Which* picture is settled entirely by the edge and the ladder above it, and
+  // what lands in the frozen copy is the id that was actually resolved — so a
+  // candidate always records the picture it was made from rather than the rule
+  // that found it.
+  if (needsInput(node.kind) && inputGenerationId === null) return null
 
-  const draft = project.drafts[stage]
-  const model = modelById(registry, draft.modelId)
+  const { modelIds: _fanOut, ...shared } = node.draft
+  const model = modelById(registry, modelId)
 
   return {
-    ...draft,
-    options: { ...draft.options, loop: loopsOnEndFrame(model, draft.options) },
+    ...shared,
+    modelId,
+    // Reconciled per model, which is what makes one shared bag legal across a
+    // fan-out: a field this model does not declare is dropped rather than sent,
+    // and one it declares but the primary did not gets our default rather than
+    // the API's (PRD §6.3).
+    params: reconcileParams(model, node.draft.params),
+    options: {
+      ...node.draft.options,
+      loop: loopsOnEndFrame(model, node.draft.options),
+    },
     inputGenerationId,
+    nodeId: node.id,
   }
 }
 
@@ -1179,18 +1419,27 @@ export function withCollectedGenerations(
   project: Project,
   entries: readonly CompletedRun[],
   at: number,
-  claimable: ReadonlySet<StageKind>
+  claimable: ReadonlySet<string>
 ): Project {
   const known = new Set(project.generations.map(generation => generation.id))
-  const arriving = entries.filter(entry => !known.has(entry.id))
+  const nodes = new Set(project.nodes.map(node => node.id))
+
+  // A candidate whose node has been deleted is dropped rather than orphaned
+  // (ADR 0005). There is nowhere truthful to put the picture — a node is the
+  // only place a candidate lives on the canvas — and inventing a home for it
+  // would be the ghost surface this design exists to remove. The file stays in
+  // the assets folder until the deliberate cleanup pass.
+  const arriving = entries.filter(
+    entry => !known.has(entry.id) && nodes.has(entry.recipe.nodeId)
+  )
 
   if (arriving.length === 0) return project
 
-  const ordinals = new Map<StageKind, number>()
+  const ordinals = new Map<string, number>()
   const created = arriving.map((entry): Generation => {
-    const ordinal =
-      ordinals.get(entry.stage) ?? nextOrdinal(project, entry.stage)
-    ordinals.set(entry.stage, ordinal + 1)
+    const nodeId = entry.recipe.nodeId
+    const ordinal = ordinals.get(nodeId) ?? nextOrdinal(project, nodeId)
+    ordinals.set(nodeId, ordinal + 1)
 
     return {
       id: entry.id,
@@ -1212,30 +1461,34 @@ export function withCollectedGenerations(
     }
   })
 
-  // An arrival takes the stage's selection only where the caller says it may —
-  // this is the image the user has been waiting for, possibly across a
-  // restart, and the stage after it needs an input whether or not anyone is
-  // watching. Who is allowed to claim is not decided here, because it depends
-  // on what has happened in the session (see `withArrivals`) and this function
-  // also folds results into projects nobody has open.
+  // An arrival takes its node's pick only where the caller says it may — this
+  // is the image the user has been waiting for, possibly across a restart, and
+  // anything downstream needs an input whether or not anyone is watching. Who
+  // is allowed to claim is not decided here, because it depends on what has
+  // happened in the session (see `withArrivals`) and this function also folds
+  // results into projects nobody has open.
   //
-  // Once per stage per batch, whatever the caller allows: the four candidates
-  // of one run must not take it in turns, or the four-up would end on whichever
-  // job happened to finish last.
-  const selection = { ...project.selection }
-  const claimed = new Set<StageKind>()
+  // Once per node per batch, whatever the caller allows: the candidates of one
+  // run must not take it in turns, or a four-up would end on whichever job
+  // happened to finish last — and with fan-out, on whichever *model* was
+  // quickest, which is not a judgement anyone made.
+  const claimed = new Set<string>()
+  const picks = new Map<string, string>()
 
   for (const generation of created) {
-    if (!claimable.has(generation.stage)) continue
-    if (claimed.has(generation.stage)) continue
-    claimed.add(generation.stage)
-    selection[generation.stage] = generation.id
+    const nodeId = nodeIdOf(generation)
+    if (!claimable.has(nodeId) || claimed.has(nodeId)) continue
+    claimed.add(nodeId)
+    picks.set(nodeId, generation.id)
   }
 
   return {
     ...project,
+    nodes: project.nodes.map(node => {
+      const pick = picks.get(node.id)
+      return pick === undefined ? node : { ...node, pick }
+    }),
     generations: [...project.generations, ...created],
-    selection,
   }
 }
 
@@ -1298,30 +1551,26 @@ export function awaitingReconciliation(project: Project): boolean {
 }
 
 /**
- * What `setStageInput` is allowed to write, which is not simply what it was
+ * What `pinNodeInput` is allowed to write, which is not simply what it was
  * given.
  *
- * Held to a candidate of an *earlier* stage, for the same reason `pinSeed` is
- * held to models that have a seed field: the action is reachable from a
- * hand-edited manifest as well as from a click, and a draft pointing at its own
- * stage's output — or at a downstream one — is a cycle that nothing later would
- * catch. A refused pointer leaves the draft as it was rather than clearing it,
+ * Held to a candidate of the node's own input node, for the same reason
+ * `pinSeed` is held to models that have a seed field: the action is reachable
+ * from a hand-edited manifest as well as from a click, and a pin naming a
+ * candidate of some unrelated node would make `resolvedInputId` fall through in
+ * silence. A refused pointer leaves the node as it was rather than clearing it,
  * so a bad write costs nothing.
  *
- * `null` is always allowed: that is the caller handing the stage back to the
+ * `null` is always allowed: that is the caller handing the node back to the
  * default, not naming a candidate.
  */
 function pointableInput(
   project: Project,
-  stage: StageKind,
-  draft: StageRecipe,
+  node: DraftNode,
   generationId: string | null
 ): string | null {
   if (generationId === null) return null
-  if (!isEligibleInput(project, stage, generationId)) {
-    return draft.inputGenerationId
-  }
-
+  if (!isEligibleInput(project, node, generationId)) return node.pinnedInputId
   return generationId
 }
 
@@ -1334,7 +1583,7 @@ function restoreRecipe(project: Project, generationId: string): Project {
   const generation = project.generations.find(g => g.id === generationId)
   if (generation === undefined) return project
 
-  const { stage, recipe } = generation
+  const { recipe } = generation
 
   // An upload names no model (#27), so there is nothing to load into a form
   // that would produce it again — loading it anyway would leave the draft
@@ -1342,26 +1591,24 @@ function restoreRecipe(project: Project, generationId: string): Project {
   // hidden in the UI, because the reducer is what the manifest can reach.
   if (isUploadRecipe(recipe)) return project
 
-  // The restored draft carries its own `inputGenerationId`, and `resolvedInputId`
-  // reads that first — so the re-run points at the right picture whether or not
-  // the selection below moves.
-  //
-  // The selection follows only where the input belongs to the stage immediately
-  // upstream. It is the *stage's* selection, and a recipe that skipped a stage
-  // names a candidate from further back: writing a source id into
-  // `selection.style` would tell the whole app the style stage had settled on a
-  // picture it never produced.
-  const upstream = upstreamOf(stage)
-  const input = project.generations.find(g => g.id === recipe.inputGenerationId)
-  const followable = upstream !== null && input?.stage === upstream
+  const { modelId, inputGenerationId, nodeId: _from, ...shared } = recipe
 
-  return {
-    ...project,
-    drafts: { ...project.drafts, [stage]: recipe },
-    selection: followable
-      ? { ...project.selection, [upstream]: recipe.inputGenerationId }
-      : project.selection,
-  }
+  // Restored onto **its own node**, which is the only node whose form it
+  // describes. A recipe carries the node it was frozen from, so this needs no
+  // second opinion about where it belongs.
+  return withNode(project, nodeIdOf(generation), node => ({
+    ...node,
+    // The fan-out collapses to the one model that actually made this picture.
+    // Restoring three models from a candidate that came from one of them would
+    // be a form that describes something nobody ran.
+    draft: { ...shared, modelIds: [modelId] },
+    // And the pin follows the recipe, so the re-run consumes the picture this
+    // candidate consumed rather than whatever the input node has settled on
+    // since. Only where that candidate is still an eligible input — a recipe
+    // whose node has been rewired names something from another branch, and
+    // `pointableInput` is where that refusal already lives.
+    pinnedInputId: pointableInput(project, node, inputGenerationId),
+  }))
 }
 
 /**
@@ -1386,18 +1633,119 @@ function forgetOldRuns(runs: readonly RunRecord[]): readonly RunRecord[] {
 
 function editDraft(
   state: EditorState,
-  stage: StageKind,
+  nodeId: string,
   // The project comes along because one edit needs something the draft does not
-  // carry: seeding a preset resolves its variables against the project palette.
-  change: (draft: StageRecipe, project: Project) => StageRecipe
+  // carry — seeding a preset resolves its variables against the project palette
+  // — and the node because another needs its kind (`isSeededParam`).
+  change: (draft: DraftRecipe, project: Project, node: DraftNode) => DraftRecipe
 ): EditorState {
-  return editProject(state, project => ({
-    ...project,
-    drafts: {
-      ...project.drafts,
-      [stage]: change(project.drafts[stage], project),
-    },
+  return editNode(state, nodeId, (node, project) => ({
+    ...node,
+    draft: change(node.draft, project, node),
   }))
+}
+
+/**
+ * Rewrite one node, leaving every other node alone.
+ *
+ * The address every draft-editing action now goes through, and the reason none
+ * of them has to know that `Project.nodes` is an array: a node that is not there
+ * — deleted while a panel was still mounted, or named by a hand-edited manifest
+ * — leaves the project untouched rather than appending a node out of nowhere.
+ */
+function editNode(
+  state: EditorState,
+  nodeId: string,
+  change: (node: DraftNode, project: Project) => DraftNode
+): EditorState {
+  return editProject(state, project => withNode(project, nodeId, change))
+}
+
+function withNode(
+  project: Project,
+  nodeId: string,
+  change: (node: DraftNode, project: Project) => DraftNode
+): Project {
+  if (!project.nodes.some(node => node.id === nodeId)) return project
+
+  return {
+    ...project,
+    nodes: project.nodes.map(node =>
+      node.id === nodeId ? change(node, project) : node
+    ),
+  }
+}
+
+/**
+ * A node removed, and everything that only made sense because of it.
+ *
+ * Four things go at once, and each for its own reason (ADR 0005):
+ *
+ * - **Its candidates**, because a node is the only place one can live on the
+ *   canvas. The asset files stay on disk for the deliberate cleanup pass, so
+ *   this is reversible right up until the user asks for it not to be.
+ * - **Downstream edges**, detached rather than followed: losing one step of a
+ *   chain must not cost the rest of the chain.
+ * - **Any pin naming one of its candidates**, on any node, since the picture is
+ *   about to stop existing.
+ * - **Its runs**, or a grid would sit forever waiting on a node that is gone.
+ */
+function withoutNode(state: EditorState, nodeId: string): EditorState {
+  const doomed = new Set(
+    state.project?.generations
+      .filter(generation => nodeIdOf(generation) === nodeId)
+      .map(generation => generation.id) ?? []
+  )
+
+  return {
+    ...editProject(state, project => ({
+      ...project,
+      nodes: project.nodes
+        .filter(node => node.id !== nodeId)
+        .map(node => ({
+          ...node,
+          inputNodeId: node.inputNodeId === nodeId ? null : node.inputNodeId,
+          pinnedInputId:
+            node.pinnedInputId !== null && doomed.has(node.pinnedInputId)
+              ? null
+              : node.pinnedInputId,
+        })),
+      generations: project.generations.filter(
+        generation => !doomed.has(generation.id)
+      ),
+    })),
+    runs: state.runs.filter(run => run.nodeId !== nodeId),
+    // The sidebar was editing it, and the effects panel may have been pinned to
+    // one of its candidates. Both would otherwise be a form about nothing.
+    selectedNodeId:
+      state.selectedNodeId === nodeId ? null : state.selectedNodeId,
+    treatmentTarget:
+      state.treatmentTarget !== null && doomed.has(state.treatmentTarget)
+        ? null
+        : state.treatmentTarget,
+  }
+}
+
+/** Whether two model lists say the same thing, in the same order. */
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((id, index) => id === right[index])
+  )
+}
+
+/**
+ * One planned candidate per model, keeping the first of each.
+ *
+ * What a pinned seed collapses a run to — see `runNode`.
+ */
+function firstPerModel(runs: readonly PlannedRun[]): readonly PlannedRun[] {
+  const seen = new Set<string>()
+  return runs.filter(run => {
+    if (seen.has(run.modelId)) return false
+    seen.add(run.modelId)
+    return true
+  })
 }
 
 /**
@@ -1414,23 +1762,30 @@ function editProject(
 }
 
 /**
- * The last stage that has produced anything — where opening a project should
- * drop you. Stage order is the pipeline order, so this is "as far as this
- * project has got", not "where you were last time".
+ * The node opening a project should drop you on: the one that produced the most
+ * recent candidate, or the first node when nothing has been run.
+ *
+ * "As far as this project has got", not "where you were last time" — which node
+ * you had selected is session state and deliberately not in the manifest. On a
+ * canvas there is no stage order to walk backwards through, so the answer comes
+ * from the append-only history instead, which is the same question asked of the
+ * one structure that still has an order.
  */
-function furthestStage(project: Project): StageKind {
-  return (
-    [...STAGE_ORDER]
-      .reverse()
-      .find(stage => project.generations.some(g => g.stage === stage)) ??
-    'source'
-  )
+function furthestNodeId(project: Project): string | null {
+  const known = new Set(project.nodes.map(node => node.id))
+
+  for (const generation of [...project.generations].reverse()) {
+    const nodeId = nodeIdOf(generation)
+    if (known.has(nodeId)) return nodeId
+  }
+
+  return project.nodes.at(0)?.id ?? null
 }
 
 /**
- * Ordinals count every generation ever made in the stage, including rejected
- * ones — nothing is deleted, so nothing is reused.
+ * Ordinals count every generation ever made on the node, including rejected
+ * ones — nothing is deleted from a node that survives, so nothing is reused.
  */
-function nextOrdinal(project: Project, stage: StageKind): number {
-  return project.generations.filter(g => g.stage === stage).length + 1
+function nextOrdinal(project: Project, nodeId: string): number {
+  return project.generations.filter(g => nodeIdOf(g) === nodeId).length + 1
 }

@@ -14,17 +14,22 @@ import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { render, screen, within } from '@/test/test-utils'
 import {
-  LEDGER,
-  planBatch,
+  planRun,
   type EditorAction,
   type Generation,
   type Project,
-  type StageKind,
 } from '@/lib/recipe'
 import { commands } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { rollSeed } from './run-request'
-import { StageEditor } from './StageEditor'
+import { Canvas } from './Canvas'
+import {
+  LEDGER,
+  LEDGER_SOURCE_NODE,
+  fixtureDraft,
+  fixtureFrozen,
+  fixtureNode,
+} from '../../lib/recipe/fixtures'
 
 const RUN = 'run-under-test'
 const CANDIDATES = ['gen-a', 'gen-b', 'gen-c', 'gen-d']
@@ -41,10 +46,11 @@ const CANDIDATES = ['gen-a', 'gen-b', 'gen-c', 'gen-d']
  */
 function fixtureRunActions(
   project: Project,
-  stage: StageKind,
+  nodeId: string,
   count: number
 ): readonly EditorAction[] {
-  const batch = planBatch(count)
+  const node = fixtureNode(project, nodeId)
+  const batch = planRun(node.draft.modelIds, count)
   const at = Date.now()
 
   return [
@@ -52,15 +58,16 @@ function fixtureRunActions(
       type: 'beginRun',
       runId: batch.runId,
       projectId: project.id,
-      stage,
-      generationIds: batch.generationIds,
+      nodeId,
+      generationIds: batch.candidates.map(entry => entry.generationId),
       at,
     },
     {
-      type: 'runStage',
-      stage,
-      runs: batch.generationIds.map(id => ({
-        id,
+      type: 'runNode',
+      nodeId,
+      runs: batch.candidates.map(entry => ({
+        id: entry.generationId,
+        modelId: entry.modelId,
         seed: rollSeed(),
         asset: null,
         runId: batch.runId,
@@ -86,7 +93,7 @@ function arrived(
   return {
     id,
     stage: 'source',
-    recipe: LEDGER.drafts.source,
+    recipe: fixtureFrozen(LEDGER, LEDGER_SOURCE_NODE),
     treatment: null,
     costUsd: 0,
     requestId: null,
@@ -109,7 +116,7 @@ function open(generations: readonly Generation[]): Project {
 
   const { dispatch } = useEditorStore.getState()
   dispatch({ type: 'openProject', project, directory: `/tmp/${project.id}` })
-  dispatch({ type: 'selectStage', stage: 'source' })
+  dispatch({ type: 'selectNode', nodeId: LEDGER_SOURCE_NODE })
 
   return project
 }
@@ -120,7 +127,7 @@ function begin(ids: readonly string[] = CANDIDATES, runId = RUN): void {
     type: 'beginRun',
     runId,
     projectId: LEDGER.id,
-    stage: 'source',
+    nodeId: LEDGER_SOURCE_NODE,
     generationIds: ids,
     at: 1,
   })
@@ -128,6 +135,20 @@ function begin(ids: readonly string[] = CANDIDATES, runId = RUN): void {
 
 function grid(): HTMLElement | null {
   return screen.queryByRole('region', { name: /this run/i })
+}
+
+/**
+ * Queries scoped to the grid.
+ *
+ * Necessary since ADR 0005 rather than tidier: the canvas draws every candidate
+ * a node holds as a child node, labelled with the same name the grid uses, so an
+ * unscoped `/Source 2/` now matches the tile behind the grid as well as the one
+ * in it. Scoping is what keeps these assertions about the grid.
+ */
+function inGrid() {
+  const region = grid()
+  if (region === null) throw new Error('the run is not on screen')
+  return within(region)
 }
 
 function skeletons(): HTMLElement[] {
@@ -139,7 +160,7 @@ describe('the grid a run is chosen from', () => {
     open([])
     begin()
 
-    render(<StageEditor />)
+    render(<Canvas />)
 
     expect(grid()).toBeInTheDocument()
     expect(skeletons()).toHaveLength(4)
@@ -149,10 +170,14 @@ describe('the grid a run is chosen from', () => {
     open([arrived('gen-a', 2, RUN), arrived('gen-b', 3, RUN)])
     begin()
 
-    render(<StageEditor />)
+    render(<Canvas />)
 
-    expect(screen.getByRole('button', { name: /Source 2/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Source 3/ })).toBeInTheDocument()
+    expect(
+      inGrid().getByRole('button', { name: /Source 2/ })
+    ).toBeInTheDocument()
+    expect(
+      inGrid().getByRole('button', { name: /Source 3/ })
+    ).toBeInTheDocument()
     expect(skeletons()).toHaveLength(2)
   })
 
@@ -163,18 +188,20 @@ describe('the grid a run is chosen from', () => {
     open(CANDIDATES.map((id, index) => arrived(id, index + 2, RUN)))
     begin()
 
-    render(<StageEditor />)
+    render(<Canvas />)
 
     expect(grid()).toBeInTheDocument()
     expect(skeletons()).toHaveLength(0)
-    expect(screen.getAllByRole('button', { name: /Source \d/ })).toHaveLength(4)
+    expect(inGrid().getAllByRole('button', { name: /Source \d/ })).toHaveLength(
+      4
+    )
   })
 
   it('shows only what this run produced, not the whole stage', () => {
     open([arrived('gen-a', 2, RUN), arrived('other', 3, 'another-run')])
     begin()
 
-    render(<StageEditor />)
+    render(<Canvas />)
 
     const region = grid()
     expect(region?.textContent).toContain('Source 2')
@@ -188,7 +215,7 @@ describe('the grid a run is chosen from', () => {
     begin()
     begin(['gen-e', 'gen-f'], 'run-second')
 
-    render(<StageEditor />)
+    render(<Canvas />)
 
     expect(grid()?.textContent).toContain('Source 3')
     expect(grid()?.textContent).not.toContain('Source 2')
@@ -203,7 +230,7 @@ describe('the grid a run is chosen from', () => {
       generationIds: ['gen-b', 'gen-c', 'gen-d'],
     })
 
-    render(<StageEditor />)
+    render(<Canvas />)
 
     expect(skeletons()).toHaveLength(0)
     expect(grid()?.textContent).toMatch(/1 of 1/)
@@ -211,7 +238,7 @@ describe('the grid a run is chosen from', () => {
 
   it('is not shown at all when no run is waiting for an answer', () => {
     open([arrived('gen-a', 2, RUN)])
-    render(<StageEditor />)
+    render(<Canvas />)
 
     expect(grid()).not.toBeInTheDocument()
   })
@@ -222,15 +249,18 @@ describe('answering the run', () => {
     open([arrived('gen-a', 2, RUN), arrived('gen-b', 3, RUN)])
     begin()
 
-    render(<StageEditor />)
+    render(<Canvas />)
     await userEvent
       .setup()
-      .click(screen.getByRole('button', { name: /Source 3/ }))
+      .click(inGrid().getByRole('button', { name: /Source 3/ }))
 
     // The choice, recorded where the next stage will read it.
-    expect(useEditorStore.getState().state.project?.selection.source).toBe(
-      'gen-b'
-    )
+    expect(
+      fixtureNode(
+        useEditorStore.getState().state.project as Project,
+        LEDGER_SOURCE_NODE
+      ).pick
+    ).toBe('gen-b')
     // And the run is no longer what the stage is, even though two candidates
     // of it are still generating.
     expect(grid()).not.toBeInTheDocument()
@@ -242,28 +272,34 @@ describe('answering the run', () => {
     open([arrived('gen-a', 2, RUN)])
     begin()
 
-    render(<StageEditor />)
-    const before = useEditorStore.getState().state.project?.selection.source
+    render(<Canvas />)
+    const before = fixtureNode(
+      useEditorStore.getState().state.project as Project,
+      LEDGER_SOURCE_NODE
+    ).pick
 
     await userEvent
       .setup()
       .click(screen.getByRole('button', { name: /not now/i }))
 
     expect(grid()).not.toBeInTheDocument()
-    expect(useEditorStore.getState().state.project?.selection.source).toBe(
-      before
-    )
+    expect(
+      fixtureNode(
+        useEditorStore.getState().state.project as Project,
+        LEDGER_SOURCE_NODE
+      ).pick
+    ).toBe(before)
   })
 
   it('does not come back for the same run', async () => {
     open([arrived('gen-a', 2, RUN)])
     begin()
 
-    const { rerender } = render(<StageEditor />)
+    const { rerender } = render(<Canvas />)
     await userEvent
       .setup()
       .click(screen.getByRole('button', { name: /not now/i }))
-    rerender(<StageEditor />)
+    rerender(<Canvas />)
 
     expect(grid()).not.toBeInTheDocument()
   })
@@ -278,11 +314,11 @@ describe('a run whose candidates all arrive at once', () => {
     const project: Project = { ...LEDGER, generations: [...LEDGER.generations] }
     const { dispatch } = useEditorStore.getState()
     dispatch({ type: 'openProject', project, directory: `/tmp/${project.id}` })
-    dispatch({ type: 'selectStage', stage: 'style' })
+    dispatch({ type: 'selectNode', nodeId: LEDGER_SOURCE_NODE })
 
-    render(<StageEditor />)
+    render(<Canvas />)
 
-    for (const action of fixtureRunActions(project, 'style', 4)) {
+    for (const action of fixtureRunActions(project, LEDGER_SOURCE_NODE, 4)) {
       act(() => {
         useEditorStore.getState().dispatch(action)
       })
@@ -291,11 +327,15 @@ describe('a run whose candidates all arrive at once', () => {
     // Complete the moment it began, and still waiting for a click.
     expect(grid()).toBeInTheDocument()
     expect(skeletons()).toHaveLength(0)
-    expect(screen.getAllByRole('button', { name: /Style \d/ })).toHaveLength(4)
+    expect(inGrid().getAllByRole('button', { name: /Source \d/ })).toHaveLength(
+      4
+    )
 
     await userEvent
       .setup()
-      .click(screen.getAllByRole('button', { name: /Style \d/ })[1] as Element)
+      .click(
+        inGrid().getAllByRole('button', { name: /Source \d/ })[1] as Element
+      )
 
     expect(grid()).not.toBeInTheDocument()
   })
@@ -306,9 +346,9 @@ describe('the seed of a candidate in the grid', () => {
     open([arrived('gen-a', 2, RUN)])
     begin(['gen-a'])
 
-    render(<StageEditor />)
+    render(<Canvas />)
 
-    // Scoped to the grid: the strip below has its own pin on every tile.
+    // Scoped to the grid: the canvas card behind it draws the same candidate.
     const region = grid()
     if (region === null) throw new Error('the run is not on screen')
 
@@ -316,19 +356,22 @@ describe('the seed of a candidate in the grid', () => {
       .setup()
       .click(within(region).getByRole('button', { name: /pin this seed/i }))
 
-    expect(useEditorStore.getState().state.project?.drafts.source.seed).toEqual(
-      {
-        mode: 'pinned',
-        value: 1_002,
-      }
-    )
+    expect(
+      fixtureDraft(
+        useEditorStore.getState().state.project as Project,
+        LEDGER_SOURCE_NODE
+      ).seed
+    ).toEqual({
+      mode: 'pinned',
+      value: 1_002,
+    })
   })
 
   it('offers no pin on a candidate with no seed to pin', () => {
     open([{ ...arrived('gen-a', 2, RUN), seed: null }])
     begin(['gen-a'])
 
-    render(<StageEditor />)
+    render(<Canvas />)
 
     const region = grid()
     if (region === null) throw new Error('the run is not on screen')

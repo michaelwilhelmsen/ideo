@@ -38,7 +38,7 @@ export const UPLOAD_MODEL_ID = 'ideo:upload'
  * because it is ours and no API has heard of it — the request builder never has
  * to know to strip it out.
  */
-export function uploadRecipe(fileName: string): StageRecipe {
+export function uploadRecipe(fileName: string, nodeId: string): StageRecipe {
   return {
     modelId: UPLOAD_MODEL_ID,
     prompt: '',
@@ -48,6 +48,10 @@ export function uploadRecipe(fileName: string): StageRecipe {
     params: {},
     options: { fileName },
     inputGenerationId: null,
+    // The node it lands on, like any other candidate (ADR 0005) — an upload is
+    // a `Generation` in every respect that matters, which is the whole point of
+    // recording "no model made it" as a reserved id rather than a shape.
+    nodeId,
   }
 }
 

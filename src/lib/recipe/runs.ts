@@ -21,17 +21,47 @@ export function mintRunId(): string {
   return crypto.randomUUID()
 }
 
-/** The ids one click needs: one for the run, one per candidate. */
-export interface PlannedBatch {
-  readonly runId: string
-  readonly generationIds: readonly string[]
+/** One candidate a click is about to ask for: an id, and the model it goes to. */
+export interface PlannedCandidate {
+  readonly generationId: string
+  readonly modelId: string
 }
 
-export function planBatch(count: number): PlannedBatch {
+/**
+ * The ids one click needs: one for the run, one per candidate.
+ *
+ * One `runId` across the **whole** fan-out, which is the claim ADR 0005 makes
+ * about what a click is. Three models at two candidates each is six jobs and
+ * one question — "which of these six", not "which of these two, three times" —
+ * and the grid, the strip and the run history all key on that id.
+ */
+export interface PlannedBatch {
+  readonly runId: string
+  readonly candidates: readonly PlannedCandidate[]
+}
+
+/**
+ * `perModel` candidates for each of `modelIds`, grouped by model.
+ *
+ * Grouped rather than interleaved so the grid reads as one column per model
+ * with its batch under it, which is the comparison a fan-out is for. Submission
+ * order follows the same shape, so the first candidate of every model is
+ * queued before the second of any of them — with three jobs running at a time
+ * (PRD §3.3), that is what makes the four-up fill across rather than down.
+ */
+export function planRun(
+  modelIds: readonly string[],
+  perModel: number
+): PlannedBatch {
   return {
     runId: mintRunId(),
     // Minted before the submit because the file is named after it — the
     // manifest entry and the file on disk agree by construction.
-    generationIds: Array.from({ length: count }, () => crypto.randomUUID()),
+    candidates: Array.from({ length: perModel }, () => 0).flatMap(() =>
+      modelIds.map(modelId => ({
+        generationId: crypto.randomUUID(),
+        modelId,
+      }))
+    ),
   }
 }

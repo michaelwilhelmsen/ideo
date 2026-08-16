@@ -77,8 +77,8 @@ import {
   type PresetVariable,
   type PresetVariableValues,
   type Project,
-  type StageKind,
-  type StageRecipe,
+  type DraftNode,
+  type DraftRecipe,
 } from '@/lib/recipe'
 import {
   EMPTY_MOTION_PRESETS,
@@ -115,18 +115,18 @@ const NO_PRESET = ':none'
 
 export function PresetField({
   project,
-  stage,
+  node,
 }: {
   project: Project
-  stage: StageKind
+  node: DraftNode
 }) {
-  switch (stage) {
+  switch (node.kind) {
     case 'source':
-      return <SourcePresetField project={project} />
+      return <SourcePresetField project={project} node={node} />
     case 'style':
-      return <StylePresetField project={project} />
+      return <StylePresetField project={project} node={node} />
     case 'animate':
-      return <MotionPresetField project={project} />
+      return <MotionPresetField node={node} />
   }
 }
 
@@ -139,18 +139,26 @@ export function PresetField({
  * and the whole value of keeping the libraries apart is that neither can end up
  * writing into the other's folder by accident.
  */
-function StylePresetField({ project }: { project: Project }) {
+function StylePresetField({
+  project,
+  node,
+}: {
+  project: Project
+  node: DraftNode
+}) {
   const { data } = useStylePresets()
 
   return (
     <ComposingPresetField
-      // Remounted per project, so a save or delete dialog left open does not
-      // carry over to the next one. The variable fields are cleared by the
-      // reducer rather than by this remount (#46), since they have to survive
-      // the far more frequent unmount of changing sidebar tab.
-      key={project.id}
+      // Remounted per **node**, so a save or delete dialog left open does not
+      // carry over when another step is selected — and two style steps on one
+      // canvas do not share one dialog. The variable fields are keyed by node in
+      // the store rather than cleared by this remount (#46), since they have to
+      // survive the far more frequent unmount of selecting elsewhere.
+      key={node.id}
       project={project}
-      stage="style"
+      node={node}
+      kind="style"
       library={data ?? EMPTY_STYLE_PRESETS}
       hintKey={null}
       save={useSaveStylePreset()}
@@ -159,14 +167,21 @@ function StylePresetField({ project }: { project: Project }) {
   )
 }
 
-function SourcePresetField({ project }: { project: Project }) {
+function SourcePresetField({
+  project,
+  node,
+}: {
+  project: Project
+  node: DraftNode
+}) {
   const { data } = useSourcePresets()
 
   return (
     <ComposingPresetField
-      key={project.id}
+      key={node.id}
       project={project}
-      stage="source"
+      node={node}
+      kind="source"
       // Said once, in the one place a ratio appears next to a control: the hint
       // is a note about how the scene was composed and not a setting (PRD §4.4
       // locks aspect at project creation). Without it, a ratio in a picker reads
@@ -195,14 +210,17 @@ interface ForkFlow {
  */
 function ComposingPresetField({
   project,
-  stage,
+  node,
+  kind,
   hintKey,
   library: { presets: userPresets, unreadable },
   save,
   remove,
 }: {
   project: Project
-  stage: 'source' | 'style'
+  node: DraftNode
+  /** Which library. Narrower than the node's kind, which is why it is separate. */
+  kind: 'source' | 'style'
   /** A line under the picker, or `null` where the library needs no preamble. */
   hintKey: string | null
   library: UserPresetLibrary
@@ -210,10 +228,16 @@ function ComposingPresetField({
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
 
-  const draft = project.drafts[stage]
-  const model = modelById(MODEL_REGISTRY, draft.modelId)
+  const draft = node.draft
+  // The **primary** model of the fan-out (ADR 0005): it is the one seeding
+  // writes strength and the negative against, and the one whose field names the
+  // shared parameter bag is keyed by. Whether the *rest* of the fan-out can read
+  // the preset at all is a separate question, asked by `presetSupportsModel`
+  // over every model below — one prompt box cannot be prose for one model and a
+  // keyword list for another.
+  const model = modelById(MODEL_REGISTRY, draft.modelIds[0] ?? '')
 
-  const builtIns = presetsForStage(stage)
+  const builtIns = presetsForStage(kind)
   /** Everything selectable, in picker order — ours first, then theirs. */
   const library = [...builtIns, ...userPresets]
 
@@ -239,7 +263,7 @@ function ComposingPresetField({
    * and the rest waits for a preset that asks for it.
    */
   const values = useEditorStore(store =>
-    presetVariablesFor(store.state, project.id, stage)
+    presetVariablesFor(store.state, project.id, node.id)
   )
 
   const composed =
@@ -257,7 +281,7 @@ function ComposingPresetField({
   const choose = (preset: Preset | null, next = values): void => {
     dispatch({
       type: 'choosePreset',
-      stage,
+      nodeId: node.id,
       presetId: preset?.id ?? null,
       preset,
       values: next,
@@ -266,7 +290,7 @@ function ComposingPresetField({
 
   /** The pointer only — used after a save, when the form already agrees. */
   const point = (presetId: string | null): void => {
-    dispatch({ type: 'choosePreset', stage, presetId, preset: null })
+    dispatch({ type: 'choosePreset', nodeId: node.id, presetId, preset: null })
   }
 
   /**
@@ -287,11 +311,16 @@ function ComposingPresetField({
       choose(selected, next)
       return
     }
-    dispatch({ type: 'setPresetVariables', stage, values: next })
+    dispatch({ type: 'setPresetVariables', nodeId: node.id, values: next })
   }
 
   const option = (preset: Preset) => {
-    const usable = presetSupportsModel(preset, model)
+    // Every model, not just the primary. A preset that Qwen reads as a keyword
+    // list and FLUX reads as prose cannot seed one box for both, and offering it
+    // would be the cross-send PRD §6.2 exists to prevent (ADR 0005).
+    const usable = draft.modelIds.every(id =>
+      presetSupportsModel(preset, modelById(MODEL_REGISTRY, id))
+    )
     return (
       <SelectItem key={preset.id} value={preset.id} disabled={!usable}>
         {/* A name is user data, whoever wrote it (PRD §6) — no `t()` near it.
@@ -543,13 +572,13 @@ function ComposingPresetField({
  * matters — the prompt box is pre-filled and stays editable, and what is in it
  * is exactly what is sent.
  */
-function MotionPresetField({ project }: { project: Project }) {
+function MotionPresetField({ node }: { node: DraftNode }) {
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
   const { data } = useMotionPresets()
   const { presets: userPresets, unreadable } = data ?? EMPTY_MOTION_PRESETS
 
-  const draft = project.drafts.animate
+  const draft = node.draft
 
   /** Everything selectable, in picker order — ours first, then theirs. */
   const builtIns = presetsForStage('animate')
@@ -569,7 +598,7 @@ function MotionPresetField({ project }: { project: Project }) {
   const choose = (preset: MotionPreset | null): void => {
     dispatch({
       type: 'choosePreset',
-      stage: 'animate',
+      nodeId: node.id,
       presetId: preset?.id ?? null,
       preset,
     })
@@ -577,7 +606,7 @@ function MotionPresetField({ project }: { project: Project }) {
 
   /** The pointer only — used after a save, when the form already agrees. */
   const point = (presetId: string | null): void => {
-    dispatch({ type: 'choosePreset', stage: 'animate', presetId, preset: null })
+    dispatch({ type: 'choosePreset', nodeId: node.id, presetId, preset: null })
   }
 
   // A preset with an empty prompt is not a preset — the loader refuses one on
@@ -968,7 +997,10 @@ function NamePresetDialog({
  * dropping the hint would make the fork say less than its own text knows.
  */
 function captureOf(
-  draft: StageRecipe,
+  // The **draft**, not a frozen recipe: a save reads what the form says right
+  // now. Every field it touches — prompt, params — is shared across the fan-out,
+  // so the model is passed alongside rather than read off the draft (ADR 0005).
+  draft: DraftRecipe,
   model: ModelCapabilities,
   seeded: Preset | null
 ): Omit<PresetCapture, 'id' | 'name'> {

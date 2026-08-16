@@ -67,10 +67,10 @@ import {
 } from '@/lib/effects'
 import type { ExportSize } from '@/lib/tauri-bindings'
 import {
-  selectedGeneration,
+  pickedGeneration,
+  type DraftNode,
   type Generation,
   type Project,
-  type StageKind,
 } from '@/lib/recipe'
 import {
   useExportGeneration,
@@ -87,15 +87,17 @@ const INSTALL_COMMAND = 'brew install ffmpeg'
 
 export function ExportPanel({
   project,
-  stage,
+  node,
 }: {
   project: Project
-  stage: StageKind
+  /** `null` when nothing is selected on the canvas — then there is nothing to
+   * export, and the panel says so rather than exporting somebody else's pick. */
+  node: DraftNode | null
 }) {
   const { t } = useTranslation()
   const nameOf = useGenerationName()
 
-  const selected = selectedGeneration(project, stage)
+  const selected = node === null ? null : pickedGeneration(project, node)
   const medium = mediumOf(selected)
   const possible = availableFormats(medium)
 

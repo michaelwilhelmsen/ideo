@@ -52,8 +52,10 @@ describe('App', () => {
       await screen.findByRole('button', { name: 'Atlas — hero' })
     )
 
+    // The canvas, not a tab bar (ADR 0005): the project's name in the editor
+    // header is what says the editor is up.
     expect(
-      await screen.findByRole('navigation', { name: /stages/i })
+      await screen.findByRole('heading', { name: 'Atlas — hero' })
     ).toBeVisible()
 
     await userEvent.click(
@@ -83,18 +85,29 @@ describe('App', () => {
     })
   })
 
-  it('offers the three stages as tabs rather than steps', async () => {
+  it('offers the steps as a canvas rather than as tabs', async () => {
     libraryWithAtlas()
     useUIStore.setState({ view: 'editor' })
     render(<App />)
 
-    const stages = within(
-      await screen.findByRole('navigation', { name: /stages/i })
-    )
-    // Every stage is reachable directly — there is no "next" (PRD §4.1).
-    expect(stages.getByRole('button', { name: /source/i })).toBeEnabled()
-    expect(stages.getByRole('button', { name: /style/i })).toBeEnabled()
-    expect(stages.getByRole('button', { name: /animate/i })).toBeEnabled()
+    // Every step is on screen at once and every one of them has its own Run
+    // button — there is no "next", and no tab hiding two of the three
+    // (PRD §4.1, ADR 0005). Scoped to the canvas, because the right sidebar
+    // carries the selected node's name too.
+    const canvas = within(await screen.findByRole('region', { name: 'Steps' }))
+
+    for (const name of ['Source', 'Style', 'Animate']) {
+      expect(
+        canvas.getByRole('heading', { name: new RegExp(`^${name}$`) })
+      ).toBeVisible()
+    }
+
+    expect(canvas.getAllByRole('button', { name: /^Generate/ })).toHaveLength(3)
+
+    // And the tab bar it replaced is gone rather than hidden.
+    expect(
+      screen.queryByRole('navigation', { name: /stages/i })
+    ).not.toBeInTheDocument()
   })
 
   it('renders title bar with traffic light buttons', () => {

@@ -26,6 +26,19 @@ globalThis.ResizeObserver ??= class NoLayoutResizeObserver implements ResizeObse
   disconnect = vi.fn()
 }
 
+// The same missing-layout story, for the canvas. React Flow reads the viewport's
+// zoom out of its computed transform when a node's handles change
+// (`updateNodeInternals`, ADR 0005) — jsdom has no `DOMMatrixReadOnly` and the
+// missing constructor is an uncaught throw from inside a rAF callback, where no
+// test can catch it. Identity is the honest answer: an unzoomed viewport is what
+// a layoutless DOM has.
+globalThis.DOMMatrixReadOnly ??= class NoLayoutDOMMatrixReadOnly {
+  m11 = 1
+  m22 = 1
+  m41 = 0
+  m42 = 0
+} as unknown as typeof DOMMatrixReadOnly
+
 // The same missing-layout story, for the four DOM methods Radix's Select reaches
 // for when it opens: it captures the pointer to track a drag off the trigger,
 // and it scrolls the checked item into view. jsdom implements none of them, and

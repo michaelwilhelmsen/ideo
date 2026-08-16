@@ -13,8 +13,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils'
 import {
-  ATLAS,
-  LEDGER,
   colourNameOf,
   composePreset,
   DEFAULT_PALETTE,
@@ -27,11 +25,20 @@ import {
   writeUserMotionPreset,
   writeUserPreset,
   type PromptStyle,
-  type StageRecipe,
+  type DraftRecipe,
 } from '@/lib/recipe'
 import { commands } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
 import { PresetField } from './PresetField'
+import {
+  ATLAS,
+  ATLAS_ANIMATE_NODE,
+  ATLAS_SOURCE_NODE,
+  ATLAS_STYLE_NODE,
+  LEDGER,
+  fixtureDraft,
+  fixtureNode,
+} from '../../lib/recipe/fixtures'
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -119,7 +126,12 @@ function withSaved(...documents: unknown[]): void {
 function LivePresetField() {
   const project = useEditorStore(store => store.state.project)
   if (project === null) return null
-  return <PresetField project={project} stage="style" />
+  return (
+    <PresetField
+      project={project}
+      node={fixtureNode(project, ATLAS_STYLE_NODE)}
+    />
+  )
 }
 
 function open(): void {
@@ -130,10 +142,10 @@ function open(): void {
   })
 }
 
-function styleDraft(): StageRecipe {
+function styleDraft(): DraftRecipe {
   const project = useEditorStore.getState().state.project
   if (project === null) throw new Error('nothing is open')
-  return project.drafts.style
+  return fixtureDraft(project, ATLAS_STYLE_NODE)
 }
 
 function picker(): HTMLElement {
@@ -302,17 +314,21 @@ describe('picking a look', () => {
     withSaved(savedFork({ promptStyle: 'tags', prompt: 'a keyword list' }))
     open()
     // Selected while on Qwen, which reads tags — then the model moves away.
-    useEditorStore
-      .getState()
-      .dispatch({ type: 'chooseModel', stage: 'style', modelId: QWEN.id })
+    useEditorStore.getState().dispatch({
+      type: 'setModels',
+      nodeId: ATLAS_STYLE_NODE,
+      modelIds: [QWEN.id],
+    })
     render(<LivePresetField />)
 
     await waitForYours()
     await pickNamed('My look')
 
-    useEditorStore
-      .getState()
-      .dispatch({ type: 'chooseModel', stage: 'style', modelId: FLUX_I2I.id })
+    useEditorStore.getState().dispatch({
+      type: 'setModels',
+      nodeId: ATLAS_STYLE_NODE,
+      modelIds: [FLUX_I2I.id],
+    })
 
     expect(await screen.findByText(/no prose version written/i)).toBeVisible()
   })
@@ -331,9 +347,11 @@ describe('after switching models', () => {
     await pickNamed(GLASS.name)
 
     const prose = styleDraft().prompt
-    useEditorStore
-      .getState()
-      .dispatch({ type: 'chooseModel', stage: 'style', modelId: QWEN.id })
+    useEditorStore.getState().dispatch({
+      type: 'setModels',
+      nodeId: ATLAS_STYLE_NODE,
+      modelIds: [QWEN.id],
+    })
 
     const offer = await screen.findByRole('button', {
       name: /seed again from the preset/i,
@@ -354,9 +372,11 @@ describe('after switching models', () => {
     render(<LivePresetField />)
     await pickNamed(GLASS.name)
 
-    useEditorStore
-      .getState()
-      .dispatch({ type: 'setPrompt', stage: 'style', prompt: 'my own words' })
+    useEditorStore.getState().dispatch({
+      type: 'setPrompt',
+      nodeId: ATLAS_STYLE_NODE,
+      prompt: 'my own words',
+    })
 
     expect(
       await screen.findByText(/prompt edited since seeding/i)
@@ -457,7 +477,7 @@ describe('saving a fork', () => {
     await pickNamed('My look')
     useEditorStore.getState().dispatch({
       type: 'setPrompt',
-      stage: 'style',
+      nodeId: ATLAS_STYLE_NODE,
       prompt: 'Make it mine, warmer.',
     })
 
@@ -491,7 +511,7 @@ describe('saving a fork', () => {
     await pickNamed('My look')
     useEditorStore.getState().dispatch({
       type: 'setPrompt',
-      stage: 'style',
+      nodeId: ATLAS_STYLE_NODE,
       prompt: 'Grade it towards a warmer dusk.',
     })
 
@@ -517,16 +537,20 @@ describe('saving a fork', () => {
     const user = userEvent.setup()
     withSaved(savedFork({ promptStyle: 'tags', prompt: 'a keyword list' }))
     open()
-    useEditorStore
-      .getState()
-      .dispatch({ type: 'chooseModel', stage: 'style', modelId: QWEN.id })
+    useEditorStore.getState().dispatch({
+      type: 'setModels',
+      nodeId: ATLAS_STYLE_NODE,
+      modelIds: [QWEN.id],
+    })
     render(<LivePresetField />)
 
     await waitForYours()
     await pickNamed('My look')
-    useEditorStore
-      .getState()
-      .dispatch({ type: 'chooseModel', stage: 'style', modelId: FLUX_I2I.id })
+    useEditorStore.getState().dispatch({
+      type: 'setModels',
+      nodeId: ATLAS_STYLE_NODE,
+      modelIds: [FLUX_I2I.id],
+    })
 
     const update = await screen.findByRole('button', {
       name: /update this preset/i,
@@ -627,13 +651,18 @@ describe('picking a movement', () => {
   function LiveMotionField() {
     const project = useEditorStore(store => store.state.project)
     if (project === null) return null
-    return <PresetField project={project} stage="animate" />
+    return (
+      <PresetField
+        project={project}
+        node={fixtureNode(project, ATLAS_ANIMATE_NODE)}
+      />
+    )
   }
 
-  function animateDraft(): StageRecipe {
+  function animateDraft(): DraftRecipe {
     const project = useEditorStore.getState().state.project
     if (project === null) throw new Error('nothing is open')
-    return project.drafts.animate
+    return fixtureDraft(project, ATLAS_ANIMATE_NODE)
   }
 
   function motionPicker(): HTMLElement {
@@ -720,7 +749,7 @@ describe('picking a movement', () => {
 
     useEditorStore.getState().dispatch({
       type: 'setPrompt',
-      stage: 'animate',
+      nodeId: ATLAS_ANIMATE_NODE,
       prompt: 'clouds, but faster',
     })
 
@@ -777,18 +806,25 @@ describe('picking a scene', () => {
   if (MONOLITH === null) throw new Error('the source library lost a preset')
 
   /** Atlas's source draft is on flux/schnell, which reads prose. */
-  const SOURCE_MODEL = modelById(MODEL_REGISTRY, ATLAS.drafts.source.modelId)
+  const SOURCE_MODEL = modelById(
+    MODEL_REGISTRY,
+    fixtureDraft(ATLAS, ATLAS_SOURCE_NODE).modelIds[0] ?? ''
+  )
 
   function LiveSourceField() {
     const project = useEditorStore(store => store.state.project)
-    if (project === null) return null
-    return <PresetField project={project} stage="source" />
+    // Whichever project is open — this test switches between two of them, and
+    // naming one fixture's node would follow the panel across the swap.
+    const node = project?.nodes.find(entry => entry.kind === 'source')
+    if (project === null || node === undefined) return null
+    return <PresetField project={project} node={node} />
   }
 
-  function sourceDraft(): StageRecipe {
+  function sourceDraft(): DraftRecipe {
     const project = useEditorStore.getState().state.project
-    if (project === null) throw new Error('nothing is open')
-    return project.drafts.source
+    const node = project?.nodes.find(entry => entry.kind === 'source')
+    if (node === undefined) throw new Error('nothing is open')
+    return node.draft
   }
 
   it('offers the source library rather than the style one', async () => {
@@ -975,7 +1011,7 @@ describe('picking a scene', () => {
     // but it is still recorded, and the offer takes it when it is accepted.
     useEditorStore.getState().dispatch({
       type: 'setPrompt',
-      stage: 'source',
+      nodeId: ATLAS_SOURCE_NODE,
       prompt: 'my own words',
     })
 
@@ -1004,7 +1040,7 @@ describe('picking a scene', () => {
     // not rewrite it underneath them.
     useEditorStore.getState().dispatch({
       type: 'setPrompt',
-      stage: 'source',
+      nodeId: ATLAS_SOURCE_NODE,
       prompt: 'my own words',
     })
 

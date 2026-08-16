@@ -25,8 +25,8 @@ import { isVideoAsset } from '@/lib/export'
 import {
   activeProject,
   generationById,
-  selectedGeneration,
-  STAGE_ORDER,
+  nodeById,
+  pickedGeneration,
   type Generation,
   type Project,
   type Treatment,
@@ -41,8 +41,8 @@ export interface TreatmentTarget {
   /** Whether this candidate is *pinned* rather than merely selected. */
   readonly pinned: boolean
   /**
-   * The candidates this tab offers to treat — each stage's current selection,
-   * in pipeline order.
+   * The candidates this tab offers to treat — every node's current pick, in
+   * canvas order.
    *
    * On screen as a switch, because "halftone the still" and "halftone the clip"
    * are different jobs done in the same place and the answer used to be taken
@@ -81,29 +81,32 @@ export function useTreatmentTarget(): TreatmentTarget | null {
   const project = activeProject(state)
   if (project === null) return null
 
-  // Every stage's selection, in pipeline order. A candidate with no file stays
-  // on the switch rather than disappearing from it: `TreatedPreview` already
-  // says `effects.noFile` about exactly that case, and a target that silently
-  // vanished would read as the stage having no selection at all.
-  const choices = STAGE_ORDER.map(stage =>
-    selectedGeneration(project, stage)
-  ).filter((candidate): candidate is Generation => candidate !== null)
+  // Every node's pick, in the order the canvas holds them. A candidate with no
+  // file stays on the switch rather than disappearing from it: `TreatedPreview`
+  // already says `effects.noFile` about exactly that case, and a target that
+  // silently vanished would read as the node having decided nothing.
+  const choices = project.nodes
+    .map(node => pickedGeneration(project, node))
+    .filter((candidate): candidate is Generation => candidate !== null)
 
-  // The pin wins where it names something this project still has; otherwise the
-  // *furthest* stage with something to show, which is the last thing the user
-  // made rather than whichever tab they last had open.
+  // The pin wins where it names something this project still has; then the
+  // selected node's own pick, which is what you were looking at when you opened
+  // the panel; then the last node with anything to show.
   //
-  // That default is the fix as much as the switch is. Following `activeStage`
-  // meant opening Effects from the source tab silently treated the source while
-  // a finished clip sat one tab away — and since a treatment is stored per
+  // That ladder is the fix as much as the switch is. Following a *tab* meant
+  // opening Effects from the source tab silently treated the source while a
+  // finished clip sat one tab away — and since a treatment is stored per
   // generation, the knobs you turned went onto a candidate you were not looking
-  // at.
+  // at. The canvas makes "what you were looking at" answerable, which is why the
+  // selected node now sits second rather than last.
+  const selectedNode = nodeById(project, state.selectedNodeId)
   const generation =
     (state.treatmentTarget === null
       ? null
       : generationById(project, state.treatmentTarget)) ??
+    (selectedNode === null ? null : pickedGeneration(project, selectedNode)) ??
     choices.at(-1) ??
-    selectedGeneration(project, state.activeStage)
+    null
 
   const treatment = generation?.treatment ?? null
   const look = lookFor(treatment, library)

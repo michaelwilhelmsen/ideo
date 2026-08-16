@@ -19,8 +19,11 @@
 import { DEFAULT_PALETTE } from './palettes'
 import { DEFAULT_BATCH_SIZES } from './selectors'
 import type {
+  DraftNode,
+  DraftRecipe,
   EditorState,
   Generation,
+  NodePosition,
   Project,
   ProjectSummary,
   StageKind,
@@ -34,7 +37,7 @@ const MINUTE = 60_000
 // ── The seeded projects ─────────────────────────────────────────────────────
 
 function recipe(
-  partial: Partial<StageRecipe> & Pick<StageRecipe, 'modelId'>
+  partial: Partial<StageRecipe> & Pick<StageRecipe, 'modelId' | 'nodeId'>
 ): StageRecipe {
   return {
     prompt: '',
@@ -46,6 +49,133 @@ function recipe(
     inputGenerationId: null,
     ...partial,
   }
+}
+
+/**
+ * A node, with its draft written out rather than blank.
+ *
+ * The draft is *derived from* one of the node's own frozen recipes wherever
+ * there is one, because that is what a real project looks like after a run: the
+ * form still says what the last click said until somebody edits it. Anything
+ * these fixtures assert about restoring, freezing or re-running depends on the
+ * two agreeing, and hand-writing both is how they stop agreeing.
+ */
+function node(
+  id: string,
+  kind: StageKind,
+  position: NodePosition,
+  draft: DraftRecipe,
+  extras: Partial<DraftNode> = {}
+): DraftNode {
+  return {
+    id,
+    kind,
+    title: null,
+    position,
+    draft,
+    batchSize: DEFAULT_BATCH_SIZES[kind],
+    inputNodeId: null,
+    pinnedInputId: null,
+    pick: null,
+    ...extras,
+  }
+}
+
+/** The frozen half of a recipe, dropped, leaving the form it came from. */
+function draftOf(frozen: StageRecipe): DraftRecipe {
+  const {
+    modelId,
+    inputGenerationId: _input,
+    nodeId: _node,
+    ...shared
+  } = frozen
+  return { ...shared, modelIds: [modelId] }
+}
+
+/**
+ * The nodes the fixture projects hang off.
+ *
+ * Named rather than minted, and **exported**: the generations below point at
+ * them by hand, and every test that used to say `stage: 'style'` now has to say
+ * which style step it means. Fixed ids are what let a test name one without
+ * digging it out of the array first.
+ */
+export const ATLAS_SOURCE_NODE = 'node-atlas-source'
+export const ATLAS_STYLE_NODE = 'node-atlas-style'
+export const ATLAS_ANIMATE_NODE = 'node-atlas-animate'
+export const LEDGER_SOURCE_NODE = 'node-ledger-source'
+
+/**
+ * A node of a fixture project, by id, or a throw.
+ *
+ * Throwing rather than returning `null`: in a test the id is a literal from the
+ * line above, so a miss is a broken fixture rather than a case to handle — and
+ * an assertion against `undefined` is the kind that passes for the wrong
+ * reason.
+ */
+export function fixtureNode(project: Project, nodeId: string): DraftNode {
+  const node = project.nodes.find(entry => entry.id === nodeId)
+  if (node === undefined) throw new Error(`no fixture node "${nodeId}"`)
+  return node
+}
+
+/** The editable form on a node — what `project.drafts[stage]` used to be. */
+export function fixtureDraft(project: Project, nodeId: string): DraftRecipe {
+  return fixtureNode(project, nodeId).draft
+}
+
+/**
+ * A node's draft as a **frozen** recipe, on its primary model.
+ *
+ * The two are different types since ADR 0005, and the difference bites exactly
+ * where tests stand in for the job store: what a `Job` carries and what
+ * `readRecipe` will accept is the frozen shape, and handing it a draft produces
+ * a candidate that is silently dropped rather than a loud failure.
+ */
+export function fixtureFrozen(
+  project: Project,
+  nodeId: string,
+  inputGenerationId: string | null = null
+): StageRecipe {
+  const { modelIds, ...shared } = fixtureDraft(project, nodeId)
+  return {
+    ...shared,
+    modelId: modelIds[0] ?? '',
+    inputGenerationId,
+    nodeId,
+  }
+}
+
+/**
+ * A fixture project with one node changed.
+ *
+ * The test-side replacement for `{...ATLAS, drafts: {...ATLAS.drafts, style: x}}`.
+ * That spread worked because there were exactly three drafts at known keys; a
+ * canvas holds an array, and every test that wants to change one node has to
+ * leave the others alone — which is a `map` written out identically each time.
+ */
+export function withFixtureNode(
+  project: Project,
+  nodeId: string,
+  changes: Partial<DraftNode>
+): Project {
+  return {
+    ...project,
+    nodes: project.nodes.map(node =>
+      node.id === nodeId ? { ...node, ...changes } : node
+    ),
+  }
+}
+
+/** The same, for the draft inside a node — the commonest case by far. */
+export function withFixtureDraft(
+  project: Project,
+  nodeId: string,
+  changes: Partial<DraftRecipe>
+): Project {
+  return withFixtureNode(project, nodeId, {
+    draft: { ...fixtureDraft(project, nodeId), ...changes },
+  })
 }
 
 function generation(
@@ -85,6 +215,7 @@ const ATLAS_SUBJECT =
 const atlasSource = recipe({
   modelId: 'fal-ai/flux-pro/kontext/text-to-image',
   prompt: ATLAS_SUBJECT,
+  nodeId: ATLAS_SOURCE_NODE,
 })
 
 /** The one run behind Atlas's source candidates (#26). */
@@ -101,8 +232,48 @@ export const ATLAS: Project = {
   name: 'Atlas — hero',
   aspect: '21:9',
   createdAt: T0,
-  batchSizes: DEFAULT_BATCH_SIZES,
   palette: DEFAULT_PALETTE,
+  // Source → style → animate, wired in a line: the shape the old three-tab
+  // editor could only ever have, kept here so the fixture still covers it. The
+  // things a canvas adds — a second style step, a branch, an edge straight from
+  // source to animate — belong in the tests that assert about them.
+  nodes: [
+    node(ATLAS_SOURCE_NODE, 'source', { x: 0, y: 0 }, draftOf(atlasSource), {
+      pick: 'gen-src-2',
+    }),
+    node(
+      ATLAS_STYLE_NODE,
+      'style',
+      { x: 460, y: 0 },
+      draftOf(
+        recipe({
+          modelId: 'fal-ai/flux/dev/image-to-image',
+          prompt: 'restyle',
+          presetId: 'soft-clay-render',
+          seed: { mode: 'pinned', value: 640_213_889 },
+          params: { strength: 0.7 },
+          nodeId: ATLAS_STYLE_NODE,
+        })
+      ),
+      { inputNodeId: ATLAS_SOURCE_NODE, pick: 'gen-sty-2' }
+    ),
+    node(
+      ATLAS_ANIMATE_NODE,
+      'animate',
+      { x: 920, y: 0 },
+      draftOf(
+        recipe({
+          modelId: 'fal-ai/kling-video/o1/image-to-video',
+          prompt: 'motion',
+          presetId: 'locked-camera-drift',
+          params: { duration: '5' },
+          options: { rewind: false, loop: true },
+          nodeId: ATLAS_ANIMATE_NODE,
+        })
+      ),
+      { inputNodeId: ATLAS_STYLE_NODE, pick: 'gen-ani-1' }
+    ),
+  ],
   generations: [
     // One click, three candidates (#26) — the strip groups them under the run
     // that produced them, and the style candidates below deliberately do not
@@ -153,6 +324,7 @@ export const ATLAS: Project = {
         presetId: 'brutalist-monochrome',
         params: { strength: 0.7 },
         inputGenerationId: 'gen-src-1',
+        nodeId: ATLAS_STYLE_NODE,
       })
     ),
     // The pinned-seed pair: same seed, same source, same strength — the only
@@ -170,6 +342,7 @@ export const ATLAS: Project = {
         seed: { mode: 'pinned', value: 640_213_889 },
         params: { strength: 0.7 },
         inputGenerationId: 'gen-src-2',
+        nodeId: ATLAS_STYLE_NODE,
       }),
       'approved'
     ),
@@ -186,6 +359,7 @@ export const ATLAS: Project = {
         seed: { mode: 'pinned', value: 640_213_889 },
         params: { strength: 0.7 },
         inputGenerationId: 'gen-src-2',
+        nodeId: ATLAS_STYLE_NODE,
       })
     ),
 
@@ -202,31 +376,10 @@ export const ATLAS: Project = {
         params: { duration: '5' },
         options: { rewind: false, loop: true },
         inputGenerationId: 'gen-sty-2',
+        nodeId: ATLAS_ANIMATE_NODE,
       })
     ),
   ],
-  selection: {
-    source: 'gen-src-2',
-    style: 'gen-sty-2',
-    animate: 'gen-ani-1',
-  },
-  drafts: {
-    source: atlasSource,
-    style: recipe({
-      modelId: 'fal-ai/flux/dev/image-to-image',
-      prompt: 'restyle',
-      presetId: 'soft-clay-render',
-      seed: { mode: 'pinned', value: 640_213_889 },
-      params: { strength: 0.7 },
-    }),
-    animate: recipe({
-      modelId: 'fal-ai/kling-video/o1/image-to-video',
-      prompt: 'motion',
-      presetId: 'locked-camera-drift',
-      params: { duration: '5' },
-      options: { rewind: false, loop: true },
-    }),
-  },
 }
 
 const LEDGER_SUBJECT =
@@ -235,6 +388,7 @@ const LEDGER_SUBJECT =
 const ledgerSource = recipe({
   modelId: 'fal-ai/flux-pro/v1.1',
   prompt: LEDGER_SUBJECT,
+  nodeId: LEDGER_SOURCE_NODE,
 })
 
 /** A second project, barely started — the editor has to look sane empty too. */
@@ -243,28 +397,17 @@ export const LEDGER: Project = {
   name: 'Ledger — hero',
   aspect: '16:9',
   createdAt: T0 + 40 * MINUTE,
-  batchSizes: DEFAULT_BATCH_SIZES,
   palette: DEFAULT_PALETTE,
+  // One node and one candidate. A second project that is barely started, kept
+  // because the editor has to look sane on a canvas nobody has branched yet.
+  nodes: [
+    node(LEDGER_SOURCE_NODE, 'source', { x: 0, y: 0 }, draftOf(ledgerSource), {
+      pick: 'gen-led-1',
+    }),
+  ],
   generations: [
     generation('gen-led-1', 'source', 1, 55_120_777, 41, ledgerSource),
   ],
-  selection: { source: 'gen-led-1', style: null, animate: null },
-  drafts: {
-    source: ledgerSource,
-    style: recipe({
-      modelId: 'fal-ai/flux/dev/image-to-image',
-      prompt: 'restyle',
-      presetId: 'glass-caustics',
-      params: { strength: 0.7 },
-    }),
-    animate: recipe({
-      modelId: 'fal-ai/luma-dream-machine/ray-2/image-to-video',
-      prompt: 'motion',
-      presetId: 'gentle-pulse',
-      params: { duration: '5s', resolution: '1080p' },
-      options: { rewind: false, loop: true },
-    }),
-  },
 }
 
 /**
@@ -281,7 +424,7 @@ export function fixtureEditorState(): EditorState {
     summaries: [summaryOf(ATLAS), summaryOf(LEDGER)],
     project: ATLAS,
     directory: `/tmp/ideo-fixture/${ATLAS.id}`,
-    activeStage: 'style',
+    selectedNodeId: ATLAS_STYLE_NODE,
     effectsOpen: false,
     treatmentTarget: null,
     showRejected: false,

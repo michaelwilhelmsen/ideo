@@ -10,7 +10,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@/test/test-utils'
 import userEvent from '@testing-library/user-event'
-import { ATLAS, type Project } from '@/lib/recipe'
+import {
+  ATLAS,
+  ATLAS_ANIMATE_NODE,
+  ATLAS_STYLE_NODE,
+  fixtureNode,
+  withFixtureNode,
+  type Project,
+} from '@/lib/recipe'
 import { commands } from '@/lib/tauri-bindings'
 import { ExportPanel } from './ExportPanel'
 
@@ -55,7 +62,12 @@ describe('ExportPanel', () => {
   })
 
   it('exports the selected clip as all three files, to the remembered folder', async () => {
-    render(<ExportPanel project={withAssets()} stage="animate" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     await userEvent
       .setup()
@@ -83,7 +95,12 @@ describe('ExportPanel', () => {
    * make an MP4 (PRD §10.1) — they are simply not available here.
    */
   it('exports a still as a poster, with the video formats disabled', async () => {
-    render(<ExportPanel project={withAssets()} stage="style" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_STYLE_NODE)}
+      />
+    )
 
     expect(await screen.findByLabelText(/MP4/)).toBeDisabled()
     expect(screen.getByLabelText(/WebM/)).toBeDisabled()
@@ -113,7 +130,12 @@ describe('ExportPanel', () => {
    */
   it('remembers a newly picked folder, after the export lands', async () => {
     const user = userEvent.setup()
-    render(<ExportPanel project={withAssets()} stage="animate" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     await user.click(
       await screen.findByRole('button', { name: /choose folder/i })
@@ -144,7 +166,12 @@ describe('ExportPanel', () => {
     })
 
     const user = userEvent.setup()
-    render(<ExportPanel project={withAssets()} stage="animate" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     await user.click(
       await screen.findByRole('button', { name: /choose folder/i })
@@ -160,7 +187,12 @@ describe('ExportPanel', () => {
   it('takes the rewind switch from what the recipe recorded', async () => {
     // Atlas's animate candidate was generated with `rewind: false` and
     // `loop: true` — a natively seamless clip.
-    render(<ExportPanel project={withAssets()} stage="animate" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     const rewind = await screen.findByRole('switch', {
       name: /forward, then reverse/i,
@@ -185,7 +217,10 @@ describe('ExportPanel', () => {
   it('does not carry a rewind override onto another candidate', async () => {
     const project = withAssets()
     const { rerender } = render(
-      <ExportPanel project={project} stage="animate" />
+      <ExportPanel
+        project={project}
+        node={fixtureNode(project, ATLAS_ANIMATE_NODE)}
+      />
     )
 
     await userEvent
@@ -201,15 +236,23 @@ describe('ExportPanel', () => {
     const first = project.generations.find(g => g.id === 'gen-ani-1')
     if (first === undefined) throw new Error('no animate fixture')
 
-    const other = {
-      ...project,
-      generations: [
-        ...project.generations,
-        { ...first, id: 'gen-ani-2', ordinal: 2, asset: 'gen-ani-2.mp4' },
-      ],
-      selection: { ...project.selection, animate: 'gen-ani-2' },
-    }
-    rerender(<ExportPanel project={other} stage="animate" />)
+    const other = withFixtureNode(
+      {
+        ...project,
+        generations: [
+          ...project.generations,
+          { ...first, id: 'gen-ani-2', ordinal: 2, asset: 'gen-ani-2.mp4' },
+        ],
+      },
+      ATLAS_ANIMATE_NODE,
+      { pick: 'gen-ani-2' }
+    )
+    rerender(
+      <ExportPanel
+        project={other}
+        node={fixtureNode(other, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     expect(
       screen.getByRole('switch', { name: /forward, then reverse/i })
@@ -218,7 +261,12 @@ describe('ExportPanel', () => {
 
   it('sends the rewind choice with the export', async () => {
     const user = userEvent.setup()
-    render(<ExportPanel project={withAssets()} stage="animate" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     await user.click(
       await screen.findByRole('switch', { name: /forward, then reverse/i })
@@ -238,7 +286,12 @@ describe('ExportPanel', () => {
       data: { available: false, path: null, version: null },
     })
 
-    render(<ExportPanel project={withAssets()} stage="animate" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     expect(await screen.findByText(/brew install ffmpeg/)).toBeVisible()
     expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled()
@@ -249,13 +302,17 @@ describe('ExportPanel', () => {
     expect(exportGeneration).not.toHaveBeenCalled()
   })
 
-  it('says there is nothing to export when the stage has no selection', async () => {
-    const empty = {
-      ...withAssets(),
-      selection: { ...ATLAS.selection, animate: null },
-    }
+  it('says there is nothing to export when the node has settled on nothing', async () => {
+    const empty = withFixtureNode(withAssets(), ATLAS_ANIMATE_NODE, {
+      pick: null,
+    })
 
-    render(<ExportPanel project={empty} stage="animate" />)
+    render(
+      <ExportPanel
+        project={empty}
+        node={fixtureNode(empty, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     expect(await screen.findByText(/nothing selected to export/i)).toBeVisible()
     expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled()
@@ -263,7 +320,12 @@ describe('ExportPanel', () => {
 
   it('refuses to run with every format switched off', async () => {
     const user = userEvent.setup()
-    render(<ExportPanel project={withAssets()} stage="animate" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     for (const name of [/MP4/, /WebM/, /Poster/]) {
       await user.click(await screen.findByLabelText(name))
@@ -305,7 +367,12 @@ describe('a treated candidate (#36)', () => {
   it('offers to bake the treatment in, on by default', async () => {
     // On by default because a treated candidate whose export is clean is a
     // file that does not look like the thing that was approved.
-    render(<ExportPanel project={treated()} stage="style" />)
+    render(
+      <ExportPanel
+        project={treated()}
+        node={fixtureNode(ATLAS, ATLAS_STYLE_NODE)}
+      />
+    )
 
     expect(
       await screen.findByRole('switch', { name: /Bake in Halftone/ })
@@ -313,7 +380,12 @@ describe('a treated candidate (#36)', () => {
   })
 
   it('says nothing about treatments on an untreated candidate', async () => {
-    render(<ExportPanel project={withAssets()} stage="style" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_STYLE_NODE)}
+      />
+    )
 
     await screen.findByRole('button', { name: 'Export' })
     expect(
@@ -322,7 +394,12 @@ describe('a treated candidate (#36)', () => {
   })
 
   it('bakes rather than encoding the plate', async () => {
-    render(<ExportPanel project={treated()} stage="style" />)
+    render(
+      <ExportPanel
+        project={treated()}
+        node={fixtureNode(ATLAS, ATLAS_STYLE_NODE)}
+      />
+    )
 
     await userEvent
       .setup()
@@ -344,7 +421,12 @@ describe('a treated candidate (#36)', () => {
     // The default is the file every landing page wanted before the control
     // existed. A size that had to be chosen every time would be a decision the
     // app already knows the answer to.
-    render(<ExportPanel project={withAssets()} stage="animate" />)
+    render(
+      <ExportPanel
+        project={withAssets()}
+        node={fixtureNode(ATLAS, ATLAS_ANIMATE_NODE)}
+      />
+    )
 
     await userEvent
       .setup()
@@ -362,7 +444,12 @@ describe('a treated candidate (#36)', () => {
     // and the shader draws at it — so this is the wiring worth pinning: the
     // choice reaches `beginBake`, which is the side that turns it into pixels.
     const user = userEvent.setup()
-    render(<ExportPanel project={treated()} stage="style" />)
+    render(
+      <ExportPanel
+        project={treated()}
+        node={fixtureNode(ATLAS, ATLAS_STYLE_NODE)}
+      />
+    )
 
     await user.click(await screen.findByRole('combobox', { name: 'Size' }))
     await user.click(await screen.findByRole('option', { name: /2×/ }))
@@ -383,7 +470,12 @@ describe('a treated candidate (#36)', () => {
     // option stays on screen and refuses, rather than vanishing — a list that
     // silently loses an entry reads as a tool that cannot do it at all.
     const user = userEvent.setup()
-    render(<ExportPanel project={treated()} stage="style" />)
+    render(
+      <ExportPanel
+        project={treated()}
+        node={fixtureNode(ATLAS, ATLAS_STYLE_NODE)}
+      />
+    )
 
     await user.click(await screen.findByRole('switch', { name: /Bake in/ }))
     await user.click(await screen.findByRole('combobox', { name: 'Size' }))
@@ -418,7 +510,12 @@ describe('a treated candidate (#36)', () => {
       })
     )
 
-    render(<ExportPanel project={treated()} stage="style" />)
+    render(
+      <ExportPanel
+        project={treated()}
+        node={fixtureNode(ATLAS, ATLAS_STYLE_NODE)}
+      />
+    )
 
     const button = await screen.findByRole('button', { name: 'Export' })
     await userEvent.setup().click(button)
@@ -437,7 +534,12 @@ describe('a treated candidate (#36)', () => {
     // A treated poster ships as PNG — JPEG subsamples chroma, which is what
     // dissolves a two-ink dither. A box still saying JPEG would describe a file
     // that is not the one landing in the folder.
-    render(<ExportPanel project={treated()} stage="style" />)
+    render(
+      <ExportPanel
+        project={treated()}
+        node={fixtureNode(ATLAS, ATLAS_STYLE_NODE)}
+      />
+    )
 
     expect(await screen.findByLabelText('Poster (PNG)')).toBeInTheDocument()
 
@@ -453,7 +555,12 @@ describe('a treated candidate (#36)', () => {
   it('gives back the clean plate when the toggle is off', async () => {
     // "Hand the untreated image to someone else" is a real need, and without
     // the toggle the only way to get one would be to destroy the treatment.
-    render(<ExportPanel project={treated()} stage="style" />)
+    render(
+      <ExportPanel
+        project={treated()}
+        node={fixtureNode(ATLAS, ATLAS_STYLE_NODE)}
+      />
+    )
     const user = userEvent.setup()
 
     const toggle = await screen.findByRole('switch', {

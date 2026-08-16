@@ -28,7 +28,12 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { open } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
-import { describeRatio, matchesAspect, type Project } from '@/lib/recipe'
+import {
+  describeRatio,
+  matchesAspect,
+  type DraftNode,
+  type Project,
+} from '@/lib/recipe'
 import { logger } from '@/lib/logger'
 import { commands } from '@/lib/tauri-bindings'
 import { useEditorStore } from '@/store/editor-store'
@@ -45,7 +50,10 @@ export interface SourceImport {
   readonly isImporting: boolean
 }
 
-export function useImportSourceImage(project: Project): SourceImport {
+export function useImportSourceImage(
+  project: Project,
+  node: DraftNode
+): SourceImport {
   const { t } = useTranslation()
   const dispatch = useEditorStore(store => store.dispatch)
   const [isImporting, setIsImporting] = useState(false)
@@ -88,6 +96,10 @@ export function useImportSourceImage(project: Project): SourceImport {
       dispatch({
         type: 'recordUpload',
         generationId,
+        // The node it lands on (ADR 0005). An upload is a candidate like any
+        // other, and a candidate belongs to a node — so the importer has to be
+        // told which one rather than assuming "the source stage".
+        nodeId: node.id,
         asset: assetName,
         fileName: baseName(path),
         at: Date.now(),
