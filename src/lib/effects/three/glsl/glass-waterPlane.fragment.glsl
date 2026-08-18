@@ -48,7 +48,6 @@ varying vec3 vBitangent;
 #include <clearcoat_pars_fragment>
 #include <clipping_planes_pars_fragment>
 #include <envmap_common_pars_fragment>
-#include <envmap_pars_fragment>
 #include <envmap_physical_pars_fragment>
 #include <fog_pars_fragment>
 #include <lights_pars_begin>

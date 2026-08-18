@@ -19,11 +19,14 @@
 
 import {
   coerceKnobValue,
+  isGradientShader,
   type EffectShader,
   type EffectsLook,
   type KnobValue,
+  type ReductiveShader,
 } from '../looks'
 import { linearRgb, type Ink } from '../inks'
+import { createGradientRenderer } from '../three/renderer'
 import { BLUE_NOISE_MASK, BLUE_NOISE_SIZE } from './blue-noise'
 import {
   fragmentSourceFor,
@@ -101,14 +104,40 @@ export function supportsWebGL2(): boolean {
 }
 
 /**
- * A renderer on a canvas, or `null` where WebGL2 is not available.
+ * A renderer for this look's shader, or `null` where WebGL2 is not available.
+ *
+ * Two backends answer to one contract — this one for the six reductive looks,
+ * `three/renderer.ts` for the gradient families — and this is the only place
+ * that chooses between them. Callers get an {@link EffectsRenderer} and stay
+ * ignorant of which, which is what keeps "the exported file cannot disagree
+ * with what was on screen" true across both.
+ *
+ * **The shader is a parameter rather than read per frame** because a canvas
+ * holds exactly one context: `getContext` on an element that already has one
+ * hands back the same context whatever attributes are asked for, so a renderer
+ * cannot change backend under a canvas that is already bound. The backend is
+ * therefore decided when the canvas is, and switching between them means a new
+ * canvas — which is the rebind the preview already does when a look is chosen
+ * again (see `use-effects-preview.ts`).
+ */
+export function createEffectsRenderer(
+  canvas: HTMLCanvasElement,
+  shader: EffectShader
+): EffectsRenderer | null {
+  return isGradientShader(shader)
+    ? createGradientRenderer(canvas)
+    : createReductiveRenderer(canvas)
+}
+
+/**
+ * The six reductive looks, on one full-screen triangle.
  *
  * `preserveDrawingBuffer` because the bake reads the canvas back after the draw
  * call returns; without it the contents are undefined by the time anything asks
  * for them, and the failure mode is an exported frame that is blank on some
  * drivers and correct on others.
  */
-export function createEffectsRenderer(
+function createReductiveRenderer(
   canvas: HTMLCanvasElement
 ): EffectsRenderer | null {
   const gl = canvas.getContext('webgl2', {
@@ -121,7 +150,7 @@ export function createEffectsRenderer(
   })
   if (gl === null) return null
 
-  const programs = new Map<EffectShader, WebGLProgram>()
+  const programs = new Map<ReductiveShader, WebGLProgram>()
   const uniforms = new Map<WebGLProgram, Map<string, WebGLUniformLocation>>()
 
   const source = gl.createTexture()
@@ -303,9 +332,15 @@ function locations(
 
 function programFor(
   gl: WebGL2RenderingContext,
-  cache: Map<EffectShader, WebGLProgram>,
+  cache: Map<ReductiveShader, WebGLProgram>,
   shader: EffectShader
 ): WebGLProgram | null {
+  // A gradient look belongs to the other backend and has no program here. It
+  // cannot arrive in practice — `createEffectsRenderer` picks the backend from
+  // this same shader — but the contract carries every shader, so the narrowing
+  // has to be real rather than asserted.
+  if (isGradientShader(shader)) return null
+
   const known = cache.get(shader)
   if (known !== undefined) return known
 

@@ -130,7 +130,8 @@ describe('the preview’s WebGL context', () => {
     await settle()
 
     expect(createEffectsRenderer).toHaveBeenCalledWith(
-      screen.getByTestId('preview')
+      screen.getByTestId('preview'),
+      'halftone'
     )
   })
 
@@ -149,7 +150,7 @@ describe('the preview’s WebGL context', () => {
 
     const second = screen.getByTestId('preview')
     expect(second).not.toBe(first)
-    expect(createEffectsRenderer).toHaveBeenLastCalledWith(second)
+    expect(createEffectsRenderer).toHaveBeenLastCalledWith(second, 'halftone')
     // And the old context is handed back rather than leaked — a WebGL context
     // per look switch is how a webview runs out of them.
     expect(dispose).toHaveBeenCalled()

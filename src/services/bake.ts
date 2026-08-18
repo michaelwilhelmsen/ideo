@@ -94,7 +94,7 @@ export function useBake(): Baking {
       const session = opened.data
       // Off-document: this canvas is a render target, not something to look at.
       const canvas = document.createElement('canvas')
-      const renderer = createEffectsRenderer(canvas)
+      const renderer = createEffectsRenderer(canvas, bake.look.shader)
 
       // Every diffusion frame is a round trip to Rust, and on a clip those two
       // kernels are disabled anyway — so the CPU path is only ever one still.
@@ -159,6 +159,16 @@ export function useBake(): Baking {
                 width: job.width,
                 height: job.height,
                 scale: job.scale,
+                // The frame's own position, which is what keeps the export and
+                // the preview the same film: the preview draws this frame at the
+                // video's `currentTime`, and `index / fps` is that same instant
+                // arrived at from the other side.
+                //
+                // A still has no frame rate and one frame, so it lands at phase
+                // zero — the first moment of the motion rather than a chosen one.
+                // That is a decision waiting to be made, not a fact about the
+                // format: see the note in the task doc.
+                time: session.fps === null ? 0 : job.index / session.fps,
               })
               return canvasPng(canvas)
             },

@@ -36,7 +36,12 @@ import {
   type EffectsRenderer,
   type EffectSource,
 } from '@/lib/effects/gl/renderer'
-import type { EffectsLook, Ink, KnobValue } from '@/lib/effects'
+import {
+  movesOverTime,
+  type EffectsLook,
+  type Ink,
+  type KnobValue,
+} from '@/lib/effects'
 import { exportSizeOf } from '@/lib/export'
 import { maxPreviewHeight } from './preview-bounds'
 
@@ -71,6 +76,14 @@ export function useEffectsPreview({
   const boundTo = useRef<HTMLCanvasElement | null>(null)
   const media = useRef<EffectSource | null>(null)
   const drawn = useRef<string | null>(null)
+  /**
+   * When this preview started drawing, for the looks that move.
+   *
+   * A ref rather than a local, so dialling a knob does not restart the motion:
+   * the loop below is rebuilt whenever `values` changes, and a start time that
+   * lived in it would jump the gradient back to its first frame on every drag.
+   */
+  const started = useRef<number | null>(null)
 
   // Asked once, at mount, rather than in an effect: whether this webview has
   // WebGL2 cannot change while the app is open, and a lazy initialiser is not a
@@ -140,9 +153,14 @@ export function useEffectsPreview({
         // A renderer kept from the old one goes on drawing into a detached
         // element, which is a preview that silently stays blank until the tab
         // is closed and reopened.
+        //
+        // Switching between the two backends mounts a different canvas for the
+        // same reason it has to: an element that already has a context hands
+        // the same one back, so the tab keys the canvas on the backend and this
+        // rebind is what notices. See `createEffectsRenderer`.
         if (renderer.current === null || boundTo.current !== surface) {
           renderer.current?.dispose()
-          renderer.current = createEffectsRenderer(surface)
+          renderer.current = createEffectsRenderer(surface, look.shader)
           boundTo.current = surface
           // A fresh context has drawn nothing, whatever the last one drew.
           // Without this, returning to a look with the same values as before
@@ -169,13 +187,48 @@ export function useEffectsPreview({
           surface.style.width = `${display[0]}px`
           surface.style.height = `${display[1]}px`
 
+          // Where in the effect this frame sits.
+          //
+          // A clip reads the element's own clock, not wall time, because that is
+          // the number the bake will use: frame `i` of the export is `i / fps`,
+          // which is the `currentTime` this very frame is being drawn at. Elapsed
+          // would agree with it only while nothing went wrong — it drifts the
+          // moment the video loops, pauses or decodes slowly, and then the file
+          // disagrees with what was on screen, which is the one thing this
+          // renderer exists to prevent.
+          //
+          // A still has no clock to borrow, so it gets elapsed. There is nothing
+          // for it to agree with, and the phase has to come from somewhere.
+          started.current ??= performance.now()
+          const time =
+            from instanceof HTMLVideoElement
+              ? from.currentTime
+              : (performance.now() - started.current) / 1000
+
           // A clip's texture changes every frame; a still's does not, so the
           // same picture is not redrawn sixty times a second on a laptop
           // battery. The signature is everything that changes the output.
+          //
+          // `movesOverTime` is the third case and the reason this is not just
+          // `isClip`: a gradient on a still has an unchanged texture and an
+          // unchanged signature, and skipping it draws one frame and calls the
+          // animation done.
           const signature = `${look.id}|${width}x${height}|${JSON.stringify(values)}|${inks.map(ink => ink.hex).join(',')}`
 
-          if (isClip || drawn.current !== signature) {
-            active.render({ source: from, look, values, inks, width, height })
+          if (
+            isClip ||
+            movesOverTime(look.shader) ||
+            drawn.current !== signature
+          ) {
+            active.render({
+              source: from,
+              look,
+              values,
+              inks,
+              width,
+              height,
+              time,
+            })
             drawn.current = signature
           }
         }

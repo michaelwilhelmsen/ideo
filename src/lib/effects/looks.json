@@ -148,6 +148,196 @@
         },
         { "key": "monochrome", "kind": "toggle", "value": true }
       ]
+    },
+    {
+      "id": "fx-gradient-wave",
+      "name": "Gradient wave",
+      "shader": "gradientDefaults",
+      "blurb": "A lit surface pushed around by one big slow noise wave, with the palette mixed along it. Strength is what makes the shapes large and the density barely rises above one, so a single period of the wave fills the frame rather than twenty.",
+      "knobs": [
+        {
+          "key": "form",
+          "kind": "choice",
+          "options": ["plane", "waterPlane", "sphere"],
+          "value": "plane"
+        },
+        { "key": "colour1", "kind": "colour", "value": "primary" },
+        { "key": "colour2", "kind": "colour", "value": "secondary" },
+        { "key": "colour3", "kind": "colour", "value": "accent" },
+        {
+          "key": "speed",
+          "kind": "slider",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "value": 0.3
+        },
+        {
+          "key": "density",
+          "kind": "slider",
+          "min": 0.5,
+          "max": 3,
+          "step": 0.05,
+          "value": 1.2
+        },
+        {
+          "key": "strength",
+          "kind": "slider",
+          "min": 0,
+          "max": 6,
+          "step": 0.1,
+          "value": 3.4
+        },
+        { "key": "tilt", "kind": "angle", "value": 0 },
+        { "key": "roll", "kind": "angle", "value": 225 },
+        {
+          "key": "blend",
+          "kind": "choice",
+          "options": [
+            "normal",
+            "softLight",
+            "screen",
+            "overlay",
+            "multiply",
+            "lighten",
+            "darken",
+            "add"
+          ],
+          "value": "softLight"
+        },
+        {
+          "key": "opacity",
+          "kind": "slider",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "value": 0.85
+        }
+      ]
+    },
+    {
+      "id": "fx-gradient-cosmic",
+      "name": "Cosmic gradient",
+      "shader": "gradientCosmic",
+      "blurb": "The same wave with interference fringes laid over it — three sine patterns beating against each other, so the colour separates the way it does off oil or a hologram. Screen keeps it to the highlights instead of tinting the whole picture.",
+      "knobs": [
+        {
+          "key": "form",
+          "kind": "choice",
+          "options": ["plane", "waterPlane", "sphere"],
+          "value": "waterPlane"
+        },
+        { "key": "colour1", "kind": "colour", "value": "primary" },
+        { "key": "colour2", "kind": "colour", "value": "secondary" },
+        { "key": "colour3", "kind": "colour", "value": "accent" },
+        {
+          "key": "speed",
+          "kind": "slider",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "value": 0.25
+        },
+        {
+          "key": "density",
+          "kind": "slider",
+          "min": 0.5,
+          "max": 3,
+          "step": 0.05,
+          "value": 1.2
+        },
+        {
+          "key": "strength",
+          "kind": "slider",
+          "min": 0,
+          "max": 6,
+          "step": 0.1,
+          "value": 3
+        },
+        { "key": "tilt", "kind": "angle", "value": 0 },
+        { "key": "roll", "kind": "angle", "value": 50 },
+        {
+          "key": "blend",
+          "kind": "choice",
+          "options": [
+            "normal",
+            "softLight",
+            "screen",
+            "overlay",
+            "multiply",
+            "lighten",
+            "darken",
+            "add"
+          ],
+          "value": "screen"
+        },
+        {
+          "key": "opacity",
+          "kind": "slider",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "value": 0.7
+        }
+      ]
+    },
+    {
+      "id": "fx-gradient-glass",
+      "name": "Glass gradient",
+      "shader": "gradientGlass",
+      "blurb": "A refracting surface rather than a coloured one: it bends the environment through itself with the channels split slightly apart, so the edges fringe the way thick glass does. No density control — this family reads the wave's strength and never its scale.",
+      "knobs": [
+        {
+          "key": "form",
+          "kind": "choice",
+          "options": ["plane", "waterPlane", "sphere"],
+          "value": "sphere"
+        },
+        { "key": "colour1", "kind": "colour", "value": "primary" },
+        { "key": "colour2", "kind": "colour", "value": "secondary" },
+        { "key": "colour3", "kind": "colour", "value": "accent" },
+        {
+          "key": "speed",
+          "kind": "slider",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "value": 0.2
+        },
+        {
+          "key": "strength",
+          "kind": "slider",
+          "min": 0,
+          "max": 6,
+          "step": 0.1,
+          "value": 2.5
+        },
+        { "key": "tilt", "kind": "angle", "value": 0 },
+        { "key": "roll", "kind": "angle", "value": 235 },
+        {
+          "key": "blend",
+          "kind": "choice",
+          "options": [
+            "normal",
+            "softLight",
+            "screen",
+            "overlay",
+            "multiply",
+            "lighten",
+            "darken",
+            "add"
+          ],
+          "value": "softLight"
+        },
+        {
+          "key": "opacity",
+          "kind": "slider",
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "value": 0.9
+        }
+      ]
     }
   ]
 }

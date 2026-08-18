@@ -1,7 +1,9 @@
 # Task x — Gradient motion effects
 
-> **In progress on branch `feat/gradient-motion-effects`.** Nothing committed;
-> `main` is untouched. Not runnable yet — nothing dispatches to the new backend.
+> **In progress on branch `feat/gradient-motion-effects`.** `main` is untouched.
+> **Launchable**: the three looks are declared and `createEffectsRenderer`
+> dispatches to the gradient backend, so glass can be picked and profiled. It
+> does not move yet — that is step 2.
 
 Add ShaderGradient's three shader families to the effects library as animated
 looks that composite over footage.
@@ -26,14 +28,43 @@ read; do not re-derive the reasoning from here.
 
 ## Remaining
 
-1. **Declare the looks** — `gradientDefaults` / `gradientCosmic` /
-   `gradientGlass` in `EFFECT_SHADERS` + `SHADER_KNOBS`, entries in
-   `looks.json`, i18n strings, and the fork in `createEffectsRenderer` that
-   picks the backend. **Do this first and standalone (no layering)** — it is
-   what makes the branch launchable so glass can be profiled.
-2. **Time wiring** — preview from elapsed, bake from `index / fps`. Also make
-   the still cache in `use-effects-preview.ts:177` opt out per look: a motion
-   look on a still currently renders once and freezes.
+1. ~~**Declare the looks**~~ — done, `check:all` clean. Three looks
+   (`fx-gradient-wave`, `fx-gradient-cosmic`, `fx-gradient-glass`), colours
+   defaulting to the project's `primary`/`secondary`/`accent` roles the way the
+   duotone defaults to `ink`/`paper`. What it settled on the way:
+   - **`EFFECT_SHADERS` split into `REDUCTIVE_SHADERS` + `GRADIENT_SHADERS`.**
+     Not taxonomy — `isGradientShader` is the fork's own predicate, and
+     `fragmentSourceFor`'s `Record` must not be asked for a body that does not
+     exist.
+   - **The canvas is keyed on the backend** in `EffectsTab`. An element holds
+     one context for life, so crossing backends needs a new element; the hook's
+     existing "bound to _this_ canvas" rebind then does the rest.
+   - **`tilt`/`roll` are `angle` knobs, so degrees**, converted in
+     `three/renderer.ts`. Upstream's own unit, and what a preset's 225 means.
+   - **Glass gets no `density` knob** — its shaders never read `uNoiseDensity`,
+     and the coupling check is there to refuse exactly that.
+   - **No `amplitude`/`frequency` knobs anywhere**, though `SCALAR_UNIFORMS`
+     bridges them: only `defaults-sphere` declares them, so they would be
+     controls that do nothing on two of the three forms. Reconsider if the
+     sphere turns out to need them.
+
+2. ~~**Time wiring**~~ — done. `movesOverTime` in `looks.ts` answers the still
+   cache from the backend rather than from a flag on each look, and the loop
+   redraws when it says yes. What it settled on the way:
+   - **A clip takes its time from the video's `currentTime`, not from elapsed.**
+     The plan said elapsed; elapsed is wrong here. The bake renders frame `i` at
+     `i / fps`, which _is_ the `currentTime` the preview drew that frame at, so
+     reading the element's clock makes the two agree by construction. Elapsed
+     agrees only while nothing goes wrong, and drifts the moment the video
+     loops, pauses or decodes slowly — which is the export disagreeing with the
+     screen, the one thing the renderer exists to prevent.
+   - **A still keeps elapsed**, because it has no clock to borrow and nothing to
+     agree with.
+   - **Open: which moment a still export captures.** A still has no frame rate
+     and one frame, so `time` is 0 and the file is always the first instant of
+     the motion, while the preview animates freely past it. Nobody has decided
+     what it _should_ be — a phase knob, a scrub, freeze-on-pause — and 0 is the
+     placeholder, not the answer. `services/bake.ts` points here.
 3. **`Treatment.overlay`** — optional `{ lookId, values, lookModified }`;
    absent means old manifests read unchanged. Composition chains two
    `EffectsRenderer`s — the treatment renderer's canvas becomes the gradient

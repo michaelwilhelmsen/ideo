@@ -10,13 +10,26 @@
  * ## What was changed on the way in, and why
  *
  * The upstream shaders are written against three <= 0.150 and do not compile
- * against the version this app pins. Two edits, both mechanical:
+ * against the version this app pins. Three edits, all mechanical:
  *
  * 1. `#include <uv2_*>` deleted. Those chunks were removed after r150. They
  *    only ever carried lightmap and AO UVs, which none of these shaders read,
  *    so the deletion is not a behaviour change.
  * 2. `<encodings_fragment>` renamed to `<colorspace_fragment>`, which is what
  *    it became in r152.
+ * 3. `#include <envmap_pars_fragment>` deleted from the three glass fragments.
+ *    It declares exactly two things — `reflectivity` and `varying vec3
+ *    vReflect` — and glass declares both itself, so under `USE_ENVMAP` the
+ *    program has each twice and does not compile. Nothing is lost: what glass
+ *    reads from the env map (`envMap`, `envMapIntensity`) comes from
+ *    `<envmap_common_pars_fragment>` on the line above. Upstream never hit this
+ *    because it never set `USE_ENVMAP` on the material itself, which is also
+ *    why its glass never refracted anything until `renderer.ts` started
+ *    declaring the define — see the material comment there.
+ *
+ * `check-shader-chunks.mjs` catches (1): a chunk that stopped existing. It
+ * cannot catch (3), a chunk that still exists and now says something the
+ * shader already said — that one is only visible at link time.
  *
  * Nothing else is touched — the maths is upstream's, so a look here and the
  * same preset on shadergradient.co are the same picture.

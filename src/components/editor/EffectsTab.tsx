@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils'
 import { isVideoAsset } from '@/lib/export'
 import {
   isDiffusionKernel,
+  isGradientShader,
   seedTreatmentFrom,
   type EffectsLook,
   type Ink,
@@ -322,6 +323,13 @@ function TreatedPreview({
           )
         ) : (
           <canvas
+            // One canvas per backend, and the key is what makes it one. A
+            // canvas element holds a single context for its whole life, so a
+            // look that crosses from the reductive shaders to the gradient
+            // families cannot be drawn into the element the other one is
+            // already bound to — it needs a fresh one, and remounting is how
+            // React says that.
+            key={isGradientShader(look.shader) ? 'gradient' : 'reductive'}
             ref={canvas}
             className={actualSize ? 'max-w-none' : 'max-w-full'}
           />

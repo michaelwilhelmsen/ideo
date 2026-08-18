@@ -31,20 +31,23 @@
 
 import {
   ClampToEdgeWrapping,
+  DoubleSide,
   IcosahedronGeometry,
   LinearFilter,
   Mesh,
-  MeshPhysicalMaterial,
   OrthographicCamera,
   PerspectiveCamera,
   PlaneGeometry,
   RGBAFormat,
   Scene,
+  ShaderLib,
   ShaderMaterial,
   SRGBColorSpace,
   Texture,
+  UniformsUtils,
   Vector2,
   Vector3,
+  VideoTexture,
   WebGLRenderer,
   WebGLRenderTarget,
   type BufferGeometry,
@@ -162,6 +165,10 @@ function setUniform(
   if (uniform) uniform.value = value
 }
 
+function degreesToRadians(degrees: number): number {
+  return (degrees * Math.PI) / 180
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const value = Number.parseInt(hex.replace('#', ''), 16)
   return [
@@ -250,12 +257,52 @@ export function createGradientRenderer(
   compositeScene.add(compositeMesh)
 
   let target: WebGLRenderTarget | null = null
-  const sourceTexture = new Texture()
-  sourceTexture.colorSpace = SRGBColorSpace
-  sourceTexture.minFilter = LinearFilter
-  sourceTexture.magFilter = LinearFilter
-  sourceTexture.wrapS = ClampToEdgeWrapping
-  sourceTexture.wrapT = ClampToEdgeWrapping
+
+  /**
+   * The footage, as a texture three will actually upload.
+   *
+   * A plain `Texture` is right for a still and silently wrong for a clip: three
+   * sizes the upload from `image.width`, which a bare `<video>` reports as 0, so
+   * the clip arrives empty. Nothing errors — the composite simply blends against
+   * black, which reads as "the gradient works but the footage is gone", and
+   * every mode that derives from the base collapses with it. Soft light is the
+   * loudest: against a black base it returns black, so the look appears to draw
+   * nothing while `normal` appears to work.
+   *
+   * `VideoTexture` is three's own answer — it reads `videoWidth` and re-uploads
+   * per frame by itself. `gl/renderer.ts` never had to care, because the raw
+   * `texImage2D(..., element)` overload takes the intrinsic size from the
+   * element: the same service, one layer down.
+   */
+  let sourceTexture: Texture | null = null
+  let sourceElement: EffectSource | null = null
+
+  function textureFor(source: EffectSource): Texture {
+    if (sourceTexture !== null && sourceElement === source) {
+      // A `VideoTexture` re-uploads itself; anything else has to be asked, and
+      // asking unconditionally costs one boolean and removes a class of bug
+      // where a look switch leaves the previous frame's pixels on screen.
+      if (!(sourceTexture instanceof VideoTexture)) {
+        sourceTexture.needsUpdate = true
+      }
+      return sourceTexture
+    }
+
+    sourceTexture?.dispose()
+    const texture =
+      source instanceof HTMLVideoElement
+        ? new VideoTexture(source)
+        : new Texture(source)
+    texture.colorSpace = SRGBColorSpace
+    texture.minFilter = LinearFilter
+    texture.magFilter = LinearFilter
+    texture.wrapS = ClampToEdgeWrapping
+    texture.wrapT = ClampToEdgeWrapping
+    texture.needsUpdate = true
+    sourceTexture = texture
+    sourceElement = source
+    return texture
+  }
 
   /** One mesh per family+form, built on first use and kept. */
   const meshes = new Map<string, Mesh>()
@@ -289,17 +336,60 @@ export function createGradientRenderer(
       }
     }
 
-    const material = new MeshPhysicalMaterial({ metalness: 0.2 })
-    material.envMap = environment?.texture ?? null
-    material.onBeforeCompile = shader => {
-      Object.assign(shader.uniforms, uniforms)
-      shader.vertexShader = program.vertex
-      shader.fragmentShader = program.fragment
-    }
+    // A `ShaderMaterial`, and this is where we part company with upstream.
+    //
+    // Upstream patches a `MeshPhysicalMaterial` through `onBeforeCompile`, and
+    // that worked on the three it pins (`^0.169.0`). It does not compile on the
+    // one this app pins: three assembles the physical material's own chunk set
+    // *around* a source that already includes those chunks itself, and glass
+    // dies on the collision — `reflectivity` and `vReflect` redefined, and a
+    // `textureCubeUV` call with no definition, because glass is the one family
+    // that omits `<cube_uv_reflection_fragment>`. A program that does not link
+    // is a mesh that draws nothing, and the composite then passes the footage
+    // through untouched, which is a look that silently does nothing at all.
+    //
+    // Compiling the ported source *as* the whole program removes the collision
+    // by removing the second author: three contributes the standard prefix and
+    // resolves the `#include`s, and every material define is one we state here.
+    // That is also what finally makes `environment.ts` right — nothing else
+    // gets to decide between `ENVMAP_TYPE_CUBE` and the PMREM path, so glass's
+    // own `textureCube` refraction is the branch that runs.
+    const material = new ShaderMaterial({
+      vertexShader: program.vertex,
+      fragmentShader: program.fragment,
+      // Every uniform a physical shader reads, then ours over the top. Taken
+      // wholesale rather than assembled by hand: the ported source includes the
+      // lighting and env-map chunks, so it reads `roughness`, `metalness` and
+      // the light arrays whether or not this file mentions them, and a missing
+      // one is a silent zero rather than a compile error.
+      uniforms: UniformsUtils.merge([ShaderLib.physical.uniforms, uniforms]),
+      defines: {
+        STANDARD: '',
+        PHYSICAL: '',
+        USE_ENVMAP: '',
+        ENVMAP_TYPE_CUBE: '',
+        ENVMAP_MODE_REFLECTION: '',
+      },
+      // The light uniforms are only refreshed for a material that says it wants
+      // them, and the physical chunks read them unconditionally.
+      lights: true,
+      // Upstream's, and load-bearing on the displaced forms: the wave turns
+      // parts of the mesh away from the camera, and single-sided those become
+      // holes in the middle of the gradient.
+      side: DoubleSide,
+    })
+
+    // `merge` clones, so the live bag is the material's own rather than the one
+    // built above — mutating the original would write to nothing.
+    const live = material.uniforms
+    const envMap = live.envMap
+    if (envMap) envMap.value = environment?.texture ?? null
+    setUniform(live, 'metalness', 0.2)
+    setUniform(live, 'roughness', 0.4)
 
     const mesh = new Mesh(geometryFor(form), material)
     meshes.set(key, mesh)
-    uniformsFor.set(key, uniforms)
+    uniformsFor.set(key, live)
     return mesh
   }
 
@@ -337,8 +427,13 @@ export function createGradientRenderer(
       // Upstream's rotationX / rotationZ. Half its presets leave the tilt at
       // zero and do all their composition with the roll, which turns the
       // colour axis diagonal without moving the camera.
-      mesh.rotation.x = numberKnob(frame, 'tilt', 0)
-      mesh.rotation.z = numberKnob(frame, 'roll', 0)
+      //
+      // Declared as `angle` knobs, so they arrive in degrees — upstream's own
+      // unit, and the one a preset's 225 is written in. `Object3D.rotation` is
+      // radians, and feeding it degrees would spin a 225° roll through 35 turns
+      // and land somewhere nobody chose.
+      mesh.rotation.x = degreesToRadians(numberKnob(frame, 'tilt', 0))
+      mesh.rotation.z = degreesToRadians(numberKnob(frame, 'roll', 0))
 
       camera.position.set(0, 0, CAMERA_DISTANCE[form])
       camera.aspect = width / height
@@ -372,7 +467,7 @@ export function createGradientRenderer(
         if (packed) (packed.value as Vector3).set(r, g, b)
       })
 
-      uploadSource(sourceTexture, frame.source)
+      const source = textureFor(frame.source)
 
       renderer.setRenderTarget(target)
       renderer.setClearColor(0x000000, 0)
@@ -384,7 +479,7 @@ export function createGradientRenderer(
         ? (coerceKnobValue(blend, frame.values.blend) ?? blend.value)
         : 'normal'
 
-      compositeUniforms.uBase.value = sourceTexture
+      compositeUniforms.uBase.value = source
       compositeUniforms.uOverlay.value = target.texture
       compositeUniforms.uOpacity.value = numberKnob(frame, 'opacity', 1)
       compositeUniforms.uBlend.value = isBlendMode(blendValue)
@@ -408,22 +503,10 @@ export function createGradientRenderer(
       uniformsFor.clear()
       compositeMesh.geometry.dispose()
       ;(compositeMesh.material as ShaderMaterial).dispose()
-      sourceTexture.dispose()
+      sourceTexture?.dispose()
       target?.dispose()
       environment?.dispose()
       renderer.dispose()
     },
   }
-}
-
-/**
- * Point the source texture at this frame's picture.
- *
- * A video needs `needsUpdate` on every frame and a still does not — but setting
- * it unconditionally costs one boolean and removes a class of bug where a look
- * switch leaves the previous frame's pixels on screen.
- */
-function uploadSource(texture: Texture, source: EffectSource): void {
-  texture.image = source
-  texture.needsUpdate = true
 }

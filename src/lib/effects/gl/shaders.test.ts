@@ -19,8 +19,9 @@ import {
   BUILT_IN_LOOKS,
   EFFECT_KERNELS,
   EFFECT_LEVEL_PLACEMENTS,
-  EFFECT_SHADERS,
-  type EffectShader,
+  isGradientShader,
+  REDUCTIVE_SHADERS,
+  type ReductiveShader,
 } from '../looks'
 import { BLUE_NOISE_MASK, BLUE_NOISE_SIZE } from './blue-noise'
 import {
@@ -59,7 +60,7 @@ describe('the option indices the shaders read', () => {
 describe('the source each shader is assembled from', () => {
   it('gives every shader the shared preamble and a body of its own', () => {
     const seen = new Set<string>()
-    for (const shader of EFFECT_SHADERS) {
+    for (const shader of REDUCTIVE_SHADERS) {
       const source = fragmentSourceFor(shader)
       expect(source.startsWith('#version 300 es'), shader).toBe(true)
       expect(source, shader).toContain('void main()')
@@ -78,6 +79,10 @@ describe('the source each shader is assembled from', () => {
     // documented exception is checked rather than skipped, so the hole cannot
     // quietly grow a second entry.
     for (const look of BUILT_IN_LOOKS) {
+      // The gradient looks are the other backend's, and their knobs bind to
+      // upstream's uniform names through a table rather than to `u_<key>` —
+      // see `SCALAR_UNIFORMS` in `three/renderer.ts`.
+      if (isGradientShader(look.shader)) continue
       const source = fragmentSourceFor(look.shader)
       for (const knob of look.knobs) {
         if (KNOBS_BOUND_VIA_INKS.includes(knob.key)) continue
@@ -92,7 +97,7 @@ describe('the source each shader is assembled from', () => {
     // at 2x — the one thing that choice settled it must not do. Two ways to
     // account for it and both are here: a coordinate through `patternCoord()`,
     // or a cell measured in look pixels and multiplied on the way out.
-    const accounted: Readonly<Record<EffectShader, string>> = {
+    const accounted: Readonly<Record<ReductiveShader, string>> = {
       duotone: 'patternCoord()',
       halftone: 'max(uScale, 1.0)',
       paletteReduced: 'patternCoord()',
@@ -103,7 +108,7 @@ describe('the source each shader is assembled from', () => {
       grained: 'patternCoord()',
     }
 
-    for (const shader of EFFECT_SHADERS) {
+    for (const shader of REDUCTIVE_SHADERS) {
       const source = fragmentSourceFor(shader)
       const body = source.slice(source.indexOf('void main()'))
 
@@ -165,7 +170,7 @@ describe('the transfer function, in the three places it exists', () => {
   const IEC = ['0.0031308', '1.055', '1.0 / 2.4', '0.055', '12.92']
 
   it('is the exact sRGB transfer in every shader, not a gamma approximation', () => {
-    for (const shader of EFFECT_SHADERS) {
+    for (const shader of REDUCTIVE_SHADERS) {
       const source = fragmentSourceFor(shader)
       for (const constant of IEC) {
         expect(source, `${shader} is missing ${constant}`).toContain(constant)
@@ -179,7 +184,7 @@ describe('the transfer function, in the three places it exists', () => {
   it('weights luminance by sRGB’s own primaries', () => {
     // Applied to linear light and never to encoded bytes — the classic mistake
     // both other implementations also have a test against.
-    for (const shader of EFFECT_SHADERS) {
+    for (const shader of REDUCTIVE_SHADERS) {
       expect(fragmentSourceFor(shader)).toContain(
         'vec3(0.212639, 0.715169, 0.072192)'
       )

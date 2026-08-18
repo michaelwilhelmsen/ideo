@@ -50,13 +50,13 @@ import LIBRARY_DOCUMENT from './looks.json'
 export const EFFECTS_LIBRARY_VERSION = 1
 
 /**
- * The shaders that exist. One per visual family, not one per look.
+ * The shaders that *reduce* the picture — the six #36 promises.
  *
  * A closed list because each entry is a program somebody wrote: the renderer
  * switches on it, and a value with no program behind it is a look that renders
  * nothing. camelCase because each is also a translation-key segment.
  */
-export const EFFECT_SHADERS = [
+export const REDUCTIVE_SHADERS = [
   'duotone',
   'halftone',
   'paletteReduced',
@@ -65,7 +65,55 @@ export const EFFECT_SHADERS = [
   'grained',
 ] as const
 
-export type EffectShader = (typeof EFFECT_SHADERS)[number]
+export type ReductiveShader = (typeof REDUCTIVE_SHADERS)[number]
+
+/**
+ * The shaders that *add* a picture — one per ShaderGradient family.
+ *
+ * Separated from the six above because the split is not taxonomy, it is which
+ * backend draws them: the reductive shaders are one full-screen triangle that
+ * reads the source, and these are a lit 3D object composited over it. See the
+ * header of `three/renderer.ts`. `createEffectsRenderer` forks on exactly this
+ * distinction, so it has to be one a type can express.
+ *
+ * One shader per *family*, and not per geometry — the mesh is a knob (`form`),
+ * because plane, waterPlane and sphere are the same maths on three surfaces and
+ * three looks would be one authored effect claiming to be three.
+ */
+export const GRADIENT_SHADERS = [
+  'gradientDefaults',
+  'gradientCosmic',
+  'gradientGlass',
+] as const
+
+export type GradientShader = (typeof GRADIENT_SHADERS)[number]
+
+/** Every shader, whichever backend draws it. */
+export const EFFECT_SHADERS = [
+  ...REDUCTIVE_SHADERS,
+  ...GRADIENT_SHADERS,
+] as const
+
+export type EffectShader = ReductiveShader | GradientShader
+
+/** Whether this shader belongs to the gradient backend rather than the GL one. */
+export function isGradientShader(value: EffectShader): value is GradientShader {
+  return (GRADIENT_SHADERS as readonly string[]).includes(value)
+}
+
+/**
+ * Whether this shader's picture changes with `time`.
+ *
+ * Asked by the preview, which otherwise draws a still once and keeps it: that is
+ * exactly right for the six reductive looks and freezes a gradient on its first
+ * frame. Answered from the backend rather than from a flag on each look, because
+ * it is a property of the shader — a gradient that did not move would be a
+ * gradient with `uTime` wired to nothing — and a per-look flag is a thing to
+ * forget on the tenth look.
+ */
+export function movesOverTime(value: EffectShader): boolean {
+  return isGradientShader(value)
+}
 
 /**
  * The dither kernels a look may offer.
@@ -213,6 +261,51 @@ export const SHADER_KNOBS: Readonly<Record<EffectShader, readonly string[]>> = {
   posterised: ['levels'],
   pixelated: ['cell'],
   grained: ['amount', 'seed', 'monochrome'],
+
+  // The gradient families read overlapping but different uniform sets, and the
+  // difference is not cosmetic: `glass` never reads `uNoiseDensity` at all, so
+  // a density control on it would be a slider the picture does not answer to.
+  // `blend` and `opacity` are on all three because these are the first looks
+  // that *composite* rather than replace — how hard the gradient lands on the
+  // footage is the knob that decides whether it reads as a treatment.
+  gradientDefaults: [
+    'form',
+    'colour1',
+    'colour2',
+    'colour3',
+    'speed',
+    'density',
+    'strength',
+    'tilt',
+    'roll',
+    'blend',
+    'opacity',
+  ],
+  gradientCosmic: [
+    'form',
+    'colour1',
+    'colour2',
+    'colour3',
+    'speed',
+    'density',
+    'strength',
+    'tilt',
+    'roll',
+    'blend',
+    'opacity',
+  ],
+  gradientGlass: [
+    'form',
+    'colour1',
+    'colour2',
+    'colour3',
+    'speed',
+    'strength',
+    'tilt',
+    'roll',
+    'blend',
+    'opacity',
+  ],
 }
 
 /**

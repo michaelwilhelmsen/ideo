@@ -64,8 +64,8 @@ function prune(value: Record<string, unknown>): unknown {
 }
 
 describe('the committed library', () => {
-  it('loads, and is the six looks #36 promises', () => {
-    expect(BUILT_IN_LOOKS).toHaveLength(6)
+  it('loads, and is #36’s six reductive looks plus the three gradients', () => {
+    expect(BUILT_IN_LOOKS).toHaveLength(9)
     expect(EFFECTS_LIBRARY.version).toBe(1)
   })
 

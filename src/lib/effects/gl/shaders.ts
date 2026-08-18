@@ -36,7 +36,7 @@
  * option, toggles are `bool`.
  */
 
-import type { EffectShader } from '../looks'
+import type { ReductiveShader } from '../looks'
 
 /**
  * A full-screen triangle rather than a quad.
@@ -499,7 +499,7 @@ void main() {
 }
 `
 
-const BODIES: Readonly<Record<EffectShader, string>> = {
+const BODIES: Readonly<Record<ReductiveShader, string>> = {
   duotone: DUOTONE,
   halftone: HALFTONE,
   paletteReduced: PALETTE_REDUCED,
@@ -512,7 +512,7 @@ const BODIES: Readonly<Record<EffectShader, string>> = {
 export const MAX_INKS = 8
 
 /** The whole fragment program for one shader. */
-export function fragmentSourceFor(shader: EffectShader): string {
+export function fragmentSourceFor(shader: ReductiveShader): string {
   return PREAMBLE + BODIES[shader]
 }
 
